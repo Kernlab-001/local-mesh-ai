@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Local Neural 3D Studio",
     "author": "Antigravity Architecture & TripoSR",
-    "version": (2, 2, 0),
+    "version": (2, 1, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > AI 3D Generator",
     "description": "Local-first 3D asset generation & editing using TripoSR, SD-Turbo, Qwen 2.5 Coder & local GPU",
