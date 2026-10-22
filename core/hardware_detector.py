@@ -126,31 +126,41 @@ class HardwareDetector:
             chunk = 4096
             vram_limit = round(vram - 1.5, 1)
             qwen_layers = 33  # Full offload
+            rec_llm = "Qwen 2.5 Coder 14B / 32B Instruct (Q4_K_M)"
+            llm_filename = "qwen2.5-coder-14b-instruct-q4_k_m.gguf"
         elif vram >= 6.0:
             tier = "Balanced GPU (6GB-12GB VRAM)"
             mc_res = 256
             chunk = 8192
             vram_limit = round(vram - 0.5, 1)
             qwen_layers = 24  # Standard offload
+            rec_llm = "Qwen 2.5 Coder 7B Instruct (Q4_K_M)"
+            llm_filename = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
         elif vram >= 4.0:
             tier = "Entry GPU (4GB-6GB VRAM)"
             mc_res = 128
             chunk = 8192
             vram_limit = round(vram - 0.5, 1)
             qwen_layers = 16
+            rec_llm = "Qwen 2.5 Coder 3B Instruct (Q4_K_M)"
+            llm_filename = "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
         else:
             tier = "CPU / Integrated Fallback"
             mc_res = 128
             chunk = 8192
             vram_limit = 4.0
             qwen_layers = 0
+            rec_llm = "Qwen 2.5 Coder 1.5B Instruct (Q4_K_M)"
+            llm_filename = "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 
         return {
             "tier": tier,
             "mc_resolution": mc_res,
             "chunk_size": chunk,
             "vram_limit_gb": vram_limit,
-            "qwen_gpu_layers": qwen_layers
+            "qwen_gpu_layers": qwen_layers,
+            "recommended_llm": rec_llm,
+            "recommended_llm_file": llm_filename
         }
 
     def scan_and_configure(self, save_config: bool = True) -> Dict[str, Any]:
@@ -220,5 +230,6 @@ if __name__ == "__main__":
     print(f"Blender:  {prof['blender']['path']}")
     print(f"Profile:  {prof['tuning']['tier']}")
     print(f"Settings: Resolution={prof['tuning']['mc_resolution']}, Chunk={prof['tuning']['chunk_size']}, VRAM Limit={prof['tuning']['vram_limit_gb']}GB")
+    print(f"LLM Pick: {prof['tuning']['recommended_llm']}")
     print("=" * 65)
     print("Successfully calibrated config.json for this machine!")

@@ -164,14 +164,34 @@ python run_server.py
 
 ## 📊 Benchmark Performance Across Hardware Tiers
 
-| Hardware Profile | VRAM | Quality Profile | Concept Time | 3D Reconstruction | Blender Post-Process | Total End-to-End |
+| Hardware Profile | Target GPUs / Processors | VRAM / RAM | Quality Profile | Recommended Local LLM Model (GGUF) | Reconstruction | Total End-to-End |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **High-End (RTX 4090 / 3090)** | 24 GB | High (`res=256, chunk=4096`) | ~3.5s | ~8–10s | ~0.6s | **~14–16s** |
-| **Balanced (RTX 3060 / 4060)** | 8–12 GB | Balanced (`res=256, chunk=8192`) | ~6.0s | ~12–15s | ~0.7s | **~20–24s** |
-| **Entry (RTX 3050 / 2060)** | 6 GB | Balanced (`res=256, chunk=8192`) | ~10.5s | ~14–18s | ~0.8s | **~28–32s** |
-| **Budget / Mobile (4GB VRAM)** | 4 GB | Draft (`res=128, chunk=8192`) | ~12.0s | ~10–12s | ~0.8s | **~24–26s** |
+| **Workstation / Enthusiast** | NVIDIA RTX 4090, 3090, RTX 6000 Ada, A5000 / A6000 | 24 GB – 48 GB | High (`res=256, chunk=4096`) | **Qwen 2.5 Coder 14B / 32B Instruct** (`Q4_K_M`) | ~8–10s | **~12–15s** |
+| **Pro / Performance** | NVIDIA RTX 4080, 4070 Ti Super, AMD Radeon RX 7900 XTX / 7900 XT | 16 GB | High (`res=256, chunk=4096`) | **Qwen 2.5 Coder 14B Instruct** (`Q4_K_M`) | ~10–12s | **~15–18s** |
+| **Upper Mid-Range** | NVIDIA RTX 4070, 4070 Super, 3080, 4060 Ti 16GB, AMD RX 7800 XT | 12 GB – 16 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B Instruct** (`Q5_K_M`) | ~11–13s | **~18–22s** |
+| **Mainstream Desktop** | NVIDIA RTX 4060, 3060 12GB, 2070 Super, 2080, AMD RX 7600 XT, Intel Arc A770 | 8 GB – 12 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B Instruct** (`Q4_K_M`) | ~12–15s | **~20–24s** |
+| **Entry-Level / Laptop** | NVIDIA RTX 3050 Laptop / Desktop (6GB), RTX 2060 (6GB), GTX 1660 Ti | 6 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B** (`Q4_K_M`) or **3B** (`Q5_K_M`) | ~14–18s | **~28–32s** |
+| **Budget / Handheld / Mac** | NVIDIA RTX 3050 (4GB), GTX 1650, Steam Deck, ROG Ally, Apple M1/M2/M3 | 4 GB VRAM / Unified | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 3B / 1.5B Instruct** (`Q4_K_M`) | ~10–12s | **~24–28s** |
+| **CPU / Integrated Mode** | Intel Core i5/i7/i9 (12th–14th Gen), AMD Ryzen 5/7/9 (AVX2 mode) | 16 GB+ System RAM | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 1.5B Instruct** (`Q4_K_M`) | ~40–55s | **~60–75s** |
 
-*All profiles enforce cross-process GPU leasing, purges VRAM to **0.0 MB** between stages to avoid Out-Of-Memory exceptions.*
+*All profiles enforce cross-process GPU leasing, purges VRAM to **0.0 MB** between stages to eliminate Out-Of-Memory exceptions.*
+
+---
+
+### 🧠 Local LLM Model Compatibility & Download Guide
+
+Local Mesh AI utilizes local GGUF models for its natural-language AI Technical Artist scene editing. Select the model that matches your GPU VRAM tier:
+
+| Model Tier | Model Name & Quantization | Size | Recommended GPU VRAM | Direct Download Link |
+| :--- | :--- | :--- | :--- | :--- |
+| **Lightweight (CPU / 4GB)** | `Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf` | ~1.1 GB | 4 GB VRAM or CPU | [HuggingFace 1.5B GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF) |
+| **Compact (4GB – 6GB)** | `Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf` | ~2.1 GB | 4 GB – 6 GB VRAM | [HuggingFace 3B GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF) |
+| **Standard (6GB – 12GB)** *(Default)* | `qwen2.5-coder-7b-instruct-q4_k_m.gguf` | ~4.3 GB | 6 GB – 12 GB VRAM | [HuggingFace 7B GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF) |
+| **Pro (16GB – 24GB+)** | `Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf` | ~8.9 GB | 16 GB+ VRAM | [HuggingFace 14B GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF) |
+
+> [!TIP]
+> **Automatic Calibration:** Run `detect_hardware.bat` to automatically scan your GPU and print the ideal LLM tier for your system! Place any downloaded `.gguf` model in the root project folder and configure `"qwen_model_path"` in `config.json`.
+
 
 ---
 

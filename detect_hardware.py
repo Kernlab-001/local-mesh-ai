@@ -18,6 +18,7 @@ if __name__ == "__main__":
     print(f"  Blender:  {prof['blender']['path']}")
     print(f"  Profile:  {prof['tuning']['tier']}")
     print(f"  Settings: Resolution={prof['tuning']['mc_resolution']}, Chunk={prof['tuning']['chunk_size']}, VRAM Limit={prof['tuning']['vram_limit_gb']}GB")
+    print(f"  LLM Pick: {prof['tuning'].get('recommended_llm', 'Qwen 2.5 Coder 7B')}")
     print("=" * 68)
     print("  [SUCCESS] System hardware profile saved and calibrated in config.json!")
     print("=" * 68)
