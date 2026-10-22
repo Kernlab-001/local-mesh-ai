@@ -23,6 +23,15 @@
 
 ---
 
+## 📥 Downloads & Releases
+
+Get the latest pre-packaged release directly from the [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
+
+* 📦 **Complete Project Release Archive:** [**`local-mesh-ai-v2.1.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one bundle including all backend engines, hardware calibrator, and batch runners.
+* 🔌 **Standalone Blender Extension:** [**`addon/Local_Neural_3D_Studio_v2.1.zip`**](addon/Local_Neural_3D_Studio_v2.1.zip) — 1-Click installable add-on for Blender 4.2 LTS & 5.2 LTS.
+
+---
+
 ## 🏗️ System Architecture
 
 ```mermaid
@@ -121,26 +130,35 @@ This automatically detects your installed GPU, physical VRAM, and Blender path, 
 5. Check the box to enable **Local Neural 3D Studio**.
 
 ### Generating Assets in Blender
-1. Start the local backend: double-click [`start_api.bat`](start_api.bat).
-2. In Blender's 3D Viewport, press **`N`** to reveal the sidebar $\rightarrow$ click the **`AI 3D Generator`** tab.
-3. Choose your mode:
-   * **Prompt to 3D:** Enter any prompt (*e.g., "medieval glowing battleaxe with carved runes"*) $\rightarrow$ Click **⚡ Generate 3D from Prompt**.
-   * **Image to 3D:** Pick a reference image $\rightarrow$ Click **⚡ Generate 3D from Image**.
-4. The asset generates with live non-blocking progress updates and imports automatically into an isolated collection (`AI_Generated_Assets`) with full PBR shaders, centered pivot, and watertight geometry.
+1. In Blender's 3D Viewport, press **`N`** to reveal the sidebar $\rightarrow$ click the **`AI 3D Generator`** tab.
+2. **⚡ Zero-Click Terminal Auto-Launcher:** You don't even need to manually start a terminal window before working. When you click **⚡ Generate 3D Asset**, Blender automatically checks if the backend server is running; if not, it automatically spawns the server terminal console in a separate window, initializes the GPU pipeline, and submits your generation!
+3. Alternatively, you can click **`Launch Terminal`** in the status header at the top of the N-Panel at any time to open the console and inspect live GPU memory logs.
+4. Choose your generation mode:
+   * **Prompt to 3D:** Enter any descriptive prompt (*e.g., "medieval glowing battleaxe with carved runes"*) $\rightarrow$ Click **⚡ Generate 3D from Prompt**.
+   * **Image to 3D:** Pick any 2D reference artwork $\rightarrow$ Click **⚡ Generate 3D from Image**.
+5. The asset generates with live non-blocking progress updates and imports automatically into an isolated collection (`AI_Generated_Assets`) with full PBR shaders, centered pivot, and 1:1 calibrated colors.
 
 ---
 
-## 🌐 Standalone Web Dashboard
+## ⚡ Local Orchestration Server & REST API
 
-Double-click [`start_dashboard.bat`](start_dashboard.bat) or run:
+The local server orchestrates all AI model loading, cross-process GPU leasing, and geometry processing over a high-performance REST API on port `8000`.
+
+To start the server manually (optional):
 ```bash
-python run_dashboard.py
+# Windows
+start_api.bat
+# or
+python run_server.py
 ```
-Open your browser to `http://127.0.0.1:7860`:
-* Real-time Three.js 3D solid and wireframe inspection.
-* 360° turntable video rendering.
-* Interactive AI Technical Artist modifications with local Qwen 2.5 Coder.
-* 1-Click GLB, FBX, and OBJ export.
+
+* **Interactive API Documentation:** Available at `http://127.0.0.1:8000/docs` (Swagger UI).
+* **Endpoints:**
+  * `POST /jobs`: Queue a Prompt-to-3D or Image-to-3D generation task.
+  * `GET /jobs/{id}`: Poll non-blocking progress, stage, and memory status.
+  * `POST /edit`: Execute natural-language scene modifications via Qwen 2.5 Coder.
+  * `POST /export`: Export any scene asset to GLB, FBX, or OBJ.
+  * `GET /health`: GPU status, active leases, and VRAM telemetry.
 
 ---
 
@@ -178,10 +196,8 @@ local-mesh-ai/
 ├── detect_hardware.py          # Dynamic GPU & environment auto-detection
 ├── detect_hardware.bat         # 1-Click hardware scanner launcher
 ├── run_server.py               # Starts FastAPI local orchestration backend (Port 8000)
-├── run_dashboard.py            # Starts Gradio + Three.js dashboard (Port 7860)
 ├── start_api.bat               # Windows launcher for API
-├── start_dashboard.bat         # Windows launcher for Dashboard
-├── run_tests.bat               # Windows launcher for test suite
+├── run_tests.bat               # Windows launcher for automated test suite
 ├── requirements.txt            # Python dependencies
 │
 ├── core/
@@ -208,12 +224,11 @@ local-mesh-ai/
 │   └── export_service.py       # GLB, FBX, OBJ export pipeline
 │
 ├── addon/
-│   ├── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension
+│   ├── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension (with auto-launcher)
 │   └── Local_Neural_3D_Studio_v2.1.zip # Installable ZIP archive for Blender
 │
-├── ui/
-│   ├── dashboard.py            # Gradio dual-pane application
-│   └── static/viewer.html      # Three.js 3D viewport with OrbitControls
+├── release/                    # Pre-packaged distribution archives
+│   └── local-mesh-ai-v2.1.zip  # Ready-to-run GitHub Release archive
 │
 └── tests/                      # 25 unit and integration tests
 ```

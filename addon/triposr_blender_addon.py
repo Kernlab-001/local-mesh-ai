@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Local Neural 3D Studio",
     "author": "Antigravity Architecture & TripoSR",
-    "version": (2, 1, 0),
+    "version": (2, 2, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > AI 3D Generator",
-    "description": "Local-first 3D asset generation & editing using TripoSR, SD-Turbo, Qwen 2.5 Coder & RTX 3050 GPU",
+    "description": "Local-first 3D asset generation & editing using TripoSR, SD-Turbo, Qwen 2.5 Coder & local GPU",
     "category": "3D View",
 }
 
@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import math
+import subprocess
 import urllib.request
 import urllib.parse
 from bpy.props import (
@@ -23,10 +24,122 @@ from bpy.props import (
     IntProperty
 )
 
-SERVER_URL = "http://127.0.0.1:8000"
+DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
+
+# --- Server Health & Auto-Launch Helpers ---
+def check_server_health(url=DEFAULT_SERVER_URL):
+    """Checks if the local backend orchestration server is responding."""
+    try:
+        req = urllib.request.Request(f"{url}/health")
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+def find_project_root():
+    """Intelligently locates the local-mesh-ai project root directory."""
+    # 1. Check Scene property if configured
+    try:
+        if hasattr(bpy.context, "scene") and hasattr(bpy.context.scene, "triposr_props"):
+            custom = bpy.context.scene.triposr_props.project_dir
+            if custom and os.path.exists(os.path.join(custom, "run_server.py")):
+                return custom
+    except Exception:
+        pass
+
+    # 2. Check environment variable
+    env_dir = os.environ.get("LOCAL_MESH_AI_DIR")
+    if env_dir and os.path.exists(os.path.join(env_dir, "run_server.py")):
+        return env_dir
+
+    # 3. Check candidate folders
+    addon_parent = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    candidates = [
+        addon_parent,
+        os.path.abspath(os.path.dirname(__file__)),
+        r"E:\GPUPLAT",
+        os.path.expanduser(r"~\local-mesh-ai"),
+        r"C:\GPUPLAT",
+        r"D:\GPUPLAT"
+    ]
+    for path in candidates:
+        if os.path.exists(os.path.join(path, "run_server.py")):
+            return path
+    return r"E:\GPUPLAT"
+
+def launch_backend_console(project_dir=None):
+    """
+    Spawns run_server.py in a dedicated external terminal / command prompt console.
+    The console stays open and streams live GPU logs without blocking Blender.
+    """
+    if not project_dir:
+        project_dir = find_project_root()
+    if not project_dir or not os.path.exists(project_dir):
+        return False, "Project directory not found. Please set 'Project Root' in the add-on panel."
+
+    server_script = os.path.join(project_dir, "run_server.py")
+    if not os.path.exists(server_script):
+        return False, f"run_server.py not found in {project_dir}"
+
+    # Locate virtualenv python or system python
+    py_candidates = [
+        os.path.join(project_dir, ".venv", "Scripts", "python.exe"),
+        os.path.join(project_dir, ".venv", "bin", "python"),
+        sys.executable,
+        "python"
+    ]
+    py_exe = None
+    for cand in py_candidates:
+        if os.path.exists(cand):
+            py_exe = cand
+            break
+    if not py_exe:
+        py_exe = "python"
+
+    try:
+        creation_flags = 0
+        if sys.platform == "win32":
+            # Spawns a dedicated visible Command Prompt window
+            creation_flags = subprocess.CREATE_NEW_CONSOLE
+
+        subprocess.Popen(
+            [py_exe, server_script],
+            cwd=project_dir,
+            creationflags=creation_flags
+        )
+        return True, "Backend server console launched successfully!"
+    except Exception as e:
+        return False, f"Failed to launch server terminal: {e}"
 
 # --- Property Group for Add-on State ---
 class TripoSRProperties(bpy.types.PropertyGroup):
+    # Server & Connectivity
+    server_url: StringProperty(
+        name="Server URL",
+        description="Local FastAPI orchestration server URL",
+        default=DEFAULT_SERVER_URL
+    )
+    auto_start_server: BoolProperty(
+        name="Auto-Start Server Console",
+        description="Automatically open backend terminal console when generating or when Blender opens",
+        default=True
+    )
+    project_dir: StringProperty(
+        name="Project Root",
+        description="Path to local-mesh-ai repository directory",
+        subtype='DIR_PATH',
+        default="E:\\GPUPLAT"
+    )
+    is_server_online: BoolProperty(
+        name="Server Online",
+        default=False
+    )
+    show_advanced_server: BoolProperty(
+        name="Show Server Settings",
+        default=False
+    )
+
+    # Input Settings
     input_mode: EnumProperty(
         name="Mode",
         items=[
@@ -123,7 +236,7 @@ class TripoSRProperties(bpy.types.PropertyGroup):
     is_generating: BoolProperty(name="Is Generating", default=False)
     wireframe_active: BoolProperty(name="Wireframe", default=False)
 
-# --- Timer for Non-Blocking Polling ---
+# --- Timer for Non-Blocking Job Polling ---
 def poll_job_timer():
     scene = bpy.context.scene
     props = scene.triposr_props
@@ -131,7 +244,7 @@ def poll_job_timer():
         return None
 
     try:
-        url = f"{SERVER_URL}/jobs/{props.active_job_id}"
+        url = f"{props.server_url}/jobs/{props.active_job_id}"
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=2) as response:
             data = json.loads(response.read().decode('utf-8'))
@@ -144,6 +257,7 @@ def poll_job_timer():
                 props.status_message = "Generation Complete!"
                 props.stage_name = "Done"
                 props.progress_pct = 100
+                props.is_server_online = True
                 
                 # Import output mesh with full PBR and viewport shading
                 output_mesh = data.get("output_mesh")
@@ -271,19 +385,71 @@ def _enable_viewport_color_shading():
             if area.type == 'VIEW_3D':
                 for space in area.spaces:
                     if space.type == 'VIEW_3D':
-                        # Switch to Material Preview mode
                         space.shading.type = 'MATERIAL'
-                        # In Solid view, also show vertex colors
                         try:
                             space.shading.color_type = 'VERTEX'
                         except Exception:
                             pass
 
+def _submit_job_to_server(context, payload):
+    """Submits payload to the FastAPI backend and begins non-blocking polling."""
+    props = context.scene.triposr_props
+    try:
+        req = urllib.request.Request(
+            f"{props.server_url}/jobs",
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            props.active_job_id = data["job_id"]
+            props.is_generating = True
+            props.status_message = "Job Queued on GPU..."
+            props.stage_name = "Queued"
+            props.progress_pct = 5
+            props.is_server_online = True
+            bpy.app.timers.register(poll_job_timer)
+            return True, f"Job submitted successfully (ID: {props.active_job_id})"
+    except Exception as e:
+        props.is_generating = False
+        return False, f"Server request failed: {e}"
+
 # --- Operators ---
+class TRIPOSR_OT_StartServer(bpy.types.Operator):
+    bl_idname = "triposr.start_server"
+    bl_label = "Launch Server Terminal"
+    bl_description = "Spawns a dedicated console window running the local orchestration server (run_server.py)"
+
+    def execute(self, context):
+        props = context.scene.triposr_props
+        if check_server_health(props.server_url):
+            props.is_server_online = True
+            self.report({'INFO'}, "Backend server is already running and ready!")
+            return {'FINISHED'}
+
+        success, msg = launch_backend_console(props.project_dir)
+        if not success:
+            self.report({'ERROR'}, msg)
+            return {'CANCELLED'}
+
+        props.status_message = "Launching server console... Please wait."
+        self.report({'INFO'}, "Server terminal opened. Waiting for GPU initialization...")
+
+        # Poll until online
+        def _verify_server():
+            if check_server_health(props.server_url):
+                props.is_server_online = True
+                props.status_message = "Server Ready"
+                return None
+            return 1.0
+
+        bpy.app.timers.register(_verify_server, first_interval=1.5)
+        return {'FINISHED'}
+
 class TRIPOSR_OT_Generate(bpy.types.Operator):
     bl_idname = "triposr.generate_asset"
     bl_label = "⚡ Generate 3D Asset"
-    bl_description = "Submit prompt or image to local GPU orchestration server"
+    bl_description = "Submit prompt or image to local GPU orchestration server (auto-launches server if offline)"
 
     def execute(self, context):
         props = context.scene.triposr_props
@@ -312,26 +478,56 @@ class TRIPOSR_OT_Generate(bpy.types.Operator):
                 return {'CANCELLED'}
             payload["image_path"] = os.path.abspath(bpy.path.abspath(props.image_path))
 
-        try:
-            req = urllib.request.Request(
-                f"{SERVER_URL}/jobs",
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'}
-            )
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                props.active_job_id = data["job_id"]
-                props.is_generating = True
-                props.status_message = "Job Queued on GPU..."
-                props.stage_name = "Queued"
-                props.progress_pct = 5
-                bpy.app.timers.register(poll_job_timer)
-                self.report({'INFO'}, f"Job submitted (ID: {props.active_job_id})")
-        except Exception as e:
-            self.report({'ERROR'}, f"Server connection failed: {e}. Is start_api.bat running?")
-            return {'CANCELLED'}
+        # Check if server is running
+        if check_server_health(props.server_url):
+            props.is_server_online = True
+            ok, msg = _submit_job_to_server(context, payload)
+            if ok:
+                self.report({'INFO'}, msg)
+                return {'FINISHED'}
+            else:
+                self.report({'ERROR'}, msg)
+                return {'CANCELLED'}
 
-        return {'FINISHED'}
+        # Server is offline
+        props.is_server_online = False
+        if props.auto_start_server:
+            # Auto-launch terminal console
+            success, msg = launch_backend_console(props.project_dir)
+            if not success:
+                self.report({'ERROR'}, f"Could not auto-start backend: {msg}")
+                return {'CANCELLED'}
+
+            props.is_generating = True
+            props.stage_name = "Starting Server"
+            props.progress_pct = 2
+            props.status_message = "Auto-launching server console... Waiting for GPU..."
+            self.report({'INFO'}, "Server terminal opened. Submitting job as soon as online...")
+
+            attempt = {"count": 0}
+
+            def _wait_and_submit():
+                attempt["count"] += 1
+                if check_server_health(props.server_url):
+                    props.is_server_online = True
+                    ok, subm_msg = _submit_job_to_server(context, payload)
+                    if ok:
+                        props.status_message = "Job Queued on GPU..."
+                    else:
+                        props.status_message = f"Submission error: {subm_msg}"
+                        props.is_generating = False
+                    return None
+                if attempt["count"] > 18:
+                    props.is_generating = False
+                    props.status_message = "Server launch timed out. Check the terminal window."
+                    return None
+                return 1.0
+
+            bpy.app.timers.register(_wait_and_submit, first_interval=2.0)
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "Local backend server is offline! Click 'Launch Terminal' above or enable Auto-Start.")
+            return {'CANCELLED'}
 
 class TRIPOSR_OT_Cancel(bpy.types.Operator):
     bl_idname = "triposr.cancel_asset"
@@ -341,7 +537,7 @@ class TRIPOSR_OT_Cancel(bpy.types.Operator):
         props = context.scene.triposr_props
         if props.active_job_id:
             try:
-                urllib.request.urlopen(f"{SERVER_URL}/jobs/{props.active_job_id}/cancel", data=b"", timeout=3)
+                urllib.request.urlopen(f"{props.server_url}/jobs/{props.active_job_id}/cancel", data=b"", timeout=3)
                 props.is_generating = False
                 props.status_message = "Job Cancelled"
             except Exception:
@@ -385,6 +581,7 @@ class TRIPOSR_OT_ResetDefaults(bpy.types.Operator):
         props.pbr_material = True
         props.accurate_colors = True
         props.color_boost = 1.25
+        props.auto_start_server = True
         return {'FINISHED'}
 
 # --- Main N-Panel UI ---
@@ -398,6 +595,26 @@ class TRIPOSR_PT_MainPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         props = context.scene.triposr_props
+
+        # Section 0: Backend Server Status & Auto-Start
+        srv_box = layout.box()
+        srv_row = srv_box.row(align=True)
+        if props.is_server_online:
+            srv_row.label(text="Backend: 🟢 Online (Port 8000)", icon='CHECKMARK')
+        else:
+            srv_row.label(text="Backend: 🔴 Offline", icon='CANCEL')
+            srv_row.operator("triposr.start_server", text="Launch Terminal", icon='CONSOLE')
+        
+        opt_row = srv_box.row()
+        opt_row.prop(props, "auto_start_server", text="Auto-Launch Server on Generate")
+        
+        # Collapsible server settings
+        adv_row = srv_box.row()
+        adv_row.prop(props, "show_advanced_server", text="Server Settings", icon='DOWNARROW_HLT' if props.show_advanced_server else 'RIGHTARROW')
+        if props.show_advanced_server:
+            s_col = srv_box.column()
+            s_col.prop(props, "project_dir", text="Repo Root")
+            s_col.prop(props, "server_url", text="Server URL")
 
         # Mode Selector Tabs
         mode_box = layout.box()
@@ -474,9 +691,36 @@ class TRIPOSR_PT_MainPanel(bpy.types.Panel):
 
         layout.operator("triposr.reset_defaults", icon='LOOP_BACK')
 
+# --- Background Server Polling Timer ---
+def _periodic_server_check():
+    """Lightweight background timer checking server status every 3 seconds."""
+    try:
+        if hasattr(bpy.context, "scene") and hasattr(bpy.context.scene, "triposr_props"):
+            props = bpy.context.scene.triposr_props
+            if not props.is_generating:
+                props.is_server_online = check_server_health(props.server_url)
+    except Exception:
+        pass
+    return 3.5
+
+def _startup_server_check():
+    """One-time startup check when Blender loads or add-on is enabled."""
+    try:
+        online = check_server_health()
+        if hasattr(bpy.context, "scene") and hasattr(bpy.context.scene, "triposr_props"):
+            props = bpy.context.scene.triposr_props
+            props.is_server_online = online
+            # If user has auto-start enabled and server is offline, auto-open terminal console
+            if not online and props.auto_start_server:
+                launch_backend_console(props.project_dir)
+    except Exception:
+        pass
+    return None
+
 # --- Registration ---
 classes = (
     TripoSRProperties,
+    TRIPOSR_OT_StartServer,
     TRIPOSR_OT_Generate,
     TRIPOSR_OT_Cancel,
     TRIPOSR_OT_ToggleWireframe,
@@ -496,8 +740,19 @@ def register():
             except Exception:
                 pass
     bpy.types.Scene.triposr_props = bpy.props.PointerProperty(type=TripoSRProperties)
+    
+    # Register periodic server check and one-time startup check
+    if not bpy.app.timers.is_registered(_periodic_server_check):
+        bpy.app.timers.register(_periodic_server_check, first_interval=2.0)
+    if not bpy.app.timers.is_registered(_startup_server_check):
+        bpy.app.timers.register(_startup_server_check, first_interval=1.0)
 
 def unregister():
+    if bpy.app.timers.is_registered(_periodic_server_check):
+        bpy.app.timers.unregister(_periodic_server_check)
+    if bpy.app.timers.is_registered(_startup_server_check):
+        bpy.app.timers.unregister(_startup_server_check)
+        
     if hasattr(bpy.types.Scene, "triposr_props"):
         try:
             del bpy.types.Scene.triposr_props

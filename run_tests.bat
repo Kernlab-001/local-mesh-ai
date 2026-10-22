@@ -6,4 +6,9 @@ echo Running Automated Test Suite (Pytest)
 echo ==========================================================
 set PYTHONPATH=%~dp0
 .venv\Scripts\python.exe -m pytest tests -v
-pause
+if errorlevel 1 (
+    echo [ERROR] Some tests failed!
+    exit /b 1
+)
+echo [SUCCESS] All tests passed!
+

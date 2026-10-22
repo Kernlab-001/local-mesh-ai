@@ -52,7 +52,9 @@ gpu_lease.lock
 *.tmp
 *.log
 
-# Pytest & Coverage
+# Release Archives (Upload directly to GitHub Releases)
+release/*.zip
+
 .pytest_cache/
 .coverage
 htmlcov/
