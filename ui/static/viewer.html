@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Local Neural 3D Viewer</title>
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; background: #121214; font-family: sans-serif; color: #eee; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; }
+    #overlay-ui { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(20,20,25,0.85); padding: 12px; border-radius: 8px; border: 1px solid #333; font-size: 13px; max-width: 260px; backdrop-filter: blur(4px); }
+    .btn { background: #2a2a35; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 4px 8px; cursor: pointer; margin: 2px; font-size: 11px; }
+    .btn:hover { background: #3b3b4f; }
+    .stat { margin: 3px 0; color: #aaa; }
+    .stat span { color: #4ade80; font-weight: bold; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="overlay-ui">
+    <div style="font-weight: bold; margin-bottom: 6px; color: #60a5fa;">📐 3D Mesh Inspection</div>
+    <div class="stat">Vertices: <span id="stat-verts">-</span></div>
+    <div class="stat">Triangles: <span id="stat-polys">-</span></div>
+    <div class="stat">Dimensions: <span id="stat-dims">-</span></div>
+    <div style="margin-top: 8px;">
+      <button class="btn" onclick="toggleWireframe()">Wireframe</button>
+      <button class="btn" onclick="resetCamera()">Reset View</button>
+      <button class="btn" onclick="toggleGrid()">Grid</button>
+    </div>
+  </div>
+
+  <script>
+    let scene, camera, renderer, controls, currentMesh, gridHelper;
+    let isWireframe = false;
+
+    function init() {
+      const container = document.getElementById('canvas-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x18181b);
+
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
+      camera.position.set(2, 2, 3);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      // Lights
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(hemiLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      dirLight.position.set(3, 5, 4);
+      scene.add(dirLight);
+
+      // Grid
+      gridHelper = new THREE.GridHelper(5, 20, 0x3b82f6, 0x27272a);
+      scene.add(gridHelper);
+
+      window.addEventListener('resize', onWindowResize, false);
+      animate();
+
+      // Check URL query param for model path
+      const urlParams = new URLSearchParams(window.location.search);
+      const modelUrl = urlParams.get('model') || '/output/meshes/0/mesh.glb';
+      loadModel(modelUrl);
+    }
+
+    function loadModel(url) {
+      const loader = new THREE.GLTFLoader();
+      loader.load(url, function (gltf) {
+        if (currentMesh) scene.remove(currentMesh);
+        currentMesh = gltf.scene;
+        scene.add(currentMesh);
+
+        // Compute Bounding Box & Fit
+        const box = new THREE.Box3().setFromObject(currentMesh);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        let totalVerts = 0, totalTris = 0;
+        currentMesh.traverse(function (child) {
+          if (child.isMesh && child.geometry) {
+            totalVerts += child.geometry.attributes.position.count;
+            if (child.geometry.index) totalTris += child.geometry.index.count / 3;
+            else totalTris += child.geometry.attributes.position.count / 3;
+          }
+        });
+
+        document.getElementById('stat-verts').innerText = totalVerts.toLocaleString();
+        document.getElementById('stat-polys').innerText = Math.round(totalTris).toLocaleString();
+        document.getElementById('stat-dims').innerText = `${size.x.toFixed(2)}m × ${size.y.toFixed(2)}m × ${size.z.toFixed(2)}m`;
+
+        controls.target.copy(center);
+        camera.position.set(center.x + size.x * 1.5, center.y + size.y * 1.2, center.z + size.z * 2.0);
+        controls.update();
+      });
+    }
+
+    function toggleWireframe() {
+      isWireframe = !isWireframe;
+      if (currentMesh) {
+        currentMesh.traverse(function (child) {
+          if (child.isMesh && child.material) child.material.wireframe = isWireframe;
+        });
+      }
+    }
+
+    function resetCamera() {
+      if (currentMesh) {
+        const box = new THREE.Box3().setFromObject(currentMesh);
+        const center = box.getCenter(new THREE.Vector3());
+        controls.target.copy(center);
+        camera.position.set(center.x + 2, center.y + 1.5, center.z + 2.5);
+        controls.update();
+      }
+    }
+
+    function toggleGrid() {
+      if (gridHelper) gridHelper.visible = !gridHelper.visible;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>

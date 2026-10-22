@@ -1,0 +1,14 @@
+{
+  "blender_path": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+  "gpu_device": "cuda:0",
+  "gpu_name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+  "vram_gb": 6.0,
+  "hardware_tier": "Balanced GPU (6GB-12GB VRAM)",
+  "mc_resolution": 256,
+  "chunk_size": 8192,
+  "vram_limit_gb": 5.5,
+  "qwen_gpu_layers": 24,
+  "output_format": "glb",
+  "qwen_model_path": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+  "output_dir": "output"
+}

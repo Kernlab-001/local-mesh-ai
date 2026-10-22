@@ -1,0 +1,34 @@
+# Core PyTorch with CUDA 12.4
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+
+# Neural 3D & Image Processing
+transformers==4.49.0
+tokenizers==0.21.4
+huggingface-hub==0.36.2
+trimesh==5.1.1
+rembg==2.0.86
+onnxruntime-gpu==1.31.0
+PyMCubes==0.1.6
+einops==0.8.2
+omegaconf==2.4.0
+imageio[ffmpeg]==2.38.1
+xatlas==0.0.11
+moderngl==5.13.0
+Pillow>=10.1.0
+
+# API & Dashboard
+fastapi>=0.115.0
+uvicorn>=0.30.0
+gradio>=5.0.0
+pydantic>=2.8.0
+psutil>=5.9.0
+
+# LLM Local Inference
+llama-cpp-python==0.3.36
+diskcache>=5.6.1
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
