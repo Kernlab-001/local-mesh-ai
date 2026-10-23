@@ -1,7 +1,8 @@
 """
 Local Mesh AI - Professional Blender-Inspired 3D Studio Workspace.
 Neutral charcoal surfaces (#1E1E1E), subtle borders (#3B3B3B), and restrained Blender orange (#E58B35).
-Zero blue-purple gradients, zero marketing cards, authentic technical desktop UI.
+Features First-Launch Onboarding, Interactive Guided Tour, System Readiness Diagnostics,
+Live Three.js Viewport, Derived Mesh Metrics, and Built-in User Manual.
 """
 
 import os
@@ -25,6 +26,7 @@ from services.export_service import export_service
 from core.qwen_planner import qwen_planner
 from core.hardware_detector import hardware_detector
 from core.input_validator import input_validator
+from core.system_diagnostics import system_diagnostics
 
 try:
     import trimesh
@@ -262,14 +264,6 @@ button.secondary:hover, .blender-btn button:hover {
   color: #CCCCCC !important;
 }
 
-/* Viewport Area */
-.viewport-container {
-  background-color: #161616 !important;
-  border: 1px solid #3B3B3B !important;
-  border-radius: 3px !important;
-  min-height: 520px !important;
-}
-
 /* Terminal Console Box */
 .blender-console textarea {
   background-color: #141414 !important;
@@ -282,20 +276,20 @@ button.secondary:hover, .blender-btn button:hover {
 }
 
 /* Mesh Diagnostics Table */
-.stat-table {
+.stat-table, .diag-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
 }
-.stat-table td {
+.stat-table td, .diag-table td {
   padding: 5px 8px;
   border-bottom: 1px solid #333333;
 }
-.stat-table .stat-label {
+.stat-table .stat-label, .diag-table .diag-label {
   color: #888888;
   width: 45%;
 }
-.stat-table .stat-val {
+.stat-table .stat-val, .diag-table .diag-val {
   color: #E6E6E6;
   font-weight: 600;
   font-family: monospace;
@@ -381,7 +375,112 @@ blender_theme = gr.themes.Base(
 
 
 # ==============================================================================
-# REAL DATA EXTRACTION & COMPONENT HELPERS
+# ONBOARDING, INTERACTIVE TOUR & DIAGNOSTICS DATA
+# ==============================================================================
+
+TOUR_STEPS = [
+    {
+        "title": "Step 1 of 7: Choose Your Creation Mode",
+        "content": "<b>Mode A (Text-to-3D):</b> Describe what you want in plain words. The local SD-Turbo model will paint a concept image first, then reconstruct it into 3D.<br><b>Mode B (Image-to-3D):</b> Upload an existing drawing or photo. It skips image diffusion completely and reconstructs your 2D asset directly into 3D."
+    },
+    {
+        "title": "Step 2 of 7: Prompting & Concept Art",
+        "content": "In <b>Text-to-3D</b>, enter descriptions with shape, material, and style adjectives (e.g., <i>'an ancient wooden treasure chest with iron hinges'</i>). You can click <b>'Load Beginner Example'</b> for instant testing."
+    },
+    {
+        "title": "Step 3 of 7: Dimensions & Quality Presets",
+        "content": "<b>Preset:</b> Guides scale and orientation (prop, weapon, character, furniture).<br><b>Quality:</b> <i>Draft</i> (fastest, ~15s), <i>Balanced</i> (standard, ~35s), <i>High</i> (finest detail, ~60s).<br><b>Target Height:</b> Sets real-world dimensions in meters."
+    },
+    {
+        "title": "Step 4 of 7: Modifiers & Retopology",
+        "content": "Keep advanced modifiers enabled for production models. <b>Isolate Foreground</b> strips backgrounds, <b>Sanitize</b> caps holes, <b>Color Calibration</b> transfers exact colors, and <b>Quad Retopo</b> optimizes high-poly meshes to 8,000 clean quads."
+    },
+    {
+        "title": "Step 5 of 7: 3D Viewport Navigation",
+        "content": "Once generated, the 3D model appears in the central viewport.<br>• <b>Left-Click + Drag:</b> Orbit camera<br>• <b>Right-Click + Drag:</b> Pan camera<br>• <b>Scroll Wheel:</b> Zoom in/out<br>• <b>Toggle Solid/Wireframe:</b> Inspect quad topology loops."
+    },
+    {
+        "title": "Step 6 of 7: Export & Blender Integration",
+        "content": "In the right Properties panel, export to <b>GLB</b>, <b>FBX</b>, or <b>OBJ</b>.<br>Click <b>'Open in Blender'</b> to launch your local Blender installation with the complete source `.blend` scene containing high-poly reference and baked textures."
+    },
+    {
+        "title": "Step 7 of 7: Timeline, Logs & Error Recovery",
+        "content": "The bottom timeline tracks progress across 10 real stages. If an issue occurs (e.g. CUDA memory or missing dependencies), actionable troubleshooting guidance will appear in the console. You can click <b>'Cancel Job'</b> at any time to abort."
+    }
+]
+
+def get_tour_card(step_idx: int) -> str:
+    """Renders the active tour card with clean Blender orange highlight."""
+    idx = max(0, min(step_idx, len(TOUR_STEPS) - 1))
+    step = TOUR_STEPS[idx]
+    return f"""
+    <div style='background:#242424; border:1px solid #E58B35; border-radius:3px; padding:12px 16px;'>
+      <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;'>
+        <span style='color:#E58B35; font-size:12px; font-weight:bold; letter-spacing:0.5px;'>🎓 {step["title"]}</span>
+        <span style='color:#888; font-size:11px;'>Step {idx + 1} of {len(TOUR_STEPS)}</span>
+      </div>
+      <div style='color:#E6E6E6; font-size:12px; line-height:1.5;'>
+        {step["content"]}
+      </div>
+    </div>
+    """
+
+def render_diagnostics_html() -> str:
+    """Executes live non-destructive system diagnostics and formats a technical status matrix."""
+    diag = system_diagnostics.run_all_checks()
+
+    rows = []
+    for c in diag["checks"]:
+        if c["status"] == "READY":
+            pill = '<span style="background:#213023; border:1px solid #4E8B58; color:#81C784; padding:2px 8px; border-radius:3px; font-weight:bold; font-size:10px;">READY</span>'
+        elif c["status"] == "WARNING":
+            pill = '<span style="background:#3A2E1E; border:1px solid #B58A30; color:#E58B35; padding:2px 8px; border-radius:3px; font-weight:bold; font-size:10px;">WARNING</span>'
+        else:
+            pill = '<span style="background:#3A2323; border:1px solid #9B3838; color:#E57373; padding:2px 8px; border-radius:3px; font-weight:bold; font-size:10px;">FAILED</span>'
+
+        rows.append(f"""
+        <tr>
+          <td style='color:#E6E6E6; font-weight:600; width:22%;'>{c["name"]}</td>
+          <td style='width:12%;'>{pill}</td>
+          <td style='color:#CCCCCC; font-size:11px; width:40%;'>{c["message"]}</td>
+          <td style='color:#A6A6A6; font-size:10px; width:26%; font-family:monospace;'>{c["fix"]}</td>
+        </tr>
+        """)
+
+    verdict_color = "#4E8B58" if diag["verdict"] == "READY" else ("#B58A30" if diag["verdict"] == "WARNING" else "#9B3838")
+
+    return f"""
+    <div style='margin-bottom:8px;'>
+      <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+        <span style='font-size:12px; font-weight:bold; color:#E6E6E6;'>SYSTEM READINESS VERIFICATION</span>
+        <span style='background:#1A1A1A; border:1px solid {verdict_color}; color:{verdict_color}; padding:3px 10px; border-radius:3px; font-size:11px; font-weight:bold;'>VERDICT: {diag["verdict"]}</span>
+      </div>
+      <div style='font-size:11px; color:#888; margin-bottom:10px;'>{diag["verdict_text"]}</div>
+      <table class='diag-table'>
+        <tr style='background:#303030; color:#A6A6A6; font-size:10px; text-transform:uppercase;'>
+          <th style='padding:6px 8px; text-align:left;'>Subsystem</th>
+          <th style='padding:6px 8px; text-align:left;'>Status</th>
+          <th style='padding:6px 8px; text-align:left;'>Diagnostic Details</th>
+          <th style='padding:6px 8px; text-align:left;'>Actionable Guidance</th>
+        </tr>
+        {"".join(rows)}
+      </table>
+    </div>
+    """
+
+def get_user_manual_content() -> str:
+    """Loads the complete beginner user manual from docs/USER_GUIDE.md."""
+    doc_path = PROJECT_ROOT / "docs" / "USER_GUIDE.md"
+    if doc_path.exists():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return "User Guide documentation file not found at docs/USER_GUIDE.md."
+
+
+# ==============================================================================
+# STAGE BREADCRUMBS & REAL METRICS HELPERS
 # ==============================================================================
 
 STAGE_NAMES = [
@@ -528,11 +627,11 @@ def render_stats_table(stats: Dict[str, str]) -> str:
 
 def render_job_status(job_id: str, status: str, pct: int, elapsed: float) -> str:
     """Renders the bottom timeline job status pill."""
-    if status == "COMPLETED":
+    if status in ("COMPLETED", "LOADED"):
         color = "#4E8B58"
     elif status == "FAILED":
         color = "#9B3838"
-    elif status == "CANCELLED":
+    elif status in ("CANCELLED", "NO_JOBS"):
         color = "#B58A30"
     else:
         color = "#E58B35"
@@ -547,7 +646,7 @@ def render_job_status(job_id: str, status: str, pct: int, elapsed: float) -> str
 
 
 # ==============================================================================
-# PIPELINE EXECUTION & GRADIO WORKSPACE HANDLERS
+# PIPELINE EXECUTION & QUICK-START LOGIC
 # ==============================================================================
 
 def on_mode_change(mode: str):
@@ -565,6 +664,97 @@ def cancel_active_job(job_id: str):
     if success:
         return f"[INFO] Job {job_id} cancellation requested. Worker is shutting down."
     return f"[NOTICE] Job {job_id} could not be cancelled (may have already concluded)."
+
+def load_beginner_text_prompt():
+    """Fills in a beginner-friendly text prompt and sensible defaults."""
+    prompt = "an old medieval wooden treasure chest with iron hinges and carved padlock, centered, studio lighting"
+    return (
+        "Mode A: Text-to-3D",
+        prompt,
+        "prop",
+        "balanced",
+        1.0,
+        gr.update(visible=True),
+        gr.update(visible=False),
+        "[BEGINNER EXAMPLE LOADED] Mode A prompt set to 'medieval wooden treasure chest'. Click '⚡ EXECUTE 3D PIPELINE' below to start generating!"
+    )
+
+def load_beginner_image_prompt():
+    """Loads a sample concept image from TripoSR examples directory."""
+    sample_img_path = PROJECT_ROOT / "TripoSR" / "examples" / "teapot.png"
+    if not sample_img_path.exists():
+        sample_img_path = PROJECT_ROOT / "TripoSR" / "examples" / "chair.png"
+    img = Image.open(sample_img_path) if sample_img_path.exists() else None
+    return (
+        "Mode B: Image-to-3D",
+        img,
+        "prop",
+        "balanced",
+        0.8,
+        gr.update(visible=False),
+        gr.update(visible=True),
+        f"[BEGINNER SAMPLE LOADED] Mode B reference image loaded ({sample_img_path.name if sample_img_path.exists() else 'Upload ready'}). Diffusion bypassed. Click '⚡ EXECUTE 3D PIPELINE'!"
+    )
+
+def load_latest_job():
+    """Loads the most recent completed job from the jobs directory into the 3D workspace."""
+    jobs_dir = PROJECT_ROOT / "jobs"
+    if not jobs_dir.exists():
+        return None, None, None, None, render_stats_table(get_mesh_metrics(None)), render_job_status("", "NO_JOBS", 0, 0.0), render_stage_bar(0, "prompt"), "No previous jobs found in jobs/ folder.", "No artifacts found.", ""
+
+    for item in sorted(jobs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if item.is_dir():
+            mesh_low = item / "low_poly_asset" / "retopo_asset.glb"
+            mesh_high = item / "high_poly_reference" / "mesh.glb"
+            out_mesh = str(mesh_low) if mesh_low.exists() else (str(mesh_high) if mesh_high.exists() else None)
+
+            concept = item / "input" / "concept_art.png"
+            if not concept.exists():
+                concept = item / "input" / "source_image.png"
+            out_concept = str(concept) if concept.exists() else None
+
+            mv = item / "multiview" / "composite_grid.png"
+            out_mv = str(mv) if mv.exists() else None
+
+            video = item / "high_poly_reference" / "render.mp4"
+            out_video = str(video) if video.exists() else None
+
+            manifest_file = item / "reports" / "manifest.json"
+            job_dict = {}
+            if manifest_file.exists():
+                try:
+                    with open(manifest_file, "r") as f:
+                        job_dict = json.load(f)
+                except Exception:
+                    pass
+
+            if out_mesh:
+                metrics = get_mesh_metrics(out_mesh)
+                job_id = item.name
+                status_html = render_job_status(job_id, "LOADED", 100, job_dict.get("timings", {}).get("total_duration", 0.0))
+                stage_bar = render_stage_bar(9, job_dict.get("input_mode", "prompt"))
+                log_txt = f"[SUCCESS] Loaded previous job workspace: jobs/{job_id}\nTarget mesh: {out_mesh}"
+                artifacts_html = f"""
+                <div style='font-size:11px; line-height:1.6;'>
+                  <div><b>Loaded Job:</b> <code>{job_id}</code></div>
+                  <div><b>Mesh Asset:</b> <code style='color:#E58B35;'>{os.path.basename(out_mesh)}</code></div>
+                  <div><b>Workspace:</b> <code>jobs/{job_id}</code></div>
+                </div>
+                """
+                return (
+                    out_mesh,
+                    out_video,
+                    out_concept,
+                    out_mv,
+                    render_stats_table(metrics),
+                    status_html,
+                    stage_bar,
+                    log_txt,
+                    artifacts_html,
+                    job_id
+                )
+
+    return None, None, None, None, render_stats_table(get_mesh_metrics(None)), render_job_status("", "NO_JOBS", 0, 0.0), render_stage_bar(0, "prompt"), "No previous jobs with 3D mesh files found.", "No artifacts found.", ""
 
 def generate_3d_pipeline(
     gen_mode,
@@ -639,7 +829,6 @@ def generate_3d_pipeline(
 
     start_t = time.time()
 
-    # Stage progress mapping (10 stages)
     stage_to_idx = {
         "VALIDATING": 0,
         "PREPROCESSING": 1,
@@ -662,15 +851,14 @@ def generate_3d_pipeline(
 
         elapsed = round(time.time() - start_t, 1)
         active_stage_idx = stage_to_idx.get(job.status, min(8, int(job.progress_pct / 11)))
-
         log_slice = "\n".join(job.logs[-12:]) if job.logs else f"Processing {job.stage}..."
 
         yield (
-            gr.update(),                                                # model_3d
-            gr.update(),                                                # turntable_video
-            gr.update(),                                                # concept_image_view
-            gr.update(),                                                # multiview_image_view
-            gr.update(),                                                # stats_table_html
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             render_job_status(job.job_id, job.status, job.progress_pct, elapsed),
             render_stage_bar(active_stage_idx, input_mode),
             log_slice,
@@ -692,7 +880,7 @@ def generate_3d_pipeline(
             render_stats_table(get_mesh_metrics(None)),
             render_job_status(job.job_id if job else "FAILED", "FAILED", 100, elapsed),
             render_stage_bar(active_stage_idx, input_mode),
-            f"[CRITICAL ERROR] Pipeline execution failed:\n{err_msg}\n\nSuggested Action: Check CUDA VRAM and model weights.",
+            f"[CRITICAL ERROR] Pipeline execution failed:\n{err_msg}\n\nSuggested Action: Check CUDA VRAM and model weights. See 'System Diagnostics' tab for details.",
             "Execution failed — no artifacts generated.",
             job.job_id if job else ""
         )
@@ -717,21 +905,17 @@ def generate_3d_pipeline(
     out_mesh = final_job.output_mesh if final_job.output_mesh and os.path.exists(final_job.output_mesh) else None
     out_video = final_job.turntable_mp4 if final_job.turntable_mp4 and os.path.exists(final_job.turntable_mp4) else None
 
-    # Find concept image
     job_dir = PROJECT_ROOT / "jobs" / final_job.job_id
     concept_img_path = job_dir / "input" / "concept_art.png"
     if not concept_img_path.exists():
         concept_img_path = job_dir / "input" / "source_image.png"
     out_concept = str(concept_img_path) if concept_img_path.exists() else None
 
-    # Find multiview composite grid
     mv_path = job_dir / "multiview" / "composite_grid.png"
     out_mv = str(mv_path) if mv_path.exists() else None
 
-    # Calculate real mesh metrics
     metrics = get_mesh_metrics(out_mesh)
 
-    # Artifact list HTML
     artifact_summary = f"""
     <div style='font-size:11px; line-height:1.6;'>
       <div><b>Game-Ready Low Poly:</b> <code style='color:#E58B35;'>{os.path.basename(out_mesh) if out_mesh else 'None'}</code></div>
@@ -836,11 +1020,50 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
     # State tracking
     active_job_id_state = gr.State(value="")
     wireframe_toggle_state = gr.State(value=False)
+    tour_step_state = gr.State(value=0)
 
     # 1. TOP APPLICATION HEADER
     header_html = gr.HTML(value=render_header())
 
-    # 2. MAIN 3D WORKSPACE (3 Columns: Generation Shelf, Viewport, Properties)
+    # 2. FIRST-LAUNCH ONBOARDING WELCOME SCREEN (Dismissible / Re-openable)
+    with gr.Group(visible=True) as welcome_group:
+        with gr.Row():
+            with gr.Column(scale=1):
+                gr.HTML("""
+                <div style='background:#242424; border:1px solid #3B3B3B; border-radius:3px; padding:12px 16px; margin-bottom:4px;'>
+                  <div style='display:flex; justify-content:space-between; align-items:center;'>
+                    <div>
+                      <span style='color:#E58B35; font-size:14px; font-weight:bold;'>👋 WELCOME TO LOCAL MESH AI</span>
+                      <span style='color:#888; font-size:11px; margin-left:8px;'>Zero-Cloud Local 3D Asset Studio</span>
+                    </div>
+                    <span style='color:#A6A6A6; font-size:11px;'>Outputs saved to: <code style='color:#E58B35;'>output/</code> & <code style='color:#E58B35;'>jobs/</code></span>
+                  </div>
+                  <div style='color:#CCCCCC; font-size:11px; margin-top:6px; line-height:1.5;'>
+                    Generate watertight, textured 3D models locally on your PC. No subscriptions, 100% private. Choose your starting action below:
+                  </div>
+                </div>
+                """)
+
+                # 3 Primary Onboarding Actions
+                with gr.Row():
+                    create_text_quick_btn = gr.Button("✨ 1. Create from Text", variant="primary", elem_classes=["blender-btn-primary"])
+                    create_img_quick_btn = gr.Button("🖼️ 2. Create from Image", variant="secondary", elem_classes=["blender-btn"])
+                    open_prev_quick_btn = gr.Button("📂 3. Open Previous Results", variant="secondary", elem_classes=["blender-btn"])
+
+                # Secondary Quick Links
+                with gr.Row():
+                    start_tour_btn = gr.Button("🎓 Start Interactive Tour", size="sm", elem_classes=["blender-btn"])
+                    dismiss_welcome_btn = gr.Button("✕ Dismiss Welcome", size="sm", elem_classes=["blender-btn"])
+
+    # 3. INTERACTIVE GUIDED TOUR CONTAINER (Visible when tour is active)
+    with gr.Group(visible=False) as tour_group:
+        tour_html = gr.HTML(value=get_tour_card(0))
+        with gr.Row():
+            tour_prev_btn = gr.Button("◀ Previous Step", size="sm", elem_classes=["blender-btn"])
+            tour_next_btn = gr.Button("Next Step ▶", size="sm", elem_classes=["blender-btn"])
+            tour_close_btn = gr.Button("✕ Close Tour", size="sm", elem_classes=["blender-btn"])
+
+    # 4. MAIN 3D WORKSPACE (3 Columns: Generation Shelf, Viewport, Properties)
     with gr.Row():
         # ----------------------------------------------------------------------
         # LEFT COLUMN: Generation Shelf & Controls
@@ -862,7 +1085,9 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                     value="medieval glowing battleaxe with carved runes and iron handle",
                     lines=3
                 )
-                gr.Markdown("<span style='font-size:10px; color:#888;'>Mode A executes SD-Turbo FP16 diffusion under strict GPU lease.</span>")
+                with gr.Row():
+                    load_beginner_text_btn = gr.Button("💡 Load Beginner Example (Treasure Chest)", size="sm", elem_classes=["blender-btn"])
+                gr.Markdown("<span style='font-size:10px; color:#888;'>Mode A executes local SD-Turbo FP16 diffusion under strict GPU lease.</span>")
 
             # Mode B: Image Controls
             with gr.Group(visible=False) as image_group:
@@ -871,6 +1096,8 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                     label="Input Concept Artwork (PNG, JPG, WEBP)",
                     sources=["upload", "clipboard"]
                 )
+                with gr.Row():
+                    load_beginner_img_btn = gr.Button("💡 Load Sample Artwork (Teapot)", size="sm", elem_classes=["blender-btn"])
                 gr.Markdown("<span style='font-size:10px; color:#4E8B58;'>Mode B strictly bypasses text diffusion and directly stages reference image.</span>")
 
             # Common Parameters
@@ -896,22 +1123,22 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
 
             # Collapsible Modifiers
             with gr.Accordion("⚙️ Modifiers & Mesh Processing", open=False):
-                remove_bg = gr.Checkbox(value=True, label="Isolate Foreground (rembg)")
-                sanitize = gr.Checkbox(value=True, label="Sanitize Geometry (Cap holes, remove floaters)")
-                sharp_overlay = gr.Checkbox(value=True, label="Sharp UV Projection Overlay")
-                weld = gr.Checkbox(value=True, label="Adaptive Micro-Vertex Welding")
-                pbr_material = gr.Checkbox(value=True, label="Synthesize Principled BSDF Material")
-                accurate_colors = gr.Checkbox(value=True, label="Reinhard Lab Color Calibration")
-                render_tt = gr.Checkbox(value=False, label="Render 360° Turntable Video")
+                remove_bg = gr.Checkbox(value=True, label="Isolate Foreground (rembg - strips background for clean 3D silhouette)")
+                sanitize = gr.Checkbox(value=True, label="Sanitize Geometry (Cap open holes & delete floating debris)")
+                sharp_overlay = gr.Checkbox(value=True, label="Sharp UV Projection Overlay (Preserves crisp decals & details)")
+                weld = gr.Checkbox(value=True, label="Adaptive Micro-Vertex Welding (Eliminates cracked surface edges)")
+                pbr_material = gr.Checkbox(value=True, label="Synthesize Principled BSDF Material (Metallic & Roughness maps)")
+                accurate_colors = gr.Checkbox(value=True, label="Reinhard Lab Color Calibration (Matches source colors 1:1)")
+                render_tt = gr.Checkbox(value=False, label="Render 360° Turntable Video (Optional MP4 preview)")
 
             gen_btn = gr.Button("⚡ EXECUTE 3D PIPELINE", variant="primary", size="lg")
 
         # ----------------------------------------------------------------------
-        # CENTER COLUMN: 3D Viewport & Inspection Tabs
+        # CENTER COLUMN: 3D Viewport, Diagnostics & User Guide
         # ----------------------------------------------------------------------
         with gr.Column(scale=6, min_width=440):
-            with gr.Tabs():
-                with gr.TabItem("3D Mesh Viewport"):
+            with gr.Tabs() as center_tabs:
+                with gr.TabItem("3D Mesh Viewport", id="tab_viewport"):
                     with gr.Row():
                         toggle_wireframe_btn = gr.Button("Toggle Solid / Wireframe", size="sm", elem_classes=["blender-btn"])
                         reset_cam_btn = gr.Button("Reset Camera", size="sm", elem_classes=["blender-btn"])
@@ -923,14 +1150,30 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                         display_mode="solid"
                     )
 
-                with gr.TabItem("360° Turntable"):
+                with gr.TabItem("360° Turntable", id="tab_turntable"):
                     turntable_video = gr.Video(label="Rendered Turntable Video", height=520)
 
-                with gr.TabItem("Source Concept"):
+                with gr.TabItem("Source Concept", id="tab_concept"):
                     concept_image_view = gr.Image(label="Source Concept Artwork", height=520)
 
-                with gr.TabItem("Multi-View Grid"):
+                with gr.TabItem("Multi-View Grid", id="tab_multiview"):
                     multiview_image_view = gr.Image(label="Multi-View 2x2 Conditioning Grid", height=520)
+
+                with gr.TabItem("🔍 System Diagnostics", id="tab_diagnostics"):
+                    with gr.Row():
+                        refresh_diag_btn = gr.Button("🔄 Re-Run Diagnostics", size="sm", elem_classes=["blender-btn"])
+                        copy_diag_btn = gr.Button("📋 Copy Diagnostics Report", size="sm", elem_classes=["blender-btn"])
+
+                    diag_display_html = gr.HTML(value=render_diagnostics_html())
+                    diag_markdown_box = gr.Textbox(
+                        label="Sanitized Technical Diagnostics (Ready to Paste)",
+                        value=system_diagnostics.generate_sanitized_markdown(),
+                        lines=7,
+                        elem_classes=["blender-console"]
+                    )
+
+                with gr.TabItem("📖 User Guide & Glossary", id="tab_guide"):
+                    gr.Markdown(get_user_manual_content())
 
         # ----------------------------------------------------------------------
         # RIGHT COLUMN: Properties Editor, Retopo & Export
@@ -948,12 +1191,12 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                         maximum=25000,
                         value=8000,
                         step=500,
-                        label="Target Quad Budget"
+                        label="Target Quad Budget (8K Recommended for Games)"
                     )
                     bake_resolution = gr.Dropdown(
                         choices=["1024", "2048", "4096"],
                         value="2048",
-                        label="Bake Resolution (Normal & Diffuse)"
+                        label="Bake Resolution (Normal & Diffuse Maps)"
                     )
                     gr.Markdown("<span style='font-size:10px; color:#888;'>Executes headless Blender Cycles ray-casting for 16-bit normal & diffuse maps.</span>")
 
@@ -978,7 +1221,7 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                     export_file_out = gr.File(label="Exported File Download")
                     export_status_txt = gr.Textbox(label="Export Status", lines=1)
 
-    # 3. BOTTOM PANEL: TIMELINE & EXECUTION CONSOLE
+    # 5. BOTTOM PANEL: TIMELINE & EXECUTION CONSOLE
     with gr.Row():
         with gr.Column(scale=1):
             with gr.Row():
@@ -1004,12 +1247,116 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
     # EVENT BINDINGS
     # ==========================================================================
 
+    # Welcome Banner Actions
+    dismiss_welcome_btn.click(
+        fn=lambda: gr.update(visible=False),
+        outputs=[welcome_group]
+    )
+
+    create_text_quick_btn.click(
+        fn=load_beginner_text_prompt,
+        outputs=[
+            mode_radio,
+            concept_prompt,
+            preset,
+            quality,
+            target_height,
+            text_group,
+            image_group,
+            console_log
+        ]
+    )
+
+    create_img_quick_btn.click(
+        fn=load_beginner_image_prompt,
+        outputs=[
+            mode_radio,
+            input_image,
+            preset,
+            quality,
+            target_height,
+            text_group,
+            image_group,
+            console_log
+        ]
+    )
+
+    open_prev_quick_btn.click(
+        fn=load_latest_job,
+        outputs=[
+            model_3d,
+            turntable_video,
+            concept_image_view,
+            multiview_image_view,
+            stats_table_html,
+            job_status_html,
+            stage_bar_html,
+            console_log,
+            artifacts_display,
+            active_job_id_state
+        ]
+    )
+
+    # Guided Tour Navigation
+    start_tour_btn.click(
+        fn=lambda: (gr.update(visible=True), 0, get_tour_card(0)),
+        outputs=[tour_group, tour_step_state, tour_html]
+    )
+
+    def _tour_prev(step):
+        new_step = max(0, step - 1)
+        return new_step, get_tour_card(new_step)
+
+    def _tour_next(step):
+        new_step = min(len(TOUR_STEPS) - 1, step + 1)
+        return new_step, get_tour_card(new_step)
+
+    tour_prev_btn.click(fn=_tour_prev, inputs=[tour_step_state], outputs=[tour_step_state, tour_html])
+    tour_next_btn.click(fn=_tour_next, inputs=[tour_step_state], outputs=[tour_step_state, tour_html])
+    tour_close_btn.click(fn=lambda: gr.update(visible=False), outputs=[tour_group])
+
+    # In-shelf Beginner Example Loaders
+    load_beginner_text_btn.click(
+        fn=load_beginner_text_prompt,
+        outputs=[
+            mode_radio,
+            concept_prompt,
+            preset,
+            quality,
+            target_height,
+            text_group,
+            image_group,
+            console_log
+        ]
+    )
+
+    load_beginner_img_btn.click(
+        fn=load_beginner_image_prompt,
+        outputs=[
+            mode_radio,
+            input_image,
+            preset,
+            quality,
+            target_height,
+            text_group,
+            image_group,
+            console_log
+        ]
+    )
+
     # Creation Mode Switching
     mode_radio.change(
         fn=on_mode_change,
         inputs=[mode_radio],
         outputs=[text_group, image_group, stage_bar_html]
     )
+
+    # Diagnostics Re-run & Copy
+    def _refresh_diagnostics():
+        return render_diagnostics_html(), system_diagnostics.generate_sanitized_markdown()
+
+    refresh_diag_btn.click(fn=_refresh_diagnostics, outputs=[diag_display_html, diag_markdown_box])
+    copy_diag_btn.click(fn=_refresh_diagnostics, outputs=[diag_display_html, diag_markdown_box])
 
     # Viewport Wireframe Toggle
     def _toggle_shading(is_wireframe):
