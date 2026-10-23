@@ -65,3 +65,27 @@ def test_missing_image_job_submission():
 def test_get_nonexistent_job():
     res = client.get("/jobs/non_existent_id")
     assert res.status_code == 404
+
+def test_export_nonexistent_job():
+    res = client.post("/jobs/non_existent_id/export", json={"format": "glb"})
+    assert res.status_code == 400
+    assert "Job blend project not available" in res.json()["detail"]
+
+def test_export_service_timeout(tmp_path, monkeypatch):
+    import subprocess
+    from services.export_service import export_service
+    
+    dummy_blend = tmp_path / "test.blend"
+    dummy_blend.write_text("blend dummy")
+
+    def mock_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=180.0)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    
+    with pytest.raises(RuntimeError, match="timed out after 180 seconds"):
+        export_service.export_asset(
+            blend_path=str(dummy_blend),
+            format_type="glb"
+        )
+

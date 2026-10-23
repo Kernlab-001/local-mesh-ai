@@ -65,7 +65,10 @@ elif fmt == "obj":
             "--python-expr", blender_script
         ]
 
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180.0)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"Blender export timed out after 180 seconds for format '{fmt}'.") from exc
         if proc.returncode != 0:
             raise RuntimeError(f"Blender export failed for format '{fmt}':\n{proc.stderr}")
 
