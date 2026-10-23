@@ -27,7 +27,7 @@
 
 Get the latest release bundle directly from [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
 
-* 📦 **Complete Project Archive:** [**`local-mesh-ai-vx.x.x.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
+* 📦 **Complete Project Archive:** [**`local-mesh-ai-vx.x.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
 
 ---
 
@@ -94,7 +94,7 @@ flowchart TD
 
 ### 2. 1-Click Setup (`launchers/` folder)
 
-After extracting `local-mesh-ai-vx.x.xzip`, open the **`launchers/`** folder:
+After extracting `local-mesh-ai-vx.x.zip`, open the **`launchers/`** folder:
 
 1. **Step 1:** Double-click **`launchers/1_setup_environment.bat`**
    * Automatically creates the `.venv` virtual environment, upgrades pip, and installs all dependencies (PyTorch CUDA 12.4, diffusers, TripoSR requirements).
