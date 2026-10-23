@@ -17,11 +17,15 @@ CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    from core.hardware_detector import hardware_detector
     return {
-        "blender_path": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
-        "output_dir": "E:\\GPUPLAT\\output"
+        "blender_path": hardware_detector.find_blender() or "blender",
+        "output_dir": os.path.join(SCRIPT_DIR, "output")
     }
 
 def main():
@@ -35,7 +39,8 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-    blender_exe = config.get("blender_path", "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe")
+    from core.hardware_detector import hardware_detector
+    blender_exe = config.get("blender_path") or hardware_detector.find_blender() or "blender"
     venv_python = os.path.join(SCRIPT_DIR, ".venv", "Scripts", "python.exe")
     
     if not os.path.exists(venv_python):
@@ -77,19 +82,23 @@ def main():
         "--",
         "--mesh", generated_mesh,
         "--image", os.path.abspath(image_path),
-        "--out", out_dir
+        "--out", out_dir,
+        "--height", str(args.height)
     ]
-    
+    if args.lods:
+        blender_cmd.append("--lods")
     if args.blend:
         blender_cmd.extend(["--blend", os.path.abspath(args.blend)])
 
     print(f"\n[Blender Engine] Launching Blender processing...")
-    res = subprocess.run(blender_cmd, capture_output=True, text=True)
-    
-    if res.returncode != 0:
-        print("[Blender Warning/Error]:", res.stderr)
-    else:
-        print(res.stdout)
+    try:
+        res = subprocess.run(blender_cmd, capture_output=True, text=True, timeout=180.0)
+        if res.returncode != 0:
+            print("[Blender Warning/Error]:", res.stderr)
+        else:
+            print(res.stdout)
+    except subprocess.TimeoutExpired:
+        print("[Blender Error]: Subprocess execution timed out after 180 seconds.")
 
     print("\n" + "=" * 60)
     print("[COMPLETED] 3D Asset Successfully Generated & Sanitized!")

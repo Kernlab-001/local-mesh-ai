@@ -12,6 +12,7 @@ import torch
 from typing import Optional
 from PIL import Image
 from core.gpu_broker import gpu_broker
+from core.input_validator import input_validator, ValidationError
 
 class PromptToImageEngine:
     def __init__(self, model_id: str = "stabilityai/sd-turbo"):
@@ -23,7 +24,7 @@ class PromptToImageEngine:
         Enriches the prompt to generate isolated, clean, orthographic 3D game asset concepts
         with solid neutral/white background suitable for rembg and TripoSR reconstruction.
         """
-        clean = user_prompt.strip()
+        clean = input_validator.validate_prompt(user_prompt)
         enhanced = (
             f"3d asset of {clean}, centered, single object, solid white background, "
             f"studio lighting, photorealistic prop, game ready asset, high quality, "
@@ -89,8 +90,11 @@ class PromptToImageEngine:
                 ).images[0]
 
                 image.save(output_path)
+                input_validator.validate_generated_concept(output_path)
                 return output_path
 
+            except torch.cuda.OutOfMemoryError as oom:
+                raise RuntimeError(f"CUDA Out-of-Memory during concept generation: {oom}. Free GPU VRAM before retrying.")
             finally:
                 # Complete VRAM cleanup
                 if pipe is not None:

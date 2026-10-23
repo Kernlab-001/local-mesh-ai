@@ -26,17 +26,21 @@ class CreateJobRequest(BaseModel):
 
 class JobResponse(BaseModel):
     job_id: str
+    input_mode: str = "image"
     status: str
     stage: str
     progress_pct: int
     elapsed_seconds: float
     output_mesh: Optional[str] = None
+    high_poly_mesh: Optional[str] = None
+    low_poly_mesh: Optional[str] = None
     output_blend: Optional[str] = None
     preview_png: Optional[str] = None
     turntable_mp4: Optional[str] = None
     baked_normal: Optional[str] = None
     baked_diffuse: Optional[str] = None
     game_ready_glb: Optional[str] = None
+    manifest: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     logs: List[str] = []
 

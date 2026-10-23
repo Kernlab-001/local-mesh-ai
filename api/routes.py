@@ -11,6 +11,8 @@ from core.gpu_broker import gpu_broker
 from core.qwen_planner import qwen_planner
 import subprocess
 
+import shutil
+
 router = APIRouter()
 
 from core.hardware_detector import hardware_detector
@@ -18,8 +20,8 @@ from core.hardware_detector import hardware_detector
 @router.get("/health")
 def health_check():
     gpu_status = gpu_broker.get_status()
-    blender_path = hardware_detector.find_blender() or "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
-    blender_installed = os.path.exists(blender_path)
+    blender_path = hardware_detector.find_blender() or "blender"
+    blender_installed = bool(blender_path and (os.path.exists(blender_path) or shutil.which(blender_path)))
 
     qwen_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qwen2.5-coder-7b-instruct-q4_k_m.gguf")
 
@@ -28,7 +30,7 @@ def health_check():
         "gpu": gpu_status,
         "blender": {
             "installed": blender_installed,
-            "version": "5.2.2 LTS",
+            "version": "Detected" if blender_installed else "Not Installed",
             "path": blender_path
         },
         "qwen_model": {

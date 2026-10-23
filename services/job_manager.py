@@ -1,7 +1,10 @@
 """
-Asynchronous Job Orchestrator & State Machine.
-Tracks stages, progress %, execution timers, structured logs,
-cancellation tokens, and persistent job records in E:\\GPUPLAT\\jobs.
+Asynchronous Job Orchestrator & Production State Machine for Local Mesh AI.
+Supports dual-mode entry points that converge on a shared 3D production pipeline:
+- Mode A (Text-to-3D): Validates text prompt, synthesizes concept image via SD-Turbo, and forwards to 3D pipeline.
+- Mode B (Image-to-3D): Validates uploaded photograph, stages it safely, and bypasses image generation completely.
+- Shared Pipeline: Multi-view canonical conditioning, volumetric reconstruction, color calibration,
+  automated quad retopology, high-to-low ray-cast texture baking, and machine-readable manifest generation.
 """
 
 import os
@@ -11,8 +14,10 @@ import uuid
 import threading
 import shutil
 import subprocess
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List
+
 from core.hardware_detector import hardware_detector
 from core.triposr_engine import triposr_engine
 from core.gpu_broker import gpu_broker
@@ -20,8 +25,10 @@ from core.prompt_to_image import prompt_engine
 from core.color_calibrator import color_calibrator
 from core.multiview_synthesizer import multiview_synthesizer
 from core.model_lifecycle import model_lifecycle, ModelSlot
+from core.input_validator import input_validator, ValidationError
 
-JOBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+JOBS_DIR = os.path.join(PROJECT_ROOT, "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 class JobStatus:
@@ -38,6 +45,16 @@ class Job:
     def __init__(self, job_id: str, params: Dict[str, Any]):
         self.job_id = job_id
         self.params = params
+
+        # Explicitly determine input mode
+        explicit_mode = params.get("input_mode")
+        if explicit_mode:
+            self.input_mode = explicit_mode.lower()
+        elif params.get("prompt") and not params.get("image_path"):
+            self.input_mode = "prompt"
+        else:
+            self.input_mode = "image"
+
         self.status = JobStatus.QUEUED
         self.stage = "Queued"
         self.progress_pct = 0
@@ -46,13 +63,19 @@ class Job:
         self.elapsed_seconds = 0.0
         self.error: Optional[str] = None
         self.logs: List[str] = []
+
+        # Asset output paths
         self.output_mesh: Optional[str] = None
+        self.high_poly_mesh: Optional[str] = None
+        self.low_poly_mesh: Optional[str] = None
         self.output_blend: Optional[str] = None
         self.preview_png: Optional[str] = None
         self.turntable_mp4: Optional[str] = None
         self.baked_normal: Optional[str] = None
         self.baked_diffuse: Optional[str] = None
         self.game_ready_glb: Optional[str] = None
+        self.manifest: Optional[Dict[str, Any]] = None
+
         self._cancel_requested = False
 
     def log(self, message: str):
@@ -73,21 +96,26 @@ class Job:
         self.save()
 
     def to_dict(self) -> Dict[str, Any]:
+        elapsed = round(time.time() - self.start_time if not self.end_time else self.end_time - self.start_time, 2)
         return {
             "job_id": self.job_id,
+            "input_mode": self.input_mode,
             "status": self.status,
             "stage": self.stage,
             "progress_pct": self.progress_pct,
-            "elapsed_seconds": round(time.time() - self.start_time if not self.end_time else self.end_time - self.start_time, 2),
+            "elapsed_seconds": elapsed,
             "error": self.error,
             "output_mesh": self.output_mesh,
+            "high_poly_mesh": self.high_poly_mesh,
+            "low_poly_mesh": self.low_poly_mesh,
             "output_blend": self.output_blend,
             "preview_png": self.preview_png,
             "turntable_mp4": self.turntable_mp4,
             "baked_normal": self.baked_normal,
             "baked_diffuse": self.baked_diffuse,
             "game_ready_glb": self.game_ready_glb,
-            "logs": self.logs[-20:],  # last 20 log entries
+            "manifest": self.manifest,
+            "logs": self.logs[-25:],
             "params": self.params
         }
 
@@ -118,95 +146,156 @@ class JobManager:
         with self._lock:
             if job_id in self.jobs:
                 return self.jobs[job_id]
-        # Check disk
+        # Check disk cache
         job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
         if os.path.exists(job_file):
-            with open(job_file, "r") as f:
-                data = json.load(f)
-            job = Job(job_id, data.get("params", {}))
-            job.status = data.get("status")
-            job.stage = data.get("stage")
-            job.progress_pct = data.get("progress_pct", 0)
-            job.output_mesh = data.get("output_mesh")
-            job.output_blend = data.get("output_blend")
-            job.preview_png = data.get("preview_png")
-            job.turntable_mp4 = data.get("turntable_mp4")
-            job.baked_normal = data.get("baked_normal")
-            job.baked_diffuse = data.get("baked_diffuse")
-            job.game_ready_glb = data.get("game_ready_glb")
-            job.logs = data.get("logs", [])
-            job.error = data.get("error")
-            return job
+            try:
+                with open(job_file, "r") as f:
+                    data = json.load(f)
+                job = Job(job_id, data.get("params", {}))
+                job.input_mode = data.get("input_mode", "image")
+                job.status = data.get("status")
+                job.stage = data.get("stage")
+                job.progress_pct = data.get("progress_pct", 0)
+                job.output_mesh = data.get("output_mesh")
+                job.high_poly_mesh = data.get("high_poly_mesh")
+                job.low_poly_mesh = data.get("low_poly_mesh")
+                job.output_blend = data.get("output_blend")
+                job.preview_png = data.get("preview_png")
+                job.turntable_mp4 = data.get("turntable_mp4")
+                job.baked_normal = data.get("baked_normal")
+                job.baked_diffuse = data.get("baked_diffuse")
+                job.game_ready_glb = data.get("game_ready_glb")
+                job.manifest = data.get("manifest")
+                job.logs = data.get("logs", [])
+                job.error = data.get("error")
+                return job
+            except Exception:
+                pass
         return None
 
     def cancel_job(self, job_id: str) -> bool:
         job = self.get_job(job_id)
-        if job and job.status not in (JobStatus.COMPLETED, JobStatus.FAILED):
+        if job and job.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             job.cancel()
             return True
         return False
 
     def _run_job(self, job: Job):
+        # Setup per-job structured workspace
+        job_dir = os.path.join(JOBS_DIR, job.job_id)
+        input_dir = os.path.join(job_dir, "input")
+        high_poly_dir = os.path.join(job_dir, "high_poly_reference")
+        low_poly_dir = os.path.join(job_dir, "low_poly_asset")
+        textures_dir = os.path.join(job_dir, "textures")
+        reports_dir = os.path.join(job_dir, "reports")
+        multiview_dir = os.path.join(job_dir, "multiview")
+
+        for d in (job_dir, input_dir, high_poly_dir, low_poly_dir, textures_dir, reports_dir, multiview_dir):
+            os.makedirs(d, exist_ok=True)
+
+        timings = {}
+        t_start_total = time.time()
+
         try:
             job.status = JobStatus.VALIDATING
             job.set_stage("Validating Input Parameters", 5)
 
-            image_path = job.params.get("image_path")
-            prompt = job.params.get("prompt")
+            staged_image_path = None
+            input_metadata = {}
 
-            if (not image_path or not os.path.exists(image_path)) and prompt:
+            # =========================================================================
+            # DUAL ENTRY PATH HANDLING
+            # =========================================================================
+            if job.input_mode == "prompt":
+                # ---------------------------------------------------------------------
+                # MODE A: TEXT-TO-3D
+                # ---------------------------------------------------------------------
                 job.status = JobStatus.PREPROCESSING
-                job.set_stage(f"Synthesizing Concept Image from Prompt", 15)
-                inputs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "inputs")
-                os.makedirs(inputs_dir, exist_ok=True)
-                synth_path = os.path.join(inputs_dir, f"prompt_{job.job_id}.png")
+                prompt = job.params.get("prompt")
+                clean_prompt = input_validator.validate_prompt(prompt)
+                job.log(f"[Mode A: Text-to-3D] Validated text prompt: '{clean_prompt}'")
 
-                job.log(f"Starting prompt-to-image synthesis: '{prompt}'")
-                t0 = time.time()
-                prompt_engine.generate(prompt=prompt, output_path=synth_path)
-                job.log(f"Concept image synthesized in {round(time.time() - t0, 2)}s: {synth_path}")
-                image_path = synth_path
-                job.params["image_path"] = image_path
+                job.set_stage("Synthesizing Concept Image from Prompt (SD-Turbo)", 15)
+                synth_target = os.path.join(input_dir, "concept.png")
 
-            if not image_path or not os.path.exists(image_path):
-                raise ValueError("Neither a valid concept image nor a text prompt was provided.")
+                t_prompt_start = time.time()
+                prompt_engine.generate(prompt=clean_prompt, output_path=synth_target)
+                timings["concept_synthesis"] = round(time.time() - t_prompt_start, 2)
 
-            triposr_engine.validate_image(image_path)
+                # Validate generated concept output
+                input_metadata = input_validator.validate_generated_concept(synth_target)
+                staged_image_path = synth_target
+                job.log(f"Concept image synthesized in {timings['concept_synthesis']}s: {synth_target}")
+
+            else:
+                # ---------------------------------------------------------------------
+                # MODE B: IMAGE-TO-3D
+                # ---------------------------------------------------------------------
+                # Skips text-to-image generation entirely!
+                job.set_stage("Validating Uploaded Reference Image", 10)
+                source_image = job.params.get("image_path")
+                if not source_image:
+                    raise ValidationError("Field 'image_path' is required for Image-to-3D mode.")
+
+                input_metadata = input_validator.validate_uploaded_image(
+                    source_path=source_image,
+                    destination_dir=input_dir
+                )
+                staged_image_path = input_metadata["staged_path"]
+                job.log(f"[Mode B: Image-to-3D] Uploaded image validated & staged: {input_metadata['width']}x{input_metadata['height']} ({input_metadata['format']})")
+
+            if not staged_image_path or not os.path.exists(staged_image_path):
+                raise ValidationError("Failed to prepare a valid input image for 3D reconstruction.")
 
             if job._cancel_requested:
                 return
 
-            # Stage 1.5: Multi-View Canonical Conditioning (Solves 2.5D Backside Blind Spots)
-            mv_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "inputs", f"mv_{job.job_id}")
+            # =========================================================================
+            # SHARED DOWNSTREAM 3D PRODUCTION PIPELINE
+            # =========================================================================
+
+            # Stage 1.5: Multi-View Canonical Perspectives Conditioning
+            t_mv_start = time.time()
             try:
-                job.set_stage("Synthesizing 360 Multi-View Canonical Perspectives", 22)
-                mv_res = multiview_synthesizer.generate_canonical_views(image_path, mv_dir)
-                job.log(f"Multi-view conditioning complete: {mv_res['num_views']} canonical views generated.")
+                job.set_stage("Synthesizing 360 Multi-View Canonical Perspectives", 25)
+                mv_res = multiview_synthesizer.generate_canonical_views(staged_image_path, multiview_dir)
+                timings["multiview_synthesis"] = round(time.time() - t_mv_start, 2)
+                job.log(f"Multi-view conditioning complete in {timings['multiview_synthesis']}s (Front, Right, Back, Left views aligned).")
             except Exception as mv_err:
-                job.log(f"Multi-view conditioning notice: {mv_err}")
+                job.log(f"Multi-view conditioning notice: {mv_err}. Proceeding with primary canonical projection.")
 
             if job._cancel_requested:
                 return
 
-            # Stage 2: Reconstruction
+            # Stage 2: Volumetric 3D Reconstruction
             job.status = JobStatus.RECONSTRUCTING
-            job.set_stage("Acquiring GPU Lease & Loading TripoSR", 30)
+            job.set_stage("Reconstructing Volumetric Geometry (TripoSR)", 45)
 
+            t_rec_start = time.time()
             quality = job.params.get("quality", "balanced")
             rec_result = triposr_engine.reconstruct(
-                image_path=image_path,
+                image_path=staged_image_path,
                 quality=quality,
                 render_turntable=job.params.get("render_turntable", False)
             )
+            timings["reconstruction"] = rec_result.get("elapsed_seconds", round(time.time() - t_rec_start, 2))
 
-            job.output_mesh = rec_result["mesh_path"]
-            job.log(f"Reconstruction completed in {rec_result['elapsed_seconds']}s")
+            # Stage raw high-poly reference mesh
+            raw_mesh = rec_result["mesh_path"]
+            high_poly_target = os.path.join(high_poly_dir, "mesh.glb")
+            if os.path.exists(raw_mesh):
+                shutil.copy2(raw_mesh, high_poly_target)
 
-            # Stage 2.5: Accurate Color Calibration (Tripo AI Style)
+            job.high_poly_mesh = high_poly_target
+            job.output_mesh = high_poly_target
+            job.log(f"Volumetric reconstruction completed in {timings['reconstruction']}s.")
+
+            # Stage 2.5: Accurate Color Calibration (Reinhard Lab Space Transfer)
             if job.params.get("accurate_colors", True):
-                job.set_stage("Calibrating Color Distribution (Tripo AI Style)", 65)
+                job.set_stage("Calibrating Color Distribution (Reinhard Lab)", 65)
                 try:
-                    color_calibrator.calibrate_mesh_colors(job.output_mesh, image_path)
+                    color_calibrator.calibrate_mesh_colors(job.output_mesh, staged_image_path)
                     job.log("Color calibration complete: perceptual Lab palette aligned with source artwork.")
                 except Exception as col_err:
                     job.log(f"Color calibration notice: {col_err}")
@@ -214,12 +303,12 @@ class JobManager:
             if job._cancel_requested:
                 return
 
-            # Stage 3: Blender Post-Processing
+            # Stage 3: Blender Post-Processing, Sanitation & Optional Retopology/Baking
             job.status = JobStatus.POSTPROCESSING
-            job.set_stage("Sanitizing Geometry & Blender PBR Shading", 75)
+            job.set_stage("Blender Post-Processing & Geometry Sanitation", 75)
 
-            blend_out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
-            bridge_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bridge", "blender_bridge.py")
+            t_blender_start = time.time()
+            bridge_script = os.path.join(PROJECT_ROOT, "bridge", "blender_bridge.py")
             blender_exe = hardware_detector.find_blender() or "blender"
 
             is_blender_available = False
@@ -233,8 +322,8 @@ class JobManager:
                     "--python", bridge_script,
                     "--",
                     "--mesh", job.output_mesh,
-                    "--image", os.path.abspath(image_path),
-                    "--out", blend_out_dir,
+                    "--image", os.path.abspath(staged_image_path),
+                    "--out", job_dir,
                     "--preset", job.params.get("preset", "prop")
                 ]
 
@@ -248,38 +337,47 @@ class JobManager:
                 try:
                     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180.0)
                     if proc.returncode != 0:
-                        job.log(f"Blender notice: {proc.stderr[:200]}")
+                        job.log(f"Blender bridge notice: {proc.stderr[:200]}")
                 except subprocess.TimeoutExpired:
                     job.log("Blender post-processing timed out after 180s. Keeping raw mesh.")
                 except Exception as b_err:
                     job.log(f"Blender execution notice: {b_err}")
 
-                # Optional AAA Game-Asset Retopology & PBR Baking
+                # Optional AAA Game-Asset Retopology & High-to-Low Texture Baking
                 if job.params.get("retopology_and_bake", False):
                     job.set_stage("Quad Retopology & High-to-Low PBR Texture Baking", 85)
-                    baker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bridge", "retopology_and_baker.py")
+                    baker_script = os.path.join(PROJECT_ROOT, "bridge", "retopology_and_baker.py")
                     target_f = job.params.get("target_faces", 8000)
                     bake_cmd = [
                         blender_exe, "--background",
                         "--python", baker_script,
                         "--",
                         "--mesh", job.output_mesh,
-                        "--out", blend_out_dir,
+                        "--out", job_dir,
                         "--faces", str(target_f),
                         "--res", "2048"
                     ]
                     try:
                         proc_b = subprocess.run(bake_cmd, capture_output=True, text=True, timeout=240.0)
                         if proc_b.returncode == 0:
-                            norm_p = os.path.join(blend_out_dir, "baked_normal.png")
-                            diff_p = os.path.join(blend_out_dir, "baked_diffuse.png")
-                            gr_glb = os.path.join(blend_out_dir, "model_game_ready.glb")
+                            norm_p = os.path.join(job_dir, "baked_normal.png")
+                            diff_p = os.path.join(job_dir, "baked_diffuse.png")
+                            gr_glb = os.path.join(job_dir, "model_game_ready.glb")
+
                             if os.path.exists(norm_p):
-                                job.baked_normal = norm_p
+                                norm_dest = os.path.join(textures_dir, "baked_normal.png")
+                                shutil.copy2(norm_p, norm_dest)
+                                job.baked_normal = norm_dest
                             if os.path.exists(diff_p):
-                                job.baked_diffuse = diff_p
+                                diff_dest = os.path.join(textures_dir, "baked_diffuse.png")
+                                shutil.copy2(diff_p, diff_dest)
+                                job.baked_diffuse = diff_dest
                             if os.path.exists(gr_glb):
-                                job.game_ready_glb = gr_glb
+                                gr_dest = os.path.join(low_poly_dir, "model_game_ready.glb")
+                                shutil.copy2(gr_glb, gr_dest)
+                                job.game_ready_glb = gr_dest
+                                job.low_poly_mesh = gr_dest
+
                             job.log("AAA Quad retopology & tangent normal/diffuse texture baking completed.")
                         else:
                             job.log(f"Baking notice: {proc_b.stderr[:200]}")
@@ -287,21 +385,52 @@ class JobManager:
                         job.log("Retopology & baking timed out after 240s; raw mesh preserved.")
                     except Exception as bake_err:
                         job.log(f"Retopology notice: {bake_err}")
+
+                timings["blender_processing"] = round(time.time() - t_blender_start, 2)
             else:
                 job.log("Blender executable not found on system; generated 3D mesh saved directly.")
 
-            job.output_blend = os.path.join(blend_out_dir, "project.blend")
-            job.preview_png = os.path.join(blend_out_dir, "preview.png")
+            job.output_blend = os.path.join(job_dir, "project.blend")
+            job.preview_png = os.path.join(job_dir, "preview.png")
 
-            # Check turntable
             tt_path = os.path.join(os.path.dirname(job.output_mesh), "render.mp4")
             if os.path.exists(tt_path):
                 job.turntable_mp4 = tt_path
 
+            timings["total_duration"] = round(time.time() - t_start_total, 2)
+
+            # Stage 4: Production Manifest Generation
+            manifest_data = {
+                "job_id": job.job_id,
+                "input_mode": job.input_mode,
+                "status": "completed",
+                "settings": job.params,
+                "source_input": staged_image_path,
+                "input_metadata": input_metadata,
+                "timings": timings,
+                "assets": {
+                    "high_poly_reference": job.high_poly_mesh,
+                    "low_poly_game_ready": job.game_ready_glb,
+                    "baked_normal": job.baked_normal,
+                    "baked_diffuse": job.baked_diffuse,
+                    "blender_project": job.output_blend,
+                    "preview_render": job.preview_png
+                }
+            }
+
+            manifest_file = os.path.join(reports_dir, "manifest.json")
+            try:
+                with open(manifest_file, "w") as f:
+                    json.dump(manifest_data, f, indent=2)
+                job.manifest = manifest_data
+            except Exception:
+                pass
+
             job.status = JobStatus.COMPLETED
             job.end_time = time.time()
             job.set_stage("Completed Successfully", 100)
-            job.log("All pipeline stages completed.")
+            job.log(f"All pipeline stages completed successfully in {timings['total_duration']}s.")
+
         except Exception as e:
             if not job._cancel_requested:
                 job.status = JobStatus.FAILED

@@ -128,6 +128,8 @@ if __name__ == "__main__":
     
     preset = "prop"
     sharp_overlay = True
+    target_height = 1.8
+    create_lods = False
     
     for i, a in enumerate(args):
         if a == "--mesh" and i + 1 < len(args):
@@ -140,8 +142,24 @@ if __name__ == "__main__":
             target_blend = args[i + 1]
         elif a == "--preset" and i + 1 < len(args):
             preset = args[i + 1]
+        elif a == "--height" and i + 1 < len(args):
+            try:
+                target_height = float(args[i + 1])
+            except ValueError:
+                pass
+        elif a == "--lods":
+            create_lods = True
         elif a == "--no-overlay":
             sharp_overlay = False
             
     if mesh_file:
-        process_mesh(mesh_file, image_path=img_file, target_blend_path=target_blend, output_dir=out_dir, preset=preset, sharp_overlay=sharp_overlay)
+        process_mesh(
+            mesh_file,
+            image_path=img_file,
+            target_blend_path=target_blend,
+            output_dir=out_dir,
+            height=target_height,
+            create_lods=create_lods,
+            preset=preset,
+            sharp_overlay=sharp_overlay
+        )

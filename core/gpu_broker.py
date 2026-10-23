@@ -76,15 +76,32 @@ class GPUBroker:
         return False
 
     def release(self, client_name: Optional[str] = None):
+        """
+        Releases the GPU lease safely.
+        Enforces that only the designated holder client and process can release the lock.
+        Prevents cross-job or accidental foreign releases.
+        """
         try:
             if os.path.exists(self.lock_file):
-                # Only holder or forced release
                 with open(self.lock_file, "r") as f:
                     data = json.load(f)
-                if client_name is None or data.get("client") == client_name or data.get("pid") == os.getpid():
+
+                holder_client = data.get("client")
+                holder_pid = data.get("pid")
+                current_pid = os.getpid()
+
+                can_release = False
+                if client_name is not None:
+                    if holder_client == client_name and holder_pid == current_pid:
+                        can_release = True
+                else:
+                    if holder_pid == current_pid:
+                        can_release = True
+
+                if can_release and os.path.exists(self.lock_file):
                     os.remove(self.lock_file)
         except Exception:
-            self._force_release()
+            pass
         finally:
             self.purge_vram()
 

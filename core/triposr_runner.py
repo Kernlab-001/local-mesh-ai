@@ -35,7 +35,10 @@ def run_triposr_inference(image_path, output_dir=None, python_exe=None):
     ]
     
     print(f"[TripoSR] Launching neural reconstruction on local GPU (Image: {image_path})...")
-    result = subprocess.run(cmd, cwd=triposr_dir, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, cwd=triposr_dir, capture_output=True, text=True, timeout=180.0)
+    except subprocess.TimeoutExpired:
+        raise TimeoutError("TripoSR neural reconstruction timed out after 180 seconds.")
     
     if result.returncode != 0:
         print("[TripoSR Error Output]:", result.stderr)
