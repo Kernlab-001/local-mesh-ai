@@ -85,6 +85,11 @@ def execute_retopology_and_baking(
 
     high_poly = imported[0]
     high_poly.name = "HighPoly_Reference"
+
+    # Pre-validation: ensure mesh has geometry
+    if len(high_poly.data.vertices) == 0 or len(high_poly.data.polygons) == 0:
+        raise ValueError(f"[Baker Error] Imported mesh contains 0 vertices or 0 faces: {mesh_path}")
+
     bpy.context.view_layer.objects.active = high_poly
     bpy.ops.object.shade_smooth()
 
@@ -118,7 +123,10 @@ def execute_retopology_and_baking(
     bpy.ops.object.shade_smooth()
 
     retopo_faces = len(low_poly.data.polygons)
-    print(f"[Baker] Retopology Complete: {retopo_faces:,} faces (Reduced from {current_faces:,}).")
+    quad_count = sum(1 for p in low_poly.data.polygons if len(p.vertices) == 4)
+    tri_count = sum(1 for p in low_poly.data.polygons if len(p.vertices) == 3)
+    quad_pct = round((quad_count / retopo_faces * 100), 1) if retopo_faces > 0 else 0
+    print(f"[Baker] Retopology Complete: {retopo_faces:,} faces ({quad_pct}% quads, reduced from {current_faces:,}).")
 
     # 5. Non-Overlapping UV Chart Generation
     print(f"[Baker] Generating non-overlapping UV layout with island margin...")
@@ -246,23 +254,30 @@ def execute_retopology_and_baking(
     results = {
         "status": "success",
         "low_poly_faces": retopo_faces,
-        "normal_map": normal_path if os.path.exists(normal_path) else None,
-        "diffuse_map": diffuse_path if os.path.exists(diffuse_path) else None,
+        "quad_count": quad_count,
+        "triangle_count": tri_count,
+        "quad_percentage": quad_pct,
+        "normal_map": normal_path if os.path.exists(normal_path) and os.path.getsize(normal_path) > 0 else None,
+        "diffuse_map": diffuse_path if os.path.exists(diffuse_path) and os.path.getsize(diffuse_path) > 0 else None,
         "glb_path": None,
         "fbx_path": None
     }
 
     if export_glb:
         glb_out = os.path.join(output_dir, "model_game_ready.glb")
-        bpy.ops.export_scene.gltf(
-            filepath=glb_out,
-            export_format='GLB',
-            use_selection=False,
-            export_materials='EXPORT',
-            export_apply=True
-        )
-        results["glb_path"] = glb_out
-        print(f"[Baker] Exported Game-Ready GLB -> {glb_out}")
+        try:
+            bpy.ops.export_scene.gltf(
+                filepath=glb_out,
+                export_format='GLB',
+                use_selection=False,
+                export_materials='EXPORT',
+                export_apply=True
+            )
+            if os.path.exists(glb_out) and os.path.getsize(glb_out) > 0:
+                results["glb_path"] = glb_out
+                print(f"[Baker] Exported Game-Ready GLB -> {glb_out}")
+        except Exception as glb_err:
+            print(f"[Baker Notice] GLB export error: {glb_err}")
 
     if export_fbx:
         fbx_out = os.path.join(output_dir, "model_game_ready.fbx")
@@ -273,8 +288,11 @@ def execute_retopology_and_baking(
                 apply_unit_scale=True,
                 bake_space_transform=True
             )
-            results["fbx_path"] = fbx_out
-            print(f"[Baker] Exported Game-Ready FBX -> {fbx_out}")
+            if os.path.exists(fbx_out) and os.path.getsize(fbx_out) > 0:
+                results["fbx_path"] = fbx_out
+                print(f"[Baker] Exported Game-Ready FBX -> {fbx_out}")
+        except Exception as fbx_err:
+            print(f"[Baker Notice] FBX export: {fbx_err}")
         except Exception as fbx_err:
             print(f"[Baker Notice] FBX export: {fbx_err}")
 

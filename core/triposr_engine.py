@@ -2,6 +2,7 @@
 TripoSR Engine & Neural Reconstruction Manager.
 Validates inputs, coordinates GPU lease, runs marching cubes with memory safety,
 and exports intermediate GLB meshes.
+Supports automatic device selection (CUDA GPU with graceful CPU fallback).
 """
 
 import os
@@ -10,6 +11,7 @@ import time
 import subprocess
 from typing import Dict, Any, Optional
 from PIL import Image
+import torch
 from core.gpu_broker import gpu_broker
 
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -60,14 +62,20 @@ class TripoSREngine:
         mc_resolution: int = 256,
         chunk_size: int = 8192,
         render_turntable: bool = False,
-        timeout: float = 120.0
+        device: Optional[str] = None,
+        timeout: float = 180.0
     ) -> Dict[str, Any]:
         """
         Runs TripoSR under global GPU lease and records benchmark metrics.
+        Dynamically detects CUDA capability to avoid hardcoded device failures.
         """
         img_meta = self.validate_image(image_path)
         start_time = time.time()
-        
+
+        # Dynamic device selection
+        if not device:
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
         # Configure quality preset
         if quality == "draft":
             mc_resolution = 128
@@ -91,13 +99,14 @@ class TripoSREngine:
             "--mc-resolution", str(mc_resolution),
             "--chunk-size", str(chunk_size),
             "--model-save-format", "glb",
-            "--device", "cuda:0"
+            "--device", device
         ]
         if render_turntable:
             cmd.append("--render")
 
-        # Acquire GPU Lease
-        with gpu_broker.lease("TripoSR_Reconstruction", timeout=timeout):
+        # Acquire GPU Lease if running on CUDA
+        client_tag = f"TripoSR_Reconstruction_{device}"
+        with gpu_broker.lease(client_tag, timeout=timeout):
             try:
                 proc = subprocess.run(
                     cmd,
@@ -108,14 +117,31 @@ class TripoSREngine:
                 )
                 if proc.returncode != 0:
                     raise RuntimeError(f"TripoSR subprocess failed:\n{proc.stderr}")
+            except subprocess.TimeoutExpired:
+                raise TimeoutError(f"TripoSR neural reconstruction timed out after {timeout} seconds.")
             finally:
                 gpu_broker.purge_vram()
 
         elapsed = round(time.time() - start_time, 2)
         mesh_path = os.path.join(job_mesh_dir, "0", "mesh.glb")
-        
+
         if not os.path.exists(mesh_path) or os.path.getsize(mesh_path) == 0:
-            raise RuntimeError(f"Expected output mesh not created at {mesh_path}")
+            # Fallback search for any generated glb in job_mesh_dir
+            found_glb = None
+            if os.path.exists(job_mesh_dir):
+                for root, _, files in os.walk(job_mesh_dir):
+                    for f in files:
+                        if f.endswith(".glb"):
+                            p = os.path.join(root, f)
+                            if os.path.getsize(p) > 0:
+                                found_glb = p
+                                break
+                    if found_glb:
+                        break
+            if found_glb:
+                mesh_path = found_glb
+            else:
+                raise RuntimeError(f"Expected output mesh not created at {mesh_path}")
 
         return {
             "status": "success",
@@ -124,6 +150,7 @@ class TripoSREngine:
             "mesh_size_bytes": os.path.getsize(mesh_path),
             "mc_resolution": mc_resolution,
             "chunk_size": chunk_size,
+            "device": device,
             "image_meta": img_meta
         }
 

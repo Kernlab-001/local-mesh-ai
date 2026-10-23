@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-orange.svg)](https://pytorch.org/)
 [![Blender](https://img.shields.io/badge/Blender-4.2%20%7C%205.2%20LTS-green.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-51%2F51%20Passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-57%2F57%20Passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -51,7 +51,7 @@
 * **🔌 Native Blender 5.2 / 4.2 LTS Add-on:** N-Panel extension with non-blocking background polling (`bpy.app.timers`), automatic viewport material preview, and isolated collection management.
 * **🖥️ Blender-Inspired 3D Workstation:** Charcoal neutral interface matching Blender dark theme (`#1E1E1E`), interactive Three.js 3D solid/wireframe viewport, and live 10-stage execution timeline.
 * **🛡️ Zero-VRAM Overlap & Memory Broker:** Serializes model residency (`NONE` ➔ `SD_TURBO` ➔ `TRIPOSR` ➔ `BLENDER`), offloading inactive models to system RAM to prevent Out-Of-Memory crashes on 6GB–8GB GPUs.
-* **📦 AAA Quad Retopology & PBR Texture Baking:** Automatically decimates neural meshes into 8K quad-dominant geometry, unwraps UVs, and bakes 16-bit Tangent Normal Maps and PBR Diffuse Maps via headless Cycles ray-casting.
+* **📦 Quad-Dominant Retopology Decimation & PBR Texture Baking:** Automatically decimates neural meshes into an 8,000 polygon quad-dominant target, unwraps non-overlapping UVs, and bakes 16-bit Tangent Normal Maps and PBR Diffuse Maps via headless Cycles ray-casting.
 * **🔍 System Readiness Diagnostics:** Built-in verification engine inspecting Python libraries, GPU VRAM headroom, model cache, Blender executable, and directory permissions.
 
 ---

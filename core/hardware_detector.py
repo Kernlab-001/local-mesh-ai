@@ -92,8 +92,13 @@ class HardwareDetector:
         return cpu_info
 
     def find_blender(self) -> Optional[str]:
-        """Searches common installation paths and PATH for Blender 4.x / 5.x."""
-        # 1. Check existing config if valid
+        """Searches environment variables, config, common installation paths, and PATH for Blender 4.x / 5.x."""
+        # 1. Check explicit environment variables
+        env_blender = os.environ.get("BLENDER_PATH") or os.environ.get("BLENDER_EXECUTABLE")
+        if env_blender and os.path.exists(env_blender) and "blender" in env_blender.lower():
+            return str(Path(env_blender).resolve())
+
+        # 2. Check existing config if valid
         if CONFIG_PATH.exists():
             try:
                 with open(CONFIG_PATH, "r") as f:
@@ -104,12 +109,12 @@ class HardwareDetector:
             except Exception:
                 pass
 
-        # 2. Check PATH
+        # 3. Check PATH
         path_blender = shutil.which("blender")
         if path_blender and os.path.exists(path_blender):
             return str(Path(path_blender).resolve())
 
-        # 3. Standard Windows locations
+        # 4. Standard Windows locations (Program Files, LocalAppData, Steam)
         if platform.system() == "Windows":
             search_paths = [
                 r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe",
@@ -119,6 +124,7 @@ class HardwareDetector:
                 r"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe",
                 r"C:\Program Files\Blender Foundation\Blender 4.1\blender.exe",
                 r"C:\Program Files\Blender Foundation\Blender 4.0\blender.exe",
+                r"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe",
                 os.path.expandvars(r"%LOCALAPPDATA%\Programs\Blender Foundation\Blender 5.2\blender.exe"),
                 os.path.expandvars(r"%LOCALAPPDATA%\Programs\Blender Foundation\Blender 4.2\blender.exe"),
             ]

@@ -3,6 +3,7 @@ Production-Grade Sequential Model Lifecycle & Memory Manager.
 Implements a strict "Zero-VRAM Overlap" state machine to run heavy neural
 3D pipelines (SD-Turbo, Multi-View Synthesizer, TripoSR, and Qwen LLM) on
 consumer GPUs with 6GB–8GB VRAM without Out-Of-Memory (OOM) collisions.
+Supports both CUDA GPU execution and CPU fallback seamlessly.
 """
 
 import os
@@ -10,11 +11,11 @@ import sys
 import gc
 import time
 import logging
+import threading
 from enum import Enum
 from typing import Dict, Any, Optional, Generator, Callable
 from contextlib import contextmanager
 
-# Ensure project root is available
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -38,6 +39,7 @@ class SequentialModelManager:
     """
     Coordinates single-resident GPU execution. Enforces that only ONE neural
     model occupies GPU VRAM at any point during pipeline execution.
+    Thread-safe and supports CPU/GPU device selection.
     """
 
     def __init__(self, vram_budget_gb: float = 6.0):
@@ -46,6 +48,7 @@ class SequentialModelManager:
         self._cpu_cache: Dict[ModelSlot, Any] = {}
         self._gpu_resident: Dict[ModelSlot, Any] = {}
         self._locations: Dict[ModelSlot, ModelLocation] = {slot: ModelLocation.UNLOADED for slot in ModelSlot}
+        self._lock = threading.RLock()
 
     def get_vram_usage(self) -> Dict[str, float]:
         """Returns allocated, reserved, and free GPU VRAM in Gigabytes."""
@@ -73,7 +76,7 @@ class SequentialModelManager:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
                 torch.cuda.synchronize()
-        except ImportError:
+        except Exception:
             pass
         gc.collect()
 
@@ -83,34 +86,34 @@ class SequentialModelManager:
         If keep_in_cpu_ram is True, moves tensors to Host RAM for rapid recall.
         Otherwise deletes the instance entirely to minimize system memory footprint.
         """
-        if self.active_slot is None:
-            self.purge_cuda_memory()
-            return
+        with self._lock:
+            if self.active_slot is None:
+                self.purge_cuda_memory()
+                return
 
-        evicting_slot = self.active_slot
-        logger.info(f"[Zero-VRAM] Evicting active slot '{evicting_slot.value}' from GPU VRAM...")
+            evicting_slot = self.active_slot
+            logger.info(f"[Zero-VRAM] Evicting active slot '{evicting_slot.value}' from GPU VRAM...")
 
-        model_obj = self._gpu_resident.pop(evicting_slot, None)
-        if model_obj is not None:
-            if keep_in_cpu_ram and hasattr(model_obj, "to"):
-                try:
-                    import torch
-                    model_obj.to("cpu")
-                    self._cpu_cache[evicting_slot] = model_obj
-                    self._locations[evicting_slot] = ModelLocation.CPU_RAM
-                    logger.info(f"[Zero-VRAM] Offloaded '{evicting_slot.value}' to CPU RAM.")
-                except Exception as e:
-                    logger.warning(f"Failed to offload to CPU: {e}. Purging.")
+            model_obj = self._gpu_resident.pop(evicting_slot, None)
+            if model_obj is not None:
+                if keep_in_cpu_ram and hasattr(model_obj, "to"):
+                    try:
+                        model_obj.to("cpu")
+                        self._cpu_cache[evicting_slot] = model_obj
+                        self._locations[evicting_slot] = ModelLocation.CPU_RAM
+                        logger.info(f"[Zero-VRAM] Offloaded '{evicting_slot.value}' to CPU RAM.")
+                    except Exception as e:
+                        logger.warning(f"Failed to offload to CPU: {e}. Purging.")
+                        del model_obj
+                        self._locations[evicting_slot] = ModelLocation.UNLOADED
+                else:
                     del model_obj
                     self._locations[evicting_slot] = ModelLocation.UNLOADED
-            else:
-                del model_obj
-                self._locations[evicting_slot] = ModelLocation.UNLOADED
 
-        self.active_slot = None
-        self.purge_cuda_memory()
-        vram = self.get_vram_usage()
-        logger.info(f"[Zero-VRAM] GPU VRAM cleared. Free: {vram['free_gb']} GB")
+            self.active_slot = None
+            self.purge_cuda_memory()
+            vram = self.get_vram_usage()
+            logger.info(f"[Zero-VRAM] GPU VRAM cleared. Free: {vram['free_gb']} GB")
 
     def prepare_slot(
         self,
@@ -120,41 +123,45 @@ class SequentialModelManager:
         keep_previous_in_ram: bool = False
     ) -> Any:
         """
-        Ensures target slot is ready in GPU VRAM while strictly offloading any previous resident.
+        Ensures target slot is ready in GPU VRAM (or CPU) while strictly offloading any previous resident.
         """
-        # If already active on GPU, return immediately
-        if self.active_slot == slot and slot in self._gpu_resident:
-            return self._gpu_resident[slot]
+        with self._lock:
+            # If already active, return immediately
+            if self.active_slot == slot and slot in self._gpu_resident:
+                return self._gpu_resident[slot]
 
-        # 1. Evict whatever was previously holding the GPU
-        if self.active_slot is not None and self.active_slot != slot:
-            self.offload_active_model(keep_in_cpu_ram=keep_previous_in_ram)
+            # 1. Evict whatever was previously holding the GPU
+            if self.active_slot is not None and self.active_slot != slot:
+                self.offload_active_model(keep_in_cpu_ram=keep_previous_in_ram)
 
-        # 2. Check if cached in CPU RAM
-        if slot in self._cpu_cache:
-            logger.info(f"[Zero-VRAM] Swapping '{slot.value}' from CPU RAM to GPU VRAM...")
-            model_obj = self._cpu_cache.pop(slot)
-            try:
-                import torch
-                target_dtype = torch.float16 if precision == "fp16" else torch.float32
-                if hasattr(model_obj, "to"):
-                    model_obj.to("cuda", dtype=target_dtype)
-                self._gpu_resident[slot] = model_obj
-                self.active_slot = slot
-                self._locations[slot] = ModelLocation.GPU_VRAM
-                return model_obj
-            except Exception as e:
-                logger.warning(f"Failed CPU->GPU swap: {e}. Reloading from scratch.")
-                del model_obj
-                self.purge_cuda_memory()
+            import torch
+            has_cuda = torch.cuda.is_available()
+            target_device = "cuda" if has_cuda else "cpu"
+            target_dtype = torch.float16 if (has_cuda and precision == "fp16") else torch.float32
 
-        # 3. Load fresh model via loader callback
-        logger.info(f"[Zero-VRAM] Loading fresh '{slot.value}' into GPU VRAM (Precision: {precision})...")
-        model_obj = model_loader()
-        self._gpu_resident[slot] = model_obj
-        self.active_slot = slot
-        self._locations[slot] = ModelLocation.GPU_VRAM
-        return model_obj
+            # 2. Check if cached in CPU RAM
+            if slot in self._cpu_cache:
+                logger.info(f"[Zero-VRAM] Swapping '{slot.value}' from CPU RAM to {target_device}...")
+                model_obj = self._cpu_cache.pop(slot)
+                try:
+                    if hasattr(model_obj, "to"):
+                        model_obj.to(target_device, dtype=target_dtype)
+                    self._gpu_resident[slot] = model_obj
+                    self.active_slot = slot
+                    self._locations[slot] = ModelLocation.GPU_VRAM if has_cuda else ModelLocation.CPU_RAM
+                    return model_obj
+                except Exception as e:
+                    logger.warning(f"Failed swap: {e}. Reloading from scratch.")
+                    del model_obj
+                    self.purge_cuda_memory()
+
+            # 3. Load fresh model via loader callback
+            logger.info(f"[Zero-VRAM] Loading fresh '{slot.value}' into {target_device} (Precision: {precision})...")
+            model_obj = model_loader()
+            self._gpu_resident[slot] = model_obj
+            self.active_slot = slot
+            self._locations[slot] = ModelLocation.GPU_VRAM if has_cuda else ModelLocation.CPU_RAM
+            return model_obj
 
     @contextmanager
     def execution_scope(
