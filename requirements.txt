@@ -21,7 +21,7 @@ scikit-image>=0.22.0
 numpy>=1.24.0
 
 # Concept Image Generation (SD-Turbo)
-diffusers>=0.30.0
+diffusers>=0.41.0
 accelerate>=0.30.0
 
 # API & Orchestration
