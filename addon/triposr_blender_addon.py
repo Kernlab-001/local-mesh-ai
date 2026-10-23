@@ -316,6 +316,18 @@ class TripoSRProperties(bpy.types.PropertyGroup):
     sharp_overlay: BoolProperty(name="Sharp Texture Overlay", default=True)
     adaptive_weld: BoolProperty(name="Adaptive Welding", default=True)
     pbr_material: BoolProperty(name="Generate PBR Shaders", default=True)
+    retopology_and_bake: BoolProperty(
+        name="AAA Quad Retopology & Bake",
+        description="Produces clean manifold quads (5K-15K) and bakes Tangent-Space Normal + Albedo maps",
+        default=False
+    )
+    target_faces: IntProperty(
+        name="Target Quads",
+        description="Target polygon count for retopologized mesh",
+        default=8000,
+        min=1000,
+        max=50000
+    )
     generate_lods: BoolProperty(name="Generate LOD0, 1, 2", default=False)
     auto_rig: BoolProperty(name="Attach Rigify Metarig", default=False)
     
@@ -585,6 +597,8 @@ class TRIPOSR_OT_Generate(bpy.types.Operator):
             "weld": props.adaptive_weld,
             "pbr_material": props.pbr_material,
             "accurate_colors": props.accurate_colors,
+            "retopology_and_bake": props.retopology_and_bake,
+            "target_faces": props.target_faces,
             "generate_lods": props.generate_lods,
             "auto_rig": props.auto_rig
         }
@@ -791,6 +805,12 @@ class TRIPOSR_PT_MainPanel(bpy.types.Panel):
         g_row2 = col.row()
         g_row2.prop(props, "sanitize_mesh")
         g_row2.prop(props, "adaptive_weld")
+
+        col.label(text="AAA Game-Ready Pipeline:", icon='SHADING_SOLID')
+        g_row3 = col.row()
+        g_row3.prop(props, "retopology_and_bake")
+        if props.retopology_and_bake:
+            col.prop(props, "target_faces", text="Target Quads")
 
         # Section D: Destination
         dest_box = layout.box()

@@ -20,6 +20,8 @@ class CreateJobRequest(BaseModel):
     generate_lods: bool = False
     auto_rig: bool = False
     render_turntable: bool = False
+    retopology_and_bake: bool = Field(default=False, description="Executes automated quad retopology (5K-15K quads) and bakes Normal/Diffuse PBR maps")
+    target_faces: int = Field(default=8000, ge=1000, le=100000, description="Target face count for retopology")
     target_blend: Optional[str] = None
 
 class JobResponse(BaseModel):
@@ -32,6 +34,9 @@ class JobResponse(BaseModel):
     output_blend: Optional[str] = None
     preview_png: Optional[str] = None
     turntable_mp4: Optional[str] = None
+    baked_normal: Optional[str] = None
+    baked_diffuse: Optional[str] = None
+    game_ready_glb: Optional[str] = None
     error: Optional[str] = None
     logs: List[str] = []
 

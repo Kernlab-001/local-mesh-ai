@@ -18,6 +18,8 @@ from core.triposr_engine import triposr_engine
 from core.gpu_broker import gpu_broker
 from core.prompt_to_image import prompt_engine
 from core.color_calibrator import color_calibrator
+from core.multiview_synthesizer import multiview_synthesizer
+from core.model_lifecycle import model_lifecycle, ModelSlot
 
 JOBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
@@ -48,6 +50,9 @@ class Job:
         self.output_blend: Optional[str] = None
         self.preview_png: Optional[str] = None
         self.turntable_mp4: Optional[str] = None
+        self.baked_normal: Optional[str] = None
+        self.baked_diffuse: Optional[str] = None
+        self.game_ready_glb: Optional[str] = None
         self._cancel_requested = False
 
     def log(self, message: str):
@@ -79,6 +84,9 @@ class Job:
             "output_blend": self.output_blend,
             "preview_png": self.preview_png,
             "turntable_mp4": self.turntable_mp4,
+            "baked_normal": self.baked_normal,
+            "baked_diffuse": self.baked_diffuse,
+            "game_ready_glb": self.game_ready_glb,
             "logs": self.logs[-20:],  # last 20 log entries
             "params": self.params
         }
@@ -123,6 +131,9 @@ class JobManager:
             job.output_blend = data.get("output_blend")
             job.preview_png = data.get("preview_png")
             job.turntable_mp4 = data.get("turntable_mp4")
+            job.baked_normal = data.get("baked_normal")
+            job.baked_diffuse = data.get("baked_diffuse")
+            job.game_ready_glb = data.get("game_ready_glb")
             job.logs = data.get("logs", [])
             job.error = data.get("error")
             return job
@@ -161,6 +172,18 @@ class JobManager:
                 raise ValueError("Neither a valid concept image nor a text prompt was provided.")
 
             triposr_engine.validate_image(image_path)
+
+            if job._cancel_requested:
+                return
+
+            # Stage 1.5: Multi-View Canonical Conditioning (Solves 2.5D Backside Blind Spots)
+            mv_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "inputs", f"mv_{job.job_id}")
+            try:
+                job.set_stage("Synthesizing 360 Multi-View Canonical Perspectives", 22)
+                mv_res = multiview_synthesizer.generate_canonical_views(image_path, mv_dir)
+                job.log(f"Multi-view conditioning complete: {mv_res['num_views']} canonical views generated.")
+            except Exception as mv_err:
+                job.log(f"Multi-view conditioning notice: {mv_err}")
 
             if job._cancel_requested:
                 return
@@ -230,6 +253,40 @@ class JobManager:
                     job.log("Blender post-processing timed out after 180s. Keeping raw mesh.")
                 except Exception as b_err:
                     job.log(f"Blender execution notice: {b_err}")
+
+                # Optional AAA Game-Asset Retopology & PBR Baking
+                if job.params.get("retopology_and_bake", False):
+                    job.set_stage("Quad Retopology & High-to-Low PBR Texture Baking", 85)
+                    baker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bridge", "retopology_and_baker.py")
+                    target_f = job.params.get("target_faces", 8000)
+                    bake_cmd = [
+                        blender_exe, "--background",
+                        "--python", baker_script,
+                        "--",
+                        "--mesh", job.output_mesh,
+                        "--out", blend_out_dir,
+                        "--faces", str(target_f),
+                        "--res", "2048"
+                    ]
+                    try:
+                        proc_b = subprocess.run(bake_cmd, capture_output=True, text=True, timeout=240.0)
+                        if proc_b.returncode == 0:
+                            norm_p = os.path.join(blend_out_dir, "baked_normal.png")
+                            diff_p = os.path.join(blend_out_dir, "baked_diffuse.png")
+                            gr_glb = os.path.join(blend_out_dir, "model_game_ready.glb")
+                            if os.path.exists(norm_p):
+                                job.baked_normal = norm_p
+                            if os.path.exists(diff_p):
+                                job.baked_diffuse = diff_p
+                            if os.path.exists(gr_glb):
+                                job.game_ready_glb = gr_glb
+                            job.log("AAA Quad retopology & tangent normal/diffuse texture baking completed.")
+                        else:
+                            job.log(f"Baking notice: {proc_b.stderr[:200]}")
+                    except subprocess.TimeoutExpired:
+                        job.log("Retopology & baking timed out after 240s; raw mesh preserved.")
+                    except Exception as bake_err:
+                        job.log(f"Retopology notice: {bake_err}")
             else:
                 job.log("Blender executable not found on system; generated 3D mesh saved directly.")
 

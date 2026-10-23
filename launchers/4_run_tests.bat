@@ -32,7 +32,7 @@ set PYTHONPATH=%cd%
 .venv\Scripts\python.exe -m pytest tests -v
 if errorlevel 1 goto :tests_failed
 echo.
-echo [SUCCESS] All 25 tests passed!
+echo [SUCCESS] All 28 tests passed!
 pause
 exit /b 0
 
