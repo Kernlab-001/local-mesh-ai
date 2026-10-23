@@ -25,10 +25,9 @@
 
 ## 📥 Downloads & Releases
 
-Get the latest pre-packaged release directly from the [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
+Get the latest release bundle directly from [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
 
-* 📦 **Complete Project Release Archive:** [**`local-mesh-ai-v2.1.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one bundle including all backend engines, hardware calibrator, and batch runners.
-* 🔌 **Standalone Blender Extension:** [**`addon/Local_Neural_3D_Studio_v2.1.zip`**](addon/Local_Neural_3D_Studio_v2.1.zip) — 1-Click installable add-on for Blender 4.2 LTS & 5.2 LTS.
+* 📦 **Complete Project Archive:** [**`local-mesh-ai-v2.1.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
 
 ---
 
@@ -126,7 +125,7 @@ This automatically detects your installed GPU, physical VRAM, and Blender path, 
 1. Open **Blender 5.2** (or 4.2 LTS).
 2. Go to **Edit > Preferences > Add-ons**.
 3. In the top-right corner, click **Dropdown Arrow (⌄) > Install from Disk...**
-4. Select [`addon/Local_Neural_3D_Studio_v2.1.zip`](addon/Local_Neural_3D_Studio_v2.1.zip) (or [`addon/triposr_blender_addon.py`](addon/triposr_blender_addon.py)).
+4. Select [`addon/triposr_blender_addon.py`](addon/triposr_blender_addon.py).
 5. Check the box to enable **Local Neural 3D Studio**.
 
 ### Generating Assets in Blender
@@ -245,8 +244,7 @@ local-mesh-ai/
 │   └── export_service.py       # GLB, FBX, OBJ export pipeline
 │
 ├── addon/
-│   ├── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension (with auto-launcher)
-│   └── Local_Neural_3D_Studio_v2.1.zip # Installable ZIP archive for Blender
+│   └── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension (with auto-launcher)
 │
 ├── release/                    # Pre-packaged distribution archives
 │   └── local-mesh-ai-v2.1.zip  # Ready-to-run GitHub Release archive
