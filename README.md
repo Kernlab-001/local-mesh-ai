@@ -92,30 +92,16 @@ flowchart TD
 * **Blender:** Blender 4.2 LTS or Blender 5.2 LTS installed.
 * **Python:** Python 3.10 – 3.12.
 
-### 2. Installation
-Clone the repository:
-```bash
-git clone https://github.com/Kernlab-001/local-mesh-ai.git
-cd local-mesh-ai
-```
+### 2. 1-Click Setup (`launchers/` folder)
 
-Install dependencies into a virtual environment:
-```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux/macOS
-source .venv/bin/activate
+After extracting `local-mesh-ai-v2.1.zip`, open the **`launchers/`** folder:
 
-pip install -r requirements.txt
-```
+1. **Step 1:** Double-click **`launchers/1_setup_environment.bat`**
+   * Automatically creates the `.venv` virtual environment, upgrades pip, and installs all dependencies (PyTorch CUDA 12.4, diffusers, TripoSR requirements).
+2. **Step 2:** Double-click **`launchers/2_detect_hardware.bat`**
+   * Automatically detects your GPU model, physical VRAM, and Blender installation, tuning `config.json` for zero Out-Of-Memory crashes.
 
-### 3. Run Hardware Auto-Detection
-Double-click [`detect_hardware.bat`](detect_hardware.bat) or run:
-```bash
-python detect_hardware.py
-```
-This automatically detects your installed GPU, physical VRAM, and Blender path, calibrating `config.json` for your specific machine.
+*(For Linux / macOS, run `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 detect_hardware.py`)*
 
 ---
 
@@ -219,6 +205,13 @@ local-mesh-ai/
 ├── start_api.bat               # Windows launcher for API
 ├── run_tests.bat               # Windows launcher for automated test suite
 ├── requirements.txt            # Python dependencies
+│
+├── launchers/                  # 1-Click numbered Windows batch runners
+│   ├── 1_setup_environment.bat # Creates .venv & installs all dependencies
+│   ├── 2_detect_hardware.bat   # Auto-detects GPU, VRAM & Blender path
+│   ├── 3_start_backend.bat     # Launches local orchestration server
+│   ├── 4_run_tests.bat         # Runs 25 automated test suites
+│   └── generate_model.bat      # Drag-and-drop standalone model generator
 │
 ├── core/
 │   ├── hardware_detector.py    # Auto-detects GPU, VRAM limits & Blender executable
