@@ -27,7 +27,7 @@
 
 Get the latest release bundle directly from [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
 
-* 📦 **Complete Project Archive:** [**`local-mesh-ai-v2.1.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
+* 📦 **Complete Project Archive:** [**`local-mesh-ai-vx.x.x.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
 
 ---
 
