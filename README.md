@@ -94,7 +94,7 @@ flowchart TD
 
 ### 2. 1-Click Setup (`launchers/` folder)
 
-After extracting `local-mesh-ai-v2.1.zip`, open the **`launchers/`** folder:
+After extracting `local-mesh-ai-vx.x.xzip`, open the **`launchers/`** folder:
 
 1. **Step 1:** Double-click **`launchers/1_setup_environment.bat`**
    * Automatically creates the `.venv` virtual environment, upgrades pip, and installs all dependencies (PyTorch CUDA 12.4, diffusers, TripoSR requirements).
