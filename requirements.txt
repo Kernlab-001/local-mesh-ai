@@ -16,7 +16,7 @@ omegaconf==2.4.0
 imageio[ffmpeg]==2.38.1
 xatlas==0.0.11
 moderngl==5.13.0
-Pillow>=10.1.0
+Pillow>=13.0.0
 scikit-image>=0.22.0
 numpy>=1.26.0
 
