@@ -4,3 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "torch"
+      - dependency-name: "torchvision"
+      - dependency-name: "transformers"
+      - dependency-name: "diffusers"
+      - dependency-name: "numpy"
+      - dependency-name: "gradio"
