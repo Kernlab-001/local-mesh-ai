@@ -18,7 +18,7 @@ xatlas==0.0.11
 moderngl==5.13.0
 Pillow>=10.1.0
 scikit-image>=0.22.0
-numpy>=1.24.0
+numpy>=2.5.4
 
 # Concept Image Generation (SD-Turbo)
 diffusers>=0.41.0
