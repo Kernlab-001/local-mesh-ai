@@ -52,6 +52,11 @@ gpu_lease.lock
 *.tmp
 *.log
 
+# Personal Video Scripts & Guides
+*video*
+*director*
+*prompter*
+
 # Release Archives (Upload directly to GitHub Releases)
 release/*.zip
 
