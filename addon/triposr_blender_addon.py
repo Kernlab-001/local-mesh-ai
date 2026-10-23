@@ -14,6 +14,7 @@ import sys
 import json
 import math
 import subprocess
+import atexit
 import urllib.request
 import urllib.parse
 from bpy.props import (
@@ -25,6 +26,7 @@ from bpy.props import (
 )
 
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
+_global_server_process = None
 
 # --- Add-on Preferences (Persists across ALL Blender sessions & new files!) ---
 class TripoSRAddonPreferences(bpy.types.AddonPreferences):
@@ -160,14 +162,36 @@ def launch_backend_console(project_dir=None):
             # Spawns a dedicated visible Command Prompt console window
             creation_flags = subprocess.CREATE_NEW_CONSOLE
 
-        subprocess.Popen(
-            [py_exe, server_script],
+        # Pass Blender's PID so the server automatically closes when Blender exits!
+        blender_pid = os.getpid()
+        cmd = [py_exe, server_script, "--parent-pid", str(blender_pid)]
+
+        global _global_server_process
+        _global_server_process = subprocess.Popen(
+            cmd,
             cwd=project_dir,
             creationflags=creation_flags
         )
         return True, "Backend server console launched successfully!"
     except Exception as e:
         return False, f"Failed to launch server terminal: {e}"
+
+def stop_backend_console():
+    """Terminates the spawned backend server process and closes the console window."""
+    global _global_server_process
+    terminated = False
+    if _global_server_process is not None:
+        try:
+            if _global_server_process.poll() is None:
+                _global_server_process.terminate()
+                terminated = True
+        except Exception:
+            pass
+        _global_server_process = None
+    return terminated
+
+# Register cleanup so terminal closes when Blender exits
+atexit.register(stop_backend_console)
 
 def _on_preset_change(self, context):
     """Updates target height to sensible defaults when preset is changed."""
@@ -528,6 +552,22 @@ class TRIPOSR_OT_StartServer(bpy.types.Operator):
         bpy.app.timers.register(_verify_server, first_interval=1.5)
         return {'FINISHED'}
 
+class TRIPOSR_OT_StopServer(bpy.types.Operator):
+    bl_idname = "triposr.stop_server"
+    bl_label = "Stop Server Terminal"
+    bl_description = "Terminates the backend server process and closes the terminal console"
+
+    def execute(self, context):
+        props = context.scene.triposr_props
+        stopped = stop_backend_console()
+        props.is_server_online = False
+        props.status_message = "Server stopped"
+        if stopped:
+            self.report({'INFO'}, "Backend server console stopped.")
+        else:
+            self.report({'INFO'}, "Server process terminated.")
+        return {'FINISHED'}
+
 class TRIPOSR_OT_Generate(bpy.types.Operator):
     bl_idname = "triposr.generate_asset"
     bl_label = "⚡ Generate 3D Asset"
@@ -687,6 +727,7 @@ class TRIPOSR_PT_MainPanel(bpy.types.Panel):
         srv_row = srv_box.row(align=True)
         if props.is_server_online:
             srv_row.label(text="Backend Server: 🟢 Online (Port 8000)", icon='CHECKMARK')
+            srv_row.operator("triposr.stop_server", text="Stop", icon='CANCEL')
         else:
             srv_row.label(text="Backend Server: 🔴 Offline", icon='CANCEL')
             srv_row.operator("triposr.start_server", text="Launch Terminal", icon='CONSOLE')
@@ -814,6 +855,7 @@ classes = (
     TripoSRAddonPreferences,
     TripoSRProperties,
     TRIPOSR_OT_StartServer,
+    TRIPOSR_OT_StopServer,
     TRIPOSR_OT_Generate,
     TRIPOSR_OT_Cancel,
     TRIPOSR_OT_ToggleWireframe,
@@ -852,6 +894,12 @@ def register():
         bpy.app.timers.register(_startup_server_check, first_interval=1.0)
 
 def unregister():
+    # Terminate backend console if running
+    try:
+        stop_backend_console()
+    except Exception:
+        pass
+
     if bpy.app.timers.is_registered(_periodic_server_check):
         bpy.app.timers.unregister(_periodic_server_check)
     if bpy.app.timers.is_registered(_startup_server_check):
