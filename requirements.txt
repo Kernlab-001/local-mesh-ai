@@ -34,7 +34,7 @@ diskcache>=5.6.1
 
 # Testing
 pytest>=8.0.0
-pytest-asyncio>=0.23.0
+pytest-asyncio>=1.4.0
 
 # Optional: LLM Natural-Language Scene Editing (Qwen 2.5 Coder)
 # On Windows, install prebuilt CUDA wheel to avoid requiring C++ compiler:
