@@ -52,54 +52,52 @@ class PromptToImageEngine:
         )
 
         # Acquire GPU lease to avoid VRAM collision with TripoSR or Qwen
-        lease = gpu_broker.acquire("sd_turbo", timeout=120)
+        with gpu_broker.lease("sd_turbo", timeout=120):
+            pipe = None
+            try:
+                from diffusers import AutoPipelineForText2Image
 
-        pipe = None
-        try:
-            from diffusers import AutoPipelineForText2Image
+                use_cuda = torch.cuda.is_available()
+                target_device = "cuda" if use_cuda else "cpu"
+                target_dtype = torch.float16 if use_cuda else torch.float32
 
-            use_cuda = torch.cuda.is_available()
-            target_device = "cuda" if use_cuda else "cpu"
-            target_dtype = torch.float16 if use_cuda else torch.float32
+                # Setup generator for deterministic seed if specified
+                generator = None
+                if seed >= 0:
+                    generator = torch.Generator(device=target_device).manual_seed(seed)
 
-            # Setup generator for deterministic seed if specified
-            generator = None
-            if seed >= 0:
-                generator = torch.Generator(device=target_device).manual_seed(seed)
+                # Load pipeline (float16 on CUDA, float32 on CPU)
+                load_kwargs = {"torch_dtype": target_dtype}
+                if use_cuda:
+                    load_kwargs["variant"] = "fp16"
 
-            # Load pipeline (float16 on CUDA, float32 on CPU)
-            load_kwargs = {"torch_dtype": target_dtype}
-            if use_cuda:
-                load_kwargs["variant"] = "fp16"
+                pipe = AutoPipelineForText2Image.from_pretrained(
+                    self.model_id,
+                    **load_kwargs
+                )
+                pipe.to(target_device)
 
-            pipe = AutoPipelineForText2Image.from_pretrained(
-                self.model_id,
-                **load_kwargs
-            )
-            pipe.to(target_device)
+                # SD-Turbo is trained for 1 step with guidance_scale=0.0
+                image = pipe(
+                    prompt=final_prompt,
+                    negative_prompt=neg_prompt,
+                    num_inference_steps=1,
+                    guidance_scale=0.0,
+                    generator=generator,
+                    height=height,
+                    width=width
+                ).images[0]
 
-            # SD-Turbo is trained for 1 step with guidance_scale=0.0
-            image = pipe(
-                prompt=final_prompt,
-                negative_prompt=neg_prompt,
-                num_inference_steps=1,
-                guidance_scale=0.0,
-                generator=generator,
-                height=height,
-                width=width
-            ).images[0]
+                image.save(output_path)
+                return output_path
 
-            image.save(output_path)
-            return output_path
-
-        finally:
-            # Complete VRAM cleanup
-            if pipe is not None:
-                del pipe
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            gpu_broker.release(lease)
+            finally:
+                # Complete VRAM cleanup
+                if pipe is not None:
+                    del pipe
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
 
 prompt_engine = PromptToImageEngine()

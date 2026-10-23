@@ -92,7 +92,10 @@ def edit_job_with_qwen(job_id: str, req: EditJobRequest):
         "--", temp_plan, blend_in, blend_out
     ]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180.0)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Blender script execution timed out after 180 seconds.")
     if proc.returncode != 0:
         raise HTTPException(status_code=500, detail=f"Blender executor failed:\n{proc.stderr}")
 

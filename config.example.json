@@ -1,5 +1,5 @@
 {
-  "blender_path": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+  "blender_path": "blender",
   "gpu_device": "cuda:0",
   "gpu_name": "Auto-detected",
   "vram_gb": 6.0,

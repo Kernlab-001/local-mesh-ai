@@ -219,7 +219,7 @@ class HardwareDetector:
                     pass
 
             updated_cfg = {
-                "blender_path": blender_path or current_cfg.get("blender_path", "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"),
+                "blender_path": blender_path or current_cfg.get("blender_path", "blender"),
                 "gpu_device": gpu_info["device"],
                 "gpu_name": gpu_info["name"],
                 "vram_gb": gpu_info["vram_gb"],

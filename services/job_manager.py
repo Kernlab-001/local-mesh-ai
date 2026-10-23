@@ -9,6 +9,8 @@ import time
 import json
 import uuid
 import threading
+import shutil
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List
 from core.hardware_detector import hardware_detector
@@ -16,7 +18,6 @@ from core.triposr_engine import triposr_engine
 from core.gpu_broker import gpu_broker
 from core.prompt_to_image import prompt_engine
 from core.color_calibrator import color_calibrator
-import subprocess
 
 JOBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
@@ -196,28 +197,41 @@ class JobManager:
 
             blend_out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
             bridge_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bridge", "blender_bridge.py")
-            blender_exe = hardware_detector.find_blender() or "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
+            blender_exe = hardware_detector.find_blender() or "blender"
 
-            cmd = [
-                blender_exe, "--background",
-                "--python", bridge_script,
-                "--",
-                "--mesh", job.output_mesh,
-                "--image", os.path.abspath(image_path),
-                "--out", blend_out_dir,
-                "--preset", job.params.get("preset", "prop")
-            ]
+            is_blender_available = False
+            if blender_exe:
+                if os.path.exists(blender_exe) or shutil.which(blender_exe):
+                    is_blender_available = True
 
-            if not job.params.get("sharp_overlay", True):
-                cmd.append("--no-overlay")
+            if is_blender_available:
+                cmd = [
+                    blender_exe, "--background",
+                    "--python", bridge_script,
+                    "--",
+                    "--mesh", job.output_mesh,
+                    "--image", os.path.abspath(image_path),
+                    "--out", blend_out_dir,
+                    "--preset", job.params.get("preset", "prop")
+                ]
 
-            target_blend = job.params.get("target_blend")
-            if target_blend and os.path.exists(target_blend):
-                cmd.extend(["--blend", os.path.abspath(target_blend)])
+                if not job.params.get("sharp_overlay", True):
+                    cmd.append("--no-overlay")
 
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode != 0:
-                job.log(f"Blender notice: {proc.stderr[:200]}")
+                target_blend = job.params.get("target_blend")
+                if target_blend and os.path.exists(target_blend):
+                    cmd.extend(["--blend", os.path.abspath(target_blend)])
+
+                try:
+                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180.0)
+                    if proc.returncode != 0:
+                        job.log(f"Blender notice: {proc.stderr[:200]}")
+                except subprocess.TimeoutExpired:
+                    job.log("Blender post-processing timed out after 180s. Keeping raw mesh.")
+                except Exception as b_err:
+                    job.log(f"Blender execution notice: {b_err}")
+            else:
+                job.log("Blender executable not found on system; generated 3D mesh saved directly.")
 
             job.output_blend = os.path.join(blend_out_dir, "project.blend")
             job.preview_png = os.path.join(blend_out_dir, "preview.png")
