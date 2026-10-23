@@ -5,7 +5,7 @@ torchvision==0.21.0+cu124
 
 # Neural 3D & Image Processing
 transformers==4.49.0
-tokenizers==0.21.4
+tokenizers==0.23.3
 huggingface-hub==0.36.2
 trimesh==5.1.1
 rembg==2.0.86
