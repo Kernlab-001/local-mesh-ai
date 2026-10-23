@@ -48,6 +48,28 @@ class HardwareDetector:
         except Exception as e:
             gpu_info["error"] = str(e)
 
+        # Fallback: query system nvidia-smi if PyTorch is not yet installed or not CUDA
+        if not gpu_info["available"]:
+            try:
+                out = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"],
+                    encoding="utf-8",
+                    errors="ignore"
+                ).strip()
+                if out:
+                    line = out.splitlines()[0]
+                    parts = [p.strip() for p in line.split(",")]
+                    gpu_name = parts[0]
+                    mem_mb = float(parts[1])
+                    driver_ver = parts[2] if len(parts) > 2 else "Installed"
+                    gpu_info["available"] = True
+                    gpu_info["device"] = "cuda:0"
+                    gpu_info["name"] = gpu_name
+                    gpu_info["vram_gb"] = round(mem_mb / 1024.0, 2)
+                    gpu_info["cuda_version"] = f"Driver {driver_ver}"
+            except Exception:
+                pass
+
         return gpu_info
 
     def detect_cpu_ram(self) -> Dict[str, Any]:
@@ -230,6 +252,21 @@ if __name__ == "__main__":
     print(f"Blender:  {prof['blender']['path']}")
     print(f"Profile:  {prof['tuning']['tier']}")
     print(f"Settings: Resolution={prof['tuning']['mc_resolution']}, Chunk={prof['tuning']['chunk_size']}, VRAM Limit={prof['tuning']['vram_limit_gb']}GB")
-    print(f"LLM Pick: {prof['tuning']['recommended_llm']}")
+    
+    # Check for installed local GGUF LLM models
+    found_llm = None
+    try:
+        for f in os.listdir(PROJECT_ROOT):
+            if f.endswith(".gguf"):
+                found_llm = f
+                break
+    except Exception:
+        pass
+
+    if found_llm:
+        print(f"Local LLM: Installed ({found_llm})")
+    else:
+        print("Local LLM: None installed (Optional - only needed for AI scene editing)")
+        print(f"Recommended LLM for this GPU: {prof['tuning']['recommended_llm']}")
     print("=" * 65)
     print("Successfully calibrated config.json for this machine!")

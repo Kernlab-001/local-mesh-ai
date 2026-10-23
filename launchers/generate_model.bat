@@ -3,8 +3,10 @@ title Local Mesh AI - Drag-and-Drop Model Generator
 cd /d "%~dp0.."
 
 if not exist ".venv\Scripts\python.exe" (
-    echo [ERROR] Virtual environment not found!
-    echo Please run 1_setup_environment.bat first.
+    echo ==========================================================
+    echo [ERROR] Virtual environment (.venv) was not found!
+    echo Please run 1_setup_environment.bat first to set up the environment.
+    echo ==========================================================
     pause
     exit /b 1
 )

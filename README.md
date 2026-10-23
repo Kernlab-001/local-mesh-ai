@@ -133,7 +133,7 @@ The local server orchestrates all AI model loading, cross-process GPU leasing, a
 To start the server manually (optional):
 ```bash
 # Windows
-start_api.bat
+launchers\3_start_backend.bat
 # or
 python run_server.py
 ```
@@ -176,7 +176,7 @@ Local Mesh AI utilizes local GGUF models for its natural-language AI Technical A
 | **Pro (16GB – 24GB+)** | `Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf` | ~8.9 GB | 16 GB+ VRAM | [HuggingFace 14B GGUF](https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF) |
 
 > [!TIP]
-> **Automatic Calibration:** Run `detect_hardware.bat` to automatically scan your GPU and print the ideal LLM tier for your system! Place any downloaded `.gguf` model in the root project folder and configure `"qwen_model_path"` in `config.json`.
+> **Hardware Tuning:** Double-click `launchers/2_detect_hardware.bat` to automatically scan your GPU and view recommended model sizes for your card. Place any downloaded `.gguf` model in the root project folder and configure `"qwen_model_path"` in `config.json`.
 
 
 ---
@@ -186,7 +186,7 @@ Local Mesh AI utilizes local GGUF models for its natural-language AI Technical A
 Local Mesh AI includes an automated test suite verifying GPU broker locks, command schemas, prompt generation, color transfer mathematics, and REST endpoints:
 ```bash
 # Windows
-run_tests.bat
+launchers\4_run_tests.bat
 # Linux/macOS
 pytest tests -v
 ```
@@ -200,10 +200,8 @@ pytest tests -v
 local-mesh-ai/
 ├── config.example.json         # Reference configuration template
 ├── detect_hardware.py          # Dynamic GPU & environment auto-detection
-├── detect_hardware.bat         # 1-Click hardware scanner launcher
 ├── run_server.py               # Starts FastAPI local orchestration backend (Port 8000)
-├── start_api.bat               # Windows launcher for API
-├── run_tests.bat               # Windows launcher for automated test suite
+├── run_master.py               # Master CLI orchestration runner
 ├── requirements.txt            # Python dependencies
 │
 ├── launchers/                  # 1-Click numbered Windows batch runners
