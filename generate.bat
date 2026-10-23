@@ -1,5 +1,5 @@
 @echo off
-cd /d E:\GPUPLAT
+cd /d "%~dp0"
 if "%~1"=="" (
     echo Please drag and drop an image onto this file or specify an image path!
     echo Usage: generate.bat path\to\image.png

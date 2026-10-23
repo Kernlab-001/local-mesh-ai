@@ -7,14 +7,22 @@ with strict path validation.
 import os
 import sys
 import subprocess
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 ALLOWED_FORMATS = {"glb", "fbx", "obj"}
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 class ExportService:
-    def __init__(self, blender_path: str = "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe", export_dir: str = "E:/GPUPLAT/output/exports"):
-        self.blender_path = blender_path
-        self.export_dir = os.path.abspath(export_dir)
+    def __init__(self, blender_path: Optional[str] = None, export_dir: Optional[str] = None):
+        if not blender_path:
+            try:
+                from core.hardware_detector import hardware_detector
+                blender_path = hardware_detector.find_blender()
+            except Exception:
+                pass
+        self.blender_path = blender_path or "blender"
+        self.export_dir = os.path.abspath(export_dir or os.path.join(PROJECT_ROOT, "output", "exports"))
         os.makedirs(self.export_dir, exist_ok=True)
 
     def export_asset(self, blend_path: str, format_type: str, output_name: str = "model") -> Dict[str, Any]:

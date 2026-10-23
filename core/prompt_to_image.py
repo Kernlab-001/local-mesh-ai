@@ -58,18 +58,25 @@ class PromptToImageEngine:
         try:
             from diffusers import AutoPipelineForText2Image
 
+            use_cuda = torch.cuda.is_available()
+            target_device = "cuda" if use_cuda else "cpu"
+            target_dtype = torch.float16 if use_cuda else torch.float32
+
             # Setup generator for deterministic seed if specified
             generator = None
             if seed >= 0:
-                generator = torch.Generator(device="cuda").manual_seed(seed)
+                generator = torch.Generator(device=target_device).manual_seed(seed)
 
-            # Load pipeline directly into float16 on CUDA
+            # Load pipeline (float16 on CUDA, float32 on CPU)
+            load_kwargs = {"torch_dtype": target_dtype}
+            if use_cuda:
+                load_kwargs["variant"] = "fp16"
+
             pipe = AutoPipelineForText2Image.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.float16,
-                variant="fp16"
+                **load_kwargs
             )
-            pipe.to("cuda")
+            pipe.to(target_device)
 
             # SD-Turbo is trained for 1 step with guidance_scale=0.0
             image = pipe(

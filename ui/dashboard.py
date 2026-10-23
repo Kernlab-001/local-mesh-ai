@@ -55,7 +55,8 @@ def generate_3d_asset(
         if input_image is None:
             raise gr.Error("Please upload or drag & drop a 2D image first!")
         # Save uploaded image to temp/inputs
-        inputs_dir = "E:/GPUPLAT/inputs"
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        inputs_dir = os.path.join(project_root, "inputs")
         os.makedirs(inputs_dir, exist_ok=True)
         temp_img_path = os.path.join(inputs_dir, f"input_{int(time.time())}.png")
         input_image.save(temp_img_path)

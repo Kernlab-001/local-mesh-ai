@@ -15,10 +15,12 @@ from core.gpu_broker import gpu_broker
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 class TripoSREngine:
-    def __init__(self, triposr_dir: str = "E:/GPUPLAT/TripoSR", output_dir: str = "E:/GPUPLAT/output"):
-        self.triposr_dir = triposr_dir
-        self.output_dir = output_dir
+    def __init__(self, triposr_dir: Optional[str] = None, output_dir: Optional[str] = None):
+        self.triposr_dir = triposr_dir or os.path.join(PROJECT_ROOT, "TripoSR")
+        self.output_dir = output_dir or os.path.join(PROJECT_ROOT, "output")
 
     def validate_image(self, image_path: str) -> Dict[str, Any]:
         """Validates image exists, is accessible, and meets dimension/format constraints."""

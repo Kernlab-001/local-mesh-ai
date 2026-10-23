@@ -122,7 +122,8 @@ if __name__ == "__main__":
         
     mesh_file = None
     img_file = None
-    out_dir = "E:/GPUPLAT/output"
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out_dir = os.path.join(project_root, "output")
     target_blend = None
     
     preset = "prop"

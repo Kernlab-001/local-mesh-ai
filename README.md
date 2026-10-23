@@ -131,12 +131,13 @@ This automatically detects your installed GPU, physical VRAM, and Blender path, 
 
 ### Generating Assets in Blender
 1. In Blender's 3D Viewport, press **`N`** to reveal the sidebar $\rightarrow$ click the **`AI 3D Generator`** tab.
-2. **⚡ Zero-Click Terminal Auto-Launcher:** You don't even need to manually start a terminal window before working. When you click **⚡ Generate 3D Asset**, Blender automatically checks if the backend server is running; if not, it automatically spawns the server terminal console in a separate window, initializes the GPU pipeline, and submits your generation!
-3. Alternatively, you can click **`Launch Terminal`** in the status header at the top of the N-Panel at any time to open the console and inspect live GPU memory logs.
-4. Choose your generation mode:
+2. **Configure Repo Root (One-time):** Expand **Server & Path Settings** and ensure **Repo Root** points to your extracted `local-mesh-ai` folder (this is saved permanently to your global Blender Add-on Preferences).
+3. **⚡ Zero-Click Terminal Auto-Launcher:** You don't need to manually start a terminal window before working. When you click **⚡ Generate 3D Asset**, Blender automatically checks if the backend server is running; if not, it automatically spawns the server terminal console in a separate window, initializes the GPU pipeline, and submits your generation!
+4. Alternatively, you can click **`Launch Terminal`** in the status header at the top of the N-Panel at any time to open the console and inspect live GPU memory logs.
+5. Choose your generation mode:
    * **Prompt to 3D:** Enter any descriptive prompt (*e.g., "medieval glowing battleaxe with carved runes"*) $\rightarrow$ Click **⚡ Generate 3D from Prompt**.
    * **Image to 3D:** Pick any 2D reference artwork $\rightarrow$ Click **⚡ Generate 3D from Image**.
-5. The asset generates with live non-blocking progress updates and imports automatically into an isolated collection (`AI_Generated_Assets`) with full PBR shaders, centered pivot, and 1:1 calibrated colors.
+6. The asset generates with live non-blocking progress updates and imports automatically into an isolated collection (`AI_Generated_Assets`) with full PBR shaders, centered pivot, and perceptually calibrated colors matching reference artwork vibrancy.
 
 ---
 
@@ -255,6 +256,9 @@ local-mesh-ai/
 
 ---
 
-## 📜 License
+## 📜 License & Model Attributions
 
-Distributed under the **Apache 2.0 License**. See [`LICENSE`](LICENSE) for more information.
+* **Application Code:** Distributed under the **Apache 2.0 License**. See [`LICENSE`](LICENSE).
+* **TripoSR:** Neural 3D reconstruction engine licensed under the **MIT License** by VAST-AI Research & Stability AI.
+* **SD-Turbo:** 1-step concept synthesis model distributed under the **Stability AI Community License** (research/non-commercial; commercial use requires a Stability AI license).
+* **Qwen 2.5 Coder:** LLM planning weights licensed under the **Tongyi Qianwen License Agreement**.

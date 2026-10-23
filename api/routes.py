@@ -81,8 +81,11 @@ def edit_job_with_qwen(job_id: str, req: EditJobRequest):
     with open(temp_plan, "w") as f:
         f.write(plan.model_dump_json())
 
-    executor_script = "E:/GPUPLAT/core/blender_executor.py"
-    blender_exe = "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    executor_script = os.path.join(project_root, "core", "blender_executor.py")
+    
+    from core.hardware_detector import hardware_detector
+    blender_exe = hardware_detector.find_blender() or "blender"
     cmd = [
         blender_exe, "--background",
         "--python", executor_script,
