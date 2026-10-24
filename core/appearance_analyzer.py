@@ -316,9 +316,10 @@ class AppearanceAnalyzer:
                     break
 
             cushion_color = [80, 45, 25] if is_leather else [242, 235, 220]
-            for kw, rgb in COLOR_KEYWORDS.items():
-                if kw in prompt_lower and (kw in ("ivory", "cream", "white", "ivory-cream", "beige", "brown")):
-                    cushion_color = rgb
+            cushion_kw_priority = ["ivory-cream", "ivory", "cream", "white", "beige", "gold", "crimson", "red", "blue", "green", "brown"]
+            for kw in cushion_kw_priority:
+                if kw in prompt_lower and kw in COLOR_KEYWORDS:
+                    cushion_color = COLOR_KEYWORDS[kw]
                     break
 
             mat_frame = MaterialSlotConfig(

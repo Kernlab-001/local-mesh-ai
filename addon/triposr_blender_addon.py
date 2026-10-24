@@ -484,8 +484,8 @@ def _inspect_material_slot(mat) -> dict:
                     # Clean direct bypass: connect texture directly into Base Color
                     mat.node_tree.links.new(tex_node.outputs['Color'], base_color_inp)
                     break
-        elif from_node.type == 'VERTEX_COLOR':
-            pass
+        elif from_node.type in ('VERTEX_COLOR', 'ATTRIBUTE'):
+            return {'status': 'VALID_COLORED', 'mat': mat, 'reason': f'Principled BSDF Base Color linked to {from_node.type} {from_node.name}'}
 
     # If texture node found, check image resource
     if tex_node:
@@ -580,8 +580,8 @@ def _apply_in_viewport_pbr(obj, mesh_path=None, props=None, profile_data=None):
     needs_multi_material = bool(resolved_profile and len(resolved_profile.materials) > 1)
 
     # 3. Decision: Can we preserve existing materials?
-    if len(valid_slots) > 0 and len(invalid_slots) == 0:
-        if not needs_multi_material or len(valid_slots) >= len(resolved_profile.materials):
+    has_authored_coverage = any(i.get('status') in ('VALID_TEXTURED', 'VALID_COLORED') for i in valid_slots)
+    if len(valid_slots) > 0 and len(invalid_slots) == 0 and has_authored_coverage:
             report["status"] = "preserved"
             report["preserved"] = [i["mat"].name for i in valid_slots]
             print(f"[Blender Addon] Preserved {len(valid_slots)} valid authored PBR material slots on '{obj.name}'.")

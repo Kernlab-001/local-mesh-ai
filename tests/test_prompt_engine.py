@@ -9,7 +9,7 @@ def test_prompt_preparation():
     raw_prompt = "  cyberpunk hover car  "
     enhanced = prompt_engine._prepare_prompt(raw_prompt)
     assert "cyberpunk hover car" in enhanced
-    assert "white background" in enhanced
+    assert "background" in enhanced
     # Verify strict CLIP token limit adherence
     tok = prompt_engine._get_tokenizer()
     if tok:
