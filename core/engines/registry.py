@@ -44,6 +44,7 @@ class EngineRegistry:
                 continue
             details = eng.get_status_details()
             details["capabilities"] = eng.capabilities
+            details["hardware_requirements"] = eng.hardware_requirements
             result.append(details)
         return result
 
@@ -140,10 +141,20 @@ class EngineRegistry:
 
         elif modality == "text-to-3d":
             if profile == "direct_latent":
-                return self._engines["shap_e"], {
+                shap_eng = self._engines["shap_e"]
+                status = shap_eng.get_status()
+                warning = None
+                if status == EngineStatus.NEEDS_DOWNLOAD:
+                    warning = "Shap-E requires model weights download (~1.1GB openai/shap-e)."
+                elif status != EngineStatus.READY:
+                    warning = f"Shap-E engine status is '{status.value}'."
+
+                return shap_eng, {
                     "engine_id": "shap_e",
-                    "name": self._engines["shap_e"].name,
+                    "name": shap_eng.name,
                     "reason": "Direct text-conditioned 3D implicit surface generation (Strategy A).",
+                    "status": status.value,
+                    "warning": warning,
                     "hardware": hw
                 }
             else:

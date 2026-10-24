@@ -15,6 +15,11 @@ from PIL import Image
 from core.gpu_broker import gpu_broker
 from core.input_validator import input_validator, ValidationError
 
+# Enforce offline local inference for privacy and sandbox isolation
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["DIFFUSERS_OFFLINE"] = "1"
+
 # Core semantic keywords to prioritize in token budget
 COLOR_KEYWORDS = {
     'walnut', 'dark walnut', 'brown', 'ivory', 'cream', 'ivory-cream', 'white',
@@ -141,7 +146,8 @@ class PromptToImageEngine:
                 from transformers import AutoTokenizer
                 self._tokenizer = AutoTokenizer.from_pretrained(
                     self.model_id,
-                    subfolder="tokenizer"
+                    subfolder="tokenizer",
+                    local_files_only=True
                 )
             except Exception:
                 self._tokenizer = None
@@ -196,7 +202,7 @@ class PromptToImageEngine:
                     generator = torch.Generator(device=target_device).manual_seed(seed)
 
                 # Load pipeline (float16 on CUDA, float32 on CPU)
-                load_kwargs = {"torch_dtype": target_dtype}
+                load_kwargs = {"torch_dtype": target_dtype, "local_files_only": True}
                 if use_cuda:
                     load_kwargs["variant"] = "fp16"
 

@@ -23,6 +23,7 @@ class DINOSingleImageTokenizer(BaseModule):
                 hf_hub_download(
                     repo_id=self.cfg.pretrained_model_name_or_path,
                     filename="config.json",
+                    local_files_only=True
                 )
             )
         )

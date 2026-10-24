@@ -92,11 +92,12 @@ class TrellisAdapter(Base3DEngine):
 
     def generate(
         self,
-        input_data: Any,
-        output_dir: str,
-        modality: str,
+        input_data: Any = None,
+        output_dir: Optional[str] = None,
+        modality: Optional[str] = "image-to-3d",
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        **kwargs
     ) -> StandardizedAsset:
         status = self.get_status()
         if status != EngineStatus.READY:

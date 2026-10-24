@@ -54,16 +54,50 @@ class HybridTextTo3DAdapter(Base3DEngine):
         }
 
     def get_status(self) -> EngineStatus:
-        # Check prompt engine model availability
+        """Determines if both SD-Turbo and downstream reconstruction engine are ready."""
+        from core.engines.triposr_adapter import TripoSRAdapter
+        downstream = self.secondary_engine or TripoSRAdapter()
+        down_status = downstream.get_status()
+        if down_status != EngineStatus.READY:
+            return down_status
+
+        from core.model_manager import model_manager, ModelMetadata
+        sd_meta = ModelMetadata(
+            model_id="sd_turbo",
+            name="SD-Turbo",
+            engine_id="hybrid_sd_triposr",
+            description="",
+            approx_size_gb=2.5,
+            hf_repo_id="stabilityai/sd-turbo"
+        )
+        if not model_manager.is_model_installed(sd_meta):
+            return EngineStatus.NEEDS_DOWNLOAD
+
         return EngineStatus.READY
 
     def get_status_details(self) -> Dict[str, Any]:
         status = self.get_status()
+        from core.engines.triposr_adapter import TripoSRAdapter
+        downstream = self.secondary_engine or TripoSRAdapter()
+        from core.model_manager import model_manager, ModelMetadata
+        sd_meta = ModelMetadata(
+            model_id="sd_turbo",
+            name="SD-Turbo",
+            engine_id="hybrid_sd_triposr",
+            description="",
+            approx_size_gb=2.5,
+            hf_repo_id="stabilityai/sd-turbo"
+        )
+        sd_installed = model_manager.is_model_installed(sd_meta)
+        downstream_ready = downstream.get_status() == EngineStatus.READY
+
         return {
             "status": status.value,
             "engine_id": self.engine_id,
             "name": self.name,
-            "ready": True,
+            "ready": status == EngineStatus.READY,
+            "sd_turbo_installed": sd_installed,
+            "downstream_ready": downstream_ready,
             "multi_stage": True,
             "stages": ["1. Concept Art Diffusion (SD-Turbo)", "2. 4-View Canonical Projection", "3. Volumetric Reconstruction (TripoSR)"],
             "requirements": self.hardware_requirements,
@@ -84,43 +118,48 @@ class HybridTextTo3DAdapter(Base3DEngine):
 
     def generate(
         self,
-        input_data: Any,
-        output_dir: str,
-        modality: str,
+        input_data: Any = None,
+        output_dir: Optional[str] = None,
+        modality: Optional[str] = "text-to-3d",
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        **kwargs
     ) -> StandardizedAsset:
         params = params or {}
-        prompt_text = str(input_data).strip()
+        prompt_text = str(input_data or params.get("prompt", "")).strip()
+        out_dir = output_dir or params.get("output_dir") or str(Path(__file__).resolve().parent.parent.parent / "output")
 
-        is_valid, err = self.validate_input(prompt_text, modality)
+        is_valid, err = self.validate_input(prompt_text, modality or "text-to-3d")
         if not is_valid:
             raise ValueError(f"Input validation error: {err}")
 
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
         start_time = time.time()
 
         # Stage 1: Synthesize concept artwork via SD-Turbo
         if progress_callback:
             progress_callback("Synthesizing 2D concept artwork (SD-Turbo)", 15)
 
-        concept_path = os.path.join(output_dir, "concept.png")
-        prompt_engine.generate(
-            prompt=prompt_text,
-            output_path=concept_path,
-            seed=params.get("seed", -1)
-        )
+        concept_path = os.path.join(out_dir, "concept.png")
+        try:
+            prompt_engine.generate(
+                prompt=prompt_text,
+                output_path=concept_path,
+                seed=params.get("seed", -1)
+            )
+        except Exception as synth_err:
+            raise RuntimeError(f"Stage 1 [Concept Art Synthesis] failed: {synth_err}")
 
         # Stage 2: Canonical 4-view projections
         if progress_callback:
             progress_callback("Generating 4-view canonical perspective grid", 30)
 
-        mv_dir = os.path.join(output_dir, "multiview")
+        mv_dir = os.path.join(out_dir, "multiview")
         os.makedirs(mv_dir, exist_ok=True)
         try:
             multiview_synthesizer.generate_canonical_views(concept_path, mv_dir)
-        except Exception:
-            pass
+        except Exception as mv_err:
+            print(f"[Notice] Multi-view reference notice: {mv_err}. Proceeding with primary concept.")
 
         # Stage 3: Reconstruct 3D geometry using TripoSR
         if progress_callback:
@@ -129,13 +168,16 @@ class HybridTextTo3DAdapter(Base3DEngine):
         from core.engines.triposr_adapter import TripoSRAdapter
         downstream = self.secondary_engine or TripoSRAdapter()
 
-        asset = downstream.generate(
-            input_data=concept_path,
-            output_dir=output_dir,
-            modality="image-to-3d",
-            params=params,
-            progress_callback=lambda msg, pct: progress_callback(msg, 50 + int(pct * 0.45)) if progress_callback else None
-        )
+        try:
+            asset = downstream.generate(
+                input_data=concept_path,
+                output_dir=out_dir,
+                modality="image-to-3d",
+                params=params,
+                progress_callback=lambda msg, pct: progress_callback(msg, 50 + int(pct * 0.45)) if progress_callback else None
+            )
+        except Exception as rec_err:
+            raise RuntimeError(f"Stage 3 [Volumetric Reconstruction] failed: {rec_err}")
 
         elapsed = time.time() - start_time
         asset.engine_id = self.engine_id

@@ -124,18 +124,23 @@ class ShapEAdapter(Base3DEngine):
 
     def generate(
         self,
-        input_data: Any,
-        output_dir: str,
-        modality: str,
+        input_data: Any = None,
+        output_dir: Optional[str] = None,
+        modality: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        **kwargs
     ) -> StandardizedAsset:
         params = params or {}
-        is_valid, err = self.validate_input(input_data, modality)
+        mod = modality or ("text-to-3d" if "prompt" in params else "image-to-3d")
+        inp = input_data or params.get("prompt") or params.get("image_path")
+        out_dir = output_dir or params.get("output_dir") or str(Path(__file__).resolve().parent.parent.parent / "output")
+
+        is_valid, err = self.validate_input(inp, mod)
         if not is_valid:
             raise ValueError(f"Input validation error: {err}")
 
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if device == "cuda" else torch.float32
 
@@ -145,8 +150,8 @@ class ShapEAdapter(Base3DEngine):
 
         start_time = time.time()
         pipe = None
-        target_glb = os.path.join(output_dir, "mesh.glb")
-        temp_ply = os.path.join(output_dir, "temp_shape.ply")
+        target_glb = os.path.join(out_dir, "mesh.glb")
+        temp_ply = os.path.join(out_dir, "temp_shape.ply")
 
         with gpu_broker.lease("ShapE_Inference", timeout=180):
             try:

@@ -132,11 +132,12 @@ class Base3DEngine(ABC):
     @abstractmethod
     def generate(
         self,
-        input_data: Any,
-        output_dir: str,
-        modality: str,
+        input_data: Any = None,
+        output_dir: Optional[str] = None,
+        modality: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        **kwargs
     ) -> StandardizedAsset:
         """Executes 3D generation and returns a StandardizedAsset."""
         pass

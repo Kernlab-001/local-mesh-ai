@@ -57,10 +57,10 @@ class TSR(BaseModule):
             weight_path = os.path.join(pretrained_model_name_or_path, weight_name)
         else:
             config_path = hf_hub_download(
-                repo_id=pretrained_model_name_or_path, filename=config_name
+                repo_id=pretrained_model_name_or_path, filename=config_name, local_files_only=True
             )
             weight_path = hf_hub_download(
-                repo_id=pretrained_model_name_or_path, filename=weight_name
+                repo_id=pretrained_model_name_or_path, filename=weight_name, local_files_only=True
             )
 
         cfg = OmegaConf.load(config_path)

@@ -205,6 +205,13 @@ class AppearanceProfile:
             dominant_palette=data.get("dominant_palette", [[180, 180, 180]])
         )
 
+def has_word(text: str, *words: str) -> bool:
+    """Checks for whole word presence using regex word boundaries to avoid substring collisions."""
+    for w in words:
+        if re.search(rf"\b{re.escape(w)}\b", text, re.IGNORECASE):
+            return True
+    return False
+
 class AppearanceAnalyzer:
     def __init__(self):
         pass
@@ -270,26 +277,49 @@ class AppearanceAnalyzer:
         # ---------------------------------------------------------------------
         # Case A: Chair / Seating Multi-Material Partitioning
         # ---------------------------------------------------------------------
-        if "chair" in prompt_lower or "armchair" in prompt_lower or "stool" in prompt_lower or "sofa" in prompt_lower:
+        if has_word(prompt_lower, "chair", "armchair", "stool", "sofa", "bench", "seating", "cushion", "pillow"):
+            is_cushion_only = has_word(prompt_lower, "cushion", "pillow") and not has_word(prompt_lower, "chair", "armchair", "sofa", "stool")
+            if is_cushion_only:
+                fab_type = "velvet" if "velvet" in prompt_lower else "woven_fabric"
+                fab_color = [18, 120, 65] if "emerald" in prompt_lower or "green" in prompt_lower else [220, 215, 205]
+                trim_color = [212, 175, 55] if "gold" in prompt_lower or "golden" in prompt_lower else [150, 150, 150]
+                mat_cushion = MaterialSlotConfig(
+                    name="M_Velvet_Fabric" if "velvet" in prompt_lower else "M_Fabric_Surface",
+                    color_rgb=fab_color,
+                    roughness=0.75,
+                    metallic=0.0,
+                    texture_type=fab_type,
+                    region_id="body",
+                    z_min_norm=0.1,
+                    z_max_norm=1.0,
+                    description="Luxurious tufted velvet fabric"
+                )
+                mat_trim = MaterialSlotConfig(
+                    name="M_Gold_Trim" if "gold" in prompt_lower else "M_Piping_Cord",
+                    color_rgb=trim_color,
+                    roughness=0.28,
+                    metallic=0.90 if "gold" in prompt_lower else 0.1,
+                    texture_type="brushed_metal" if "gold" in prompt_lower else "woven_fabric",
+                    region_id="piping",
+                    z_min_norm=0.0,
+                    z_max_norm=0.1,
+                    description="Golden cord piping border"
+                )
+                return AppearanceProfile(category="furniture", materials=[mat_cushion, mat_trim], dominant_palette=palette)
+
+            # Standard Chair or Armchair
+            is_leather = "leather" in prompt_lower
             wood_color = [61, 38, 25]  # Dark walnut default
             for kw, rgb in COLOR_KEYWORDS.items():
                 if kw in prompt_lower and ("wood" in kw or "walnut" in kw or "brown" in kw or "frame" in prompt_lower):
                     wood_color = rgb
                     break
 
-            cushion_color = [242, 235, 220]  # Ivory cream default
+            cushion_color = [80, 45, 25] if is_leather else [242, 235, 220]
             for kw, rgb in COLOR_KEYWORDS.items():
-                if kw in prompt_lower and (kw in ("ivory", "cream", "white", "ivory-cream", "beige")):
+                if kw in prompt_lower and (kw in ("ivory", "cream", "white", "ivory-cream", "beige", "brown")):
                     cushion_color = rgb
                     break
-
-            if palette and len(palette) >= 2:
-                # Darker centroid for frame/legs, lighter centroid for cushion
-                sorted_by_lum = sorted(palette, key=lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2])
-                if not any(k in prompt_lower for k in ("walnut", "brown", "dark")):
-                    wood_color = sorted_by_lum[0]
-                if not any(k in prompt_lower for k in ("ivory", "cream", "white")):
-                    cushion_color = sorted_by_lum[-1]
 
             mat_frame = MaterialSlotConfig(
                 name="M_Wood_Frame",
@@ -300,50 +330,179 @@ class AppearanceAnalyzer:
                 region_id="legs_and_frame",
                 z_min_norm=0.0,
                 z_max_norm=0.45,
-                description="Dark walnut-brown wooden frame and legs with realistic wood grain"
+                description="Walnut wooden frame and legs with realistic wood grain"
             )
 
             mat_cushion = MaterialSlotConfig(
-                name="M_Fabric_Cushion",
+                name="M_Leather_Upholstery" if is_leather else "M_Fabric_Cushion",
                 color_rgb=cushion_color,
-                roughness=0.85,
+                roughness=0.52 if is_leather else 0.85,
                 metallic=0.0,
-                texture_type="woven_fabric",
+                texture_type="leather" if is_leather else "woven_fabric",
                 region_id="seat_cushion",
                 z_min_norm=0.45,
                 z_max_norm=0.60,
-                description="Ivory-cream upholstered seat cushion with woven upholstery fabric"
+                description="Deep tufted vintage leather upholstery" if is_leather else "Upholstered seat cushion"
             )
 
-            mat_backrest = MaterialSlotConfig(
-                name="M_Fabric_Backrest",
-                color_rgb=cushion_color,
-                roughness=0.82,
-                metallic=0.0,
-                texture_type="woven_fabric",
-                region_id="backrest",
-                z_min_norm=0.60,
-                z_max_norm=1.0,
-                description="Matching cream tufted backrest"
-            )
+            extra_mats = []
+            if "brass" in prompt_lower or "rivet" in prompt_lower:
+                extra_mats.append(MaterialSlotConfig(
+                    name="M_Brass_Rivets",
+                    color_rgb=[212, 175, 55],
+                    roughness=0.25,
+                    metallic=0.92,
+                    texture_type="brushed_metal",
+                    region_id="rivets",
+                    z_min_norm=0.45,
+                    z_max_norm=0.75,
+                    description="Polished decorative brass rivets"
+                ))
+            else:
+                extra_mats.append(MaterialSlotConfig(
+                    name="M_Fabric_Backrest",
+                    color_rgb=cushion_color,
+                    roughness=0.82,
+                    metallic=0.0,
+                    texture_type="woven_fabric",
+                    region_id="backrest",
+                    z_min_norm=0.60,
+                    z_max_norm=1.0,
+                    description="Matching backrest"
+                ))
 
             return AppearanceProfile(
-                category="chair",
-                materials=[mat_frame, mat_cushion, mat_backrest],
+                category="furniture",
+                materials=[mat_frame, mat_cushion] + extra_mats,
                 dominant_palette=palette
             )
 
         # ---------------------------------------------------------------------
-        # Case B: Vehicle / Car Multi-Material Partitioning
+        # Case B: Weapon (Battleaxe, Sword, Rifle, Staff, Dagger, Blade)
         # ---------------------------------------------------------------------
-        elif "car" in prompt_lower or "vehicle" in prompt_lower or "automobile" in prompt_lower:
+        elif has_word(prompt_lower, "battleaxe", "axe", "sword", "blade", "staff", "rifle", "dagger", "warhammer", "hammer", "weapon", "bow"):
+            if "rifle" in prompt_lower:
+                casing_mat = MaterialSlotConfig(
+                    name="M_Carbon_Fiber_Casing",
+                    color_rgb=[32, 34, 36],
+                    roughness=0.30,
+                    metallic=0.15,
+                    texture_type="carbon_fiber",
+                    region_id="casing",
+                    z_min_norm=0.3,
+                    z_max_norm=1.0,
+                    description="Carbon fiber chassis casing with cyan emissive accents"
+                )
+                metal_mat = MaterialSlotConfig(
+                    name="M_Receiver_Metal",
+                    color_rgb=[80, 85, 90],
+                    roughness=0.22,
+                    metallic=0.92,
+                    texture_type="brushed_metal",
+                    region_id="barrel_receiver",
+                    z_min_norm=0.0,
+                    z_max_norm=0.3,
+                    description="Machined weapon steel barrel and receiver"
+                )
+                return AppearanceProfile(category="weapon", materials=[casing_mat, metal_mat], dominant_palette=palette)
+
+            elif "staff" in prompt_lower:
+                staff_wood = MaterialSlotConfig(
+                    name="M_Ancient_Wood",
+                    color_rgb=[75, 48, 25],
+                    roughness=0.78,
+                    metallic=0.0,
+                    texture_type="wood_grain",
+                    region_id="shaft",
+                    z_min_norm=0.0,
+                    z_max_norm=0.85,
+                    description="Twisted gnarled ancient wooden staff shaft"
+                )
+                crystal_orb = MaterialSlotConfig(
+                    name="M_Crystal_Orb",
+                    color_rgb=[170, 70, 220],
+                    roughness=0.08,
+                    metallic=0.1,
+                    texture_type="crystal",
+                    region_id="orb_head",
+                    z_min_norm=0.85,
+                    z_max_norm=1.0,
+                    description="Glowing purple resonant crystal orb"
+                )
+                return AppearanceProfile(category="weapon", materials=[staff_wood, crystal_orb], dominant_palette=palette)
+
+            metal_color = [185, 190, 195]  # Steel default
+            if "gold" in prompt_lower:
+                metal_color = [220, 180, 55]
+            elif "iron" in prompt_lower:
+                metal_color = [75, 78, 82]
+            elif "bronze" in prompt_lower:
+                metal_color = [150, 100, 50]
+
+            handle_color = [70, 45, 28]  # Wood / leather handle default
+            if "leather" in prompt_lower:
+                handle_color = [85, 50, 30]
+            elif "black" in prompt_lower:
+                handle_color = [30, 30, 32]
+
+            mat_blade = MaterialSlotConfig(
+                name="M_Blade_Metal",
+                color_rgb=metal_color,
+                roughness=0.22,
+                metallic=0.92,
+                texture_type="brushed_metal",
+                region_id="blade_head",
+                z_min_norm=0.4,
+                z_max_norm=1.0,
+                description="Reflective metallic striking edge / barrel"
+            )
+            mat_handle = MaterialSlotConfig(
+                name="M_Handle_Wood" if ("wood" in prompt_lower or "iron" in prompt_lower) else "M_Handle_Grip",
+                color_rgb=handle_color,
+                roughness=0.65,
+                metallic=0.05,
+                texture_type="wood_grain",
+                region_id="shaft_grip",
+                z_min_norm=0.0,
+                z_max_norm=0.4,
+                description="Carved wood or wrapped handle grip"
+            )
+            return AppearanceProfile(category="weapon", materials=[mat_blade, mat_handle], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case C: Vehicle / Automobile / Wheel
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "car", "vehicle", "automobile", "truck", "wagon", "kart", "wheel", "tire", "rim"):
+            if has_word(prompt_lower, "wheel", "tire", "rim"):
+                mat_rim = MaterialSlotConfig(
+                    name="M_Alloy_Rim_Aluminum",
+                    color_rgb=[210, 215, 220],
+                    roughness=0.20,
+                    metallic=0.95,
+                    texture_type="brushed_metal",
+                    region_id="rim",
+                    z_min_norm=0.2,
+                    z_max_norm=0.8,
+                    description="Forged aluminum alloy wheel rim"
+                )
+                mat_tire = MaterialSlotConfig(
+                    name="M_Tire_Rubber",
+                    color_rgb=[25, 25, 28],
+                    roughness=0.82,
+                    metallic=0.0,
+                    texture_type="rubber_matte",
+                    region_id="tire_tread",
+                    z_min_norm=0.0,
+                    z_max_norm=1.0,
+                    description="Black molded tread rubber tire"
+                )
+                return AppearanceProfile(category="vehicle", materials=[mat_rim, mat_tire], dominant_palette=palette)
+
             body_color = [210, 25, 25]  # Red default
             for kw, rgb in COLOR_KEYWORDS.items():
                 if kw in prompt_lower:
                     body_color = rgb
                     break
-            if palette and len(palette) > 0 and not any(k in prompt_lower for k in COLOR_KEYWORDS):
-                body_color = palette[0]
 
             mat_body = MaterialSlotConfig(
                 name="M_Car_Paint",
@@ -381,77 +540,317 @@ class AppearanceAnalyzer:
             return AppearanceProfile(category="vehicle", materials=[mat_body, mat_wheels, mat_glass], dominant_palette=palette)
 
         # ---------------------------------------------------------------------
-        # Case C: Robot / Sci-Fi / Hard-Surface
+        # Case D: Armor / Helm / Shield
         # ---------------------------------------------------------------------
-        elif "robot" in prompt_lower or "droid" in prompt_lower or "mech" in prompt_lower or "cyber" in prompt_lower:
-            primary_color = [40, 110, 200]  # Blue default
-            for kw, rgb in COLOR_KEYWORDS.items():
-                if kw in prompt_lower:
-                    primary_color = rgb
-                    break
-
-            mat_armor = MaterialSlotConfig(
-                name="M_Armor_Plates",
-                color_rgb=primary_color,
-                roughness=0.25,
-                metallic=0.85,
+        elif has_word(prompt_lower, "helm", "helmet", "armor", "gauntlet", "cuirass", "shield", "greaves"):
+            steel_color = [190, 195, 200]
+            trim_color = [212, 175, 55] if "brass" in prompt_lower or "gold" in prompt_lower else [80, 80, 85]
+            mat_steel = MaterialSlotConfig(
+                name="M_Armor_Steel",
+                color_rgb=steel_color,
+                roughness=0.20,
+                metallic=0.95,
                 texture_type="brushed_metal",
-                region_id="armor",
-                z_min_norm=0.4,
+                region_id="plates",
+                z_min_norm=0.1,
                 z_max_norm=1.0,
-                description="Chassis metal armor plates"
+                description="Polished gothic steel knight helm plates"
             )
-            mat_joints = MaterialSlotConfig(
-                name="M_Joint_Mechanics",
-                color_rgb=[50, 52, 55],
+            mat_trim = MaterialSlotConfig(
+                name="M_Brass_Trim" if "brass" in prompt_lower else "M_Trim_Metal",
+                color_rgb=trim_color,
+                roughness=0.26,
+                metallic=0.90,
+                texture_type="brushed_metal",
+                region_id="trim",
+                z_min_norm=0.0,
+                z_max_norm=0.1,
+                description="Engraved brass trim borders"
+            )
+            return AppearanceProfile(category="armor", materials=[mat_steel, mat_trim], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case E: Furniture (Desk, Table, Cabinet, Shelf, Barrel, Chest, Altar)
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "desk", "table", "cabinet", "shelf", "bookshelf", "altar", "chest", "barrel"):
+            if "barrel" in prompt_lower:
+                mat_wood = MaterialSlotConfig(
+                    name="M_Oak_Wood_Staves",
+                    color_rgb=[110, 72, 40],
+                    roughness=0.45,
+                    metallic=0.0,
+                    texture_type="wood_grain",
+                    region_id="barrel_body",
+                    z_min_norm=0.1,
+                    z_max_norm=0.9,
+                    description="Weathered oak wooden barrel staves"
+                )
+                mat_hoops = MaterialSlotConfig(
+                    name="M_Iron_Hoops",
+                    color_rgb=[45, 45, 48],
+                    roughness=0.60,
+                    metallic=0.88,
+                    texture_type="brushed_metal",
+                    region_id="metal_bands",
+                    z_min_norm=0.0,
+                    z_max_norm=1.0,
+                    description="Black rusted iron binding hoops"
+                )
+                return AppearanceProfile(category="furniture", materials=[mat_wood, mat_hoops], dominant_palette=palette)
+
+            elif "chest" in prompt_lower:
+                mat_chest_wood = MaterialSlotConfig(
+                    name="M_Chest_Wood",
+                    color_rgb=[95, 60, 32],
+                    roughness=0.50,
+                    metallic=0.0,
+                    texture_type="wood_grain",
+                    region_id="chest_body",
+                    z_min_norm=0.1,
+                    z_max_norm=0.9,
+                    description="Heavy aged timber treasure chest body"
+                )
+                mat_iron_bands = MaterialSlotConfig(
+                    name="M_Iron_Hardware",
+                    color_rgb=[40, 42, 45],
+                    roughness=0.55,
+                    metallic=0.90,
+                    texture_type="brushed_metal",
+                    region_id="reinforcements",
+                    z_min_norm=0.0,
+                    z_max_norm=1.0,
+                    description="Ironbound corner brackets and padlock"
+                )
+                return AppearanceProfile(category="furniture", materials=[mat_chest_wood, mat_iron_bands], dominant_palette=palette)
+
+            elif "altar" in prompt_lower:
+                mat_altar = MaterialSlotConfig(
+                    name="M_Basalt_Stone",
+                    color_rgb=[45, 48, 50],
+                    roughness=0.88,
+                    metallic=0.0,
+                    texture_type="stone",
+                    region_id="monolith",
+                    z_min_norm=0.0,
+                    z_max_norm=1.0,
+                    description="Monolithic dark basalt stone sacrificial altar"
+                )
+                return AppearanceProfile(category="prop", materials=[mat_altar], dominant_palette=palette)
+
+            # Desk / Table
+            is_birch = "birch" in prompt_lower or "light" in prompt_lower
+            mat_top = MaterialSlotConfig(
+                name="M_Birch_Wood" if is_birch else "M_Wood_Surface",
+                color_rgb=[215, 195, 160] if is_birch else [120, 80, 45],
+                roughness=0.38,
+                metallic=0.0,
+                texture_type="wood_grain",
+                region_id="desktop",
+                z_min_norm=0.7,
+                z_max_norm=1.0,
+                description="Birch wood desktop surface"
+            )
+            mat_legs = MaterialSlotConfig(
+                name="M_Steel_Hairpin_Legs",
+                color_rgb=[30, 30, 32],
                 roughness=0.45,
                 metallic=0.90,
                 texture_type="brushed_metal",
-                region_id="joints",
+                region_id="legs",
                 z_min_norm=0.0,
-                z_max_norm=0.4,
-                description="Dark mechanical joints and frame"
+                z_max_norm=0.7,
+                description="Matte black steel hairpin legs"
             )
-            return AppearanceProfile(category="robot", materials=[mat_armor, mat_joints], dominant_palette=palette)
+            return AppearanceProfile(category="furniture", materials=[mat_top, mat_legs], dominant_palette=palette)
 
         # ---------------------------------------------------------------------
-        # Case D: Ceramic / Vase / Pottery / Tableware
+        # Case F: Robot / Android / Character
         # ---------------------------------------------------------------------
-        elif "vase" in prompt_lower or "ceramic" in prompt_lower or "pottery" in prompt_lower or "mug" in prompt_lower or "cup" in prompt_lower or "plate" in prompt_lower:
-            glaze_color = [34, 139, 34]  # Green glaze default
-            for kw, rgb in COLOR_KEYWORDS.items():
-                if kw in prompt_lower:
-                    glaze_color = rgb
-                    break
-            if palette and len(palette) > 0 and not any(k in prompt_lower for k in COLOR_KEYWORDS):
-                glaze_color = palette[0]
+        elif has_word(prompt_lower, "robot", "droid", "android", "mech", "cyber", "humanoid"):
+            mat_chassis = MaterialSlotConfig(
+                name="M_White_Composite",
+                color_rgb=[240, 242, 245],
+                roughness=0.25,
+                metallic=0.10,
+                texture_type="composite",
+                region_id="outer_chassis",
+                z_min_norm=0.3,
+                z_max_norm=1.0,
+                description="Sleek white composite humanoid android armor"
+            )
+            mat_joints = MaterialSlotConfig(
+                name="M_Chrome_Joints",
+                color_rgb=[220, 225, 230],
+                roughness=0.10,
+                metallic=0.98,
+                texture_type="brushed_metal",
+                region_id="mechanical_joints",
+                z_min_norm=0.0,
+                z_max_norm=0.3,
+                description="Chrome metallic mechanical joints"
+            )
+            return AppearanceProfile(category="character", materials=[mat_chassis, mat_joints], dominant_palette=palette)
 
+        # ---------------------------------------------------------------------
+        # Case G: Ceramic / Teapot / Pot / Chalice
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "teapot", "pot", "vase", "ceramic", "pottery", "mug", "cup", "chalice"):
+            if "chalice" in prompt_lower:
+                mat_gold = MaterialSlotConfig(
+                    name="M_Solid_Gold",
+                    color_rgb=[225, 185, 50],
+                    roughness=0.18,
+                    metallic=0.98,
+                    texture_type="brushed_metal",
+                    region_id="chalice_cup",
+                    z_min_norm=0.0,
+                    z_max_norm=1.0,
+                    description="Engraved solid ceremonial gold chalice"
+                )
+                mat_gems = MaterialSlotConfig(
+                    name="M_Ruby_Gem",
+                    color_rgb=[185, 20, 40],
+                    roughness=0.05,
+                    metallic=0.05,
+                    texture_type="crystal",
+                    region_id="gem_studs",
+                    z_min_norm=0.4,
+                    z_max_norm=0.6,
+                    description="Faceted red ruby gemstones"
+                )
+                return AppearanceProfile(category="prop", materials=[mat_gold, mat_gems], dominant_palette=palette)
+
+            elif "terracotta" in prompt_lower or ("plant" in prompt_lower and "pot" in prompt_lower):
+                mat_clay = MaterialSlotConfig(
+                    name="M_Terracotta_Clay",
+                    color_rgb=[195, 95, 55],
+                    roughness=0.85,
+                    metallic=0.0,
+                    texture_type="clay",
+                    region_id="pot_wall",
+                    z_min_norm=0.2,
+                    z_max_norm=1.0,
+                    description="Rough porous orange terracotta clay pot"
+                )
+                mat_soil = MaterialSlotConfig(
+                    name="M_Soil_Earth",
+                    color_rgb=[45, 32, 24],
+                    roughness=0.95,
+                    metallic=0.0,
+                    texture_type="soil",
+                    region_id="interior_soil",
+                    z_min_norm=0.0,
+                    z_max_norm=0.2,
+                    description="Rich dark organic soil potting mix"
+                )
+                return AppearanceProfile(category="prop", materials=[mat_clay, mat_soil], dominant_palette=palette)
+
+            glaze_color = [185, 30, 30] if "red" in prompt_lower else [212, 175, 55] if "gold" in prompt_lower else [34, 139, 34]
             mat_glaze = MaterialSlotConfig(
                 name="M_Ceramic_Glaze",
                 color_rgb=glaze_color,
-                roughness=0.15,
+                roughness=0.12,
                 metallic=0.0,
                 texture_type="ceramic_gloss",
                 region_id="outer_surface",
-                z_min_norm=0.1,
-                z_max_norm=1.0,
-                description="High-gloss glazed ceramic finish"
-            )
-            mat_base = MaterialSlotConfig(
-                name="M_Terracotta_Base",
-                color_rgb=[180, 115, 80],
-                roughness=0.75,
-                metallic=0.0,
-                texture_type="custom",
-                region_id="foot_ring",
                 z_min_norm=0.0,
-                z_max_norm=0.1,
-                description="Unglazed matte earthenware base foot"
+                z_max_norm=1.0,
+                description="Glossy red glazed ceramic teapot finish"
             )
-            return AppearanceProfile(category="ceramic", materials=[mat_glaze, mat_base], dominant_palette=palette)
+            return AppearanceProfile(category="prop", materials=[mat_glaze], dominant_palette=palette)
 
         # ---------------------------------------------------------------------
-        # Case E: Generic Object / Prop / Character
+        # Case H: Organic / Stone / Gargoyle
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "gargoyle", "statue", "monument", "stone", "sculpture"):
+            mat_stone = MaterialSlotConfig(
+                name="M_Stone_Carved",
+                color_rgb=[125, 128, 130],
+                roughness=0.92,
+                metallic=0.0,
+                texture_type="stone",
+                region_id="body",
+                z_min_norm=0.0,
+                z_max_norm=1.0,
+                description="Weathered chiseled gothic stone"
+            )
+            return AppearanceProfile(category="organic", materials=[mat_stone], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case I: Lantern / Lamp (Brass & Glass)
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "lantern", "lamp", "torch", "candle"):
+            mat_brass = MaterialSlotConfig(
+                name="M_Victorian_Brass",
+                color_rgb=[212, 175, 55],
+                roughness=0.25,
+                metallic=0.92,
+                texture_type="brushed_metal",
+                region_id="cage_and_ring",
+                z_min_norm=0.0,
+                z_max_norm=1.0,
+                description="Ornate brass lantern frame and hanging ring"
+            )
+            mat_glass = MaterialSlotConfig(
+                name="M_Clear_Glass",
+                color_rgb=[230, 240, 245],
+                roughness=0.05,
+                metallic=0.05,
+                texture_type="glass_tint",
+                region_id="chamber",
+                z_min_norm=0.25,
+                z_max_norm=0.75,
+                description="Clear glass oil chamber"
+            )
+            return AppearanceProfile(category="prop", materials=[mat_brass, mat_glass], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case J: Ship Anchor / Nautical Iron
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "anchor", "nautical", "fluke"):
+            mat_anchor = MaterialSlotConfig(
+                name="M_Cast_Iron",
+                color_rgb=[40, 42, 45],
+                roughness=0.72,
+                metallic=0.90,
+                texture_type="brushed_metal",
+                region_id="anchor_body",
+                z_min_norm=0.0,
+                z_max_norm=1.0,
+                description="Heavy black cast iron nautical ship anchor"
+            )
+            return AppearanceProfile(category="prop", materials=[mat_anchor], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case K: Canister / Container (Sci-Fi Coolant, Metal & Glass)
+        # ---------------------------------------------------------------------
+        elif has_word(prompt_lower, "canister", "container", "cylinder", "cryo", "tank"):
+            mat_metal = MaterialSlotConfig(
+                name="M_Pressurized_Metal",
+                color_rgb=[140, 145, 150],
+                roughness=0.28,
+                metallic=0.88,
+                texture_type="brushed_metal",
+                region_id="canister_casing",
+                z_min_norm=0.1,
+                z_max_norm=1.0,
+                description="Pressurized sci-fi alloy metal canister"
+            )
+            mat_gauge = MaterialSlotConfig(
+                name="M_Gauge_Glass",
+                color_rgb=[200, 235, 255],
+                roughness=0.08,
+                metallic=0.05,
+                texture_type="glass_tint",
+                region_id="pressure_gauge",
+                z_min_norm=0.0,
+                z_max_norm=0.2,
+                description="Glass coolant chamber and pressure gauge"
+            )
+            return AppearanceProfile(category="prop", materials=[mat_metal, mat_gauge], dominant_palette=palette)
+
+        # ---------------------------------------------------------------------
+        # Case L: Generic Fallback
         # ---------------------------------------------------------------------
         else:
             primary_color = [180, 180, 180]

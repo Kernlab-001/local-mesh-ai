@@ -101,21 +101,26 @@ class TripoSRAdapter(Base3DEngine):
 
     def generate(
         self,
-        input_data: Any,
-        output_dir: str,
-        modality: str,
+        input_data: Any = None,
+        output_dir: Optional[str] = None,
+        modality: Optional[str] = "image-to-3d",
         params: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable[[str, int], None]] = None
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        **kwargs
     ) -> StandardizedAsset:
         params = params or {}
+        input_path = input_data or params.get("image_path")
+        out_dir = output_dir or params.get("output_dir") or str(self.project_root / "output")
+        mod = modality or "image-to-3d"
+
         if progress_callback:
             progress_callback("Validating input image for TripoSR", 10)
 
-        is_valid, err = self.validate_input(input_data, modality)
+        is_valid, err = self.validate_input(input_path, mod)
         if not is_valid:
             raise ValueError(f"Input validation failed: {err}")
 
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
         quality = params.get("quality", "balanced")
         mc_res = params.get("mc_resolution", 256 if quality != "draft" else 128)
         chunk_size = params.get("chunk_size", 8192 if quality != "high" else 4096)
@@ -126,7 +131,7 @@ class TripoSRAdapter(Base3DEngine):
 
         start_time = time.time()
         rec_res = self._engine.reconstruct(
-            image_path=str(input_data),
+            image_path=str(input_path),
             quality=quality,
             mc_resolution=mc_res,
             chunk_size=chunk_size,
@@ -135,7 +140,7 @@ class TripoSRAdapter(Base3DEngine):
         elapsed = time.time() - start_time
 
         raw_mesh_path = rec_res["mesh_path"]
-        target_mesh_path = os.path.join(output_dir, "mesh.glb")
+        target_mesh_path = os.path.join(out_dir, "mesh.glb")
         if os.path.exists(raw_mesh_path) and os.path.getsize(raw_mesh_path) > 0:
             shutil.copy2(raw_mesh_path, target_mesh_path)
         else:

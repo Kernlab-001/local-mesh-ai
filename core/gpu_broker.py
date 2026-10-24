@@ -13,10 +13,11 @@ import psutil
 import gc
 import uuid
 import threading
+import tempfile
 from contextlib import contextmanager
 from typing import Optional, Dict, Any
 
-LOCK_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gpu_lease.lock")
+LOCK_FILE = os.environ.get("LOCAL_MESH_AI_LOCK_FILE") or os.path.join(tempfile.gettempdir(), "local_mesh_ai_gpu_lease.lock")
 
 class GPUBroker:
     def __init__(self, lock_file: str = LOCK_FILE):
@@ -35,14 +36,14 @@ class GPUBroker:
 
     def is_locked(self) -> bool:
         """Determines if a valid, non-stale lease is currently active."""
-        if not os.path.exists(self.lock_file):
+        if not os.path.exists(self.lock_file) or os.path.getsize(self.lock_file) <= 2:
             return False
         try:
             with open(self.lock_file, "r") as f:
                 data = json.load(f)
             pid = data.get("pid")
             # If process is dead, lock is stale
-            if pid and not self._is_pid_alive(pid):
+            if not pid or not self._is_pid_alive(pid):
                 self._force_release()
                 return False
             # Check for excessive timeout if no heartbeat (e.g. > 15 minutes stale)
@@ -52,15 +53,20 @@ class GPUBroker:
                 return False
             return True
         except Exception:
+            self._force_release()
             return False
 
     def _force_release(self):
-        """Forces removal of a stale lock file."""
+        """Forces removal or clearance of a stale lock file."""
         try:
             if os.path.exists(self.lock_file):
                 os.remove(self.lock_file)
         except OSError:
-            pass
+            try:
+                with open(self.lock_file, "w") as f:
+                    f.write("{}")
+            except Exception:
+                pass
 
     def acquire(self, client_name: str, timeout: float = 90.0) -> Optional[str]:
         """
@@ -109,7 +115,8 @@ class GPUBroker:
                         self._current_client = client_name
                         return lease_id
                     except FileExistsError:
-                        pass
+                        if os.path.exists(self.lock_file) and os.path.getsize(self.lock_file) <= 2:
+                            self._force_release()
                     finally:
                         if fd is not None:
                             os.close(fd)
@@ -164,8 +171,8 @@ class GPUBroker:
                     if holder_pid == current_pid:
                         can_release = True
 
-                if can_release and os.path.exists(self.lock_file):
-                    os.remove(self.lock_file)
+                if can_release:
+                    self._force_release()
                     self._current_lease_id = None
                     self._current_client = None
         except Exception:

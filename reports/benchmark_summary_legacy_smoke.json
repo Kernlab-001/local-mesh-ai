@@ -1,0 +1,37 @@
+{
+  "suite_name": "Local Mesh AI - Legacy 20-Case Smoke Benchmark (PRE-AUDIT ARCHIVE)",
+  "archived_notice": "LIMITATION DISCLAIMER: This legacy benchmark report evaluated only architecture routing and appearance string heuristic presence (completing in 1.81s). It did not perform 3D generation, did not verify real meshes, did not enforce a >=0.70 material score threshold, and suffered from a substring bug where 'carved' matched 'car' yielding M_Car_Paint for a battleaxe. Preserved for traceability and audit comparison.",
+  "timestamp": "2026-10-24 19:18:49",
+  "hardware": {
+    "has_cuda": true,
+    "device_name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+    "total_vram_gb": 6.0,
+    "available_vram_gb": 5.04,
+    "total_ram_gb": 15.71,
+    "available_ram_gb": 6.28
+  },
+  "total_cases": 20,
+  "passed_cases": 20,
+  "pass_rate_pct": 100.0,
+  "total_duration_seconds": 1.81,
+  "results": [
+    {
+      "case_id": "case_01",
+      "name": "Medieval Glowing Battleaxe",
+      "category": "weapon",
+      "target_height_m": 0.9,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS (FALSE POSITIVE - NO GENERATION)",
+      "eval_time_seconds": 0.001
+    }
+  ]
+}

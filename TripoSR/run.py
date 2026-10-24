@@ -4,7 +4,7 @@ import os
 import time
 
 import numpy as np
-import rembg
+rembg = None
 import torch
 import xatlas
 from PIL import Image
@@ -134,6 +134,7 @@ images = []
 if args.no_remove_bg:
     rembg_session = None
 else:
+    import rembg
     rembg_session = rembg.new_session()
 
 for i, image_path in enumerate(args.image):
@@ -174,6 +175,7 @@ for i, image in enumerate(images):
     timer.end("Extracting mesh")
 
     out_mesh_path = os.path.join(output_dir, str(i), f"mesh.{args.model_save_format}")
+    os.makedirs(os.path.dirname(out_mesh_path), exist_ok=True)
     if args.bake_texture:
         out_texture_path = os.path.join(output_dir, str(i), "texture.png")
 

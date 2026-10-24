@@ -5,12 +5,16 @@ Enforces rigorous topological integrity on raw neural 3D outputs:
 - Detects and repairs degenerate (zero-area) faces.
 - Checks edge manifoldness, watertightness, and face normal winding.
 - Validates physical scale, bounding boxes, and aspect ratios.
-- Resolves the "white-material problem" by detecting monochromatic flat-white
-  vertex colors/textures and synthesizing subtle ambient shading.
+- Resolves the "white-material problem" cleanly across 4 distinct cases:
+    Case 1: Valid vertex colors or textures (preserved untouched).
+    Case 2: Missing colors/textures (applies explicitly labeled procedural PBR fallback).
+    Case 3: Intentional monochromatic white (preserves clean white artistic intent).
+    Case 4: Neural extraction flat-white syndrome (applies labeled procedural studio shading).
 """
 
 import os
 import sys
+import re
 import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -22,6 +26,12 @@ try:
     import trimesh
 except ImportError:
     trimesh = None
+
+
+INTENTIONAL_WHITE_REGEX = re.compile(
+    r"\b(marble|porcelain|skull|chalk|alabaster|white\s+(statue|bust|plaster|ceramic|cup|plate|android|robot|bone))\b",
+    re.IGNORECASE
+)
 
 
 @dataclass
@@ -42,7 +52,18 @@ class GeometryValidationReport:
     has_textures: bool = False
     has_vertex_colors: bool = False
     is_flat_white: bool = False
+    appearance_status: str = "UNKNOWN"
+    # Statuses:
+    # "HAS_VALID_PALETTE"
+    # "MISSING_COLOR_DATA"
+    # "INTENTIONAL_MONOCHROMATIC_WHITE"
+    # "FLAT_WHITE_SYNDROME"
+    # "PROCEDURAL_PBR_FALLBACK_APPLIED"
+    # "CORRUPT_OR_INCOMPATIBLE"
+    is_procedural_fallback: bool = False
+    fallback_details: Optional[str] = None
     color_variance: float = 0.0
+    mean_color_rgb: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     repair_actions_taken: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
@@ -63,7 +84,10 @@ class GeometryValidator:
         mesh_path: str,
         output_path: Optional[str] = None,
         auto_repair: bool = True,
-        max_poly_budget: Optional[int] = None
+        max_poly_budget: Optional[int] = None,
+        target_height_m: Optional[float] = None,
+        prompt: Optional[str] = None,
+        appearance_profile: Optional[Any] = None
     ) -> Tuple[str, GeometryValidationReport]:
         """
         Validates the mesh at mesh_path. If auto_repair is True, cleans and sanitizes
@@ -133,12 +157,26 @@ class GeometryValidator:
                 report.dimensions_meters = (round(float(bounds[0]), 4), round(float(bounds[1]), 4), round(float(bounds[2]), 4))
                 report.bounding_box_volume = round(float(bounds[0] * bounds[1] * bounds[2]), 6)
 
-            # 3. White-Material & Color Inspection
-            self._inspect_material_and_colors(mesh, report)
+            # 3. Material, Color, and White-Material Diagnostic across 4 cases
+            self._inspect_material_and_colors(mesh, report, prompt=prompt)
 
             # 4. Auto-Repair Pipeline if enabled
-            if auto_repair and (report.has_nan_or_inf or report.has_degenerate_faces or report.is_flat_white or (max_poly_budget and report.face_count > max_poly_budget)):
-                mesh, repairs = self._repair_mesh(mesh, report, max_poly_budget)
+            needs_repair = (
+                report.has_nan_or_inf or
+                report.has_degenerate_faces or
+                (report.appearance_status in ["FLAT_WHITE_SYNDROME", "MISSING_COLOR_DATA"]) or
+                (max_poly_budget and report.face_count > max_poly_budget) or
+                (target_height_m is not None and target_height_m > 0 and abs(mesh.extents[2] - target_height_m) > 0.05)
+            )
+
+            if auto_repair and needs_repair:
+                mesh, repairs = self._repair_mesh(
+                    mesh,
+                    report,
+                    max_poly_budget=max_poly_budget,
+                    target_height_m=target_height_m,
+                    appearance_profile=appearance_profile
+                )
                 report.repair_actions_taken.extend(repairs)
 
                 # Save repaired mesh
@@ -148,6 +186,9 @@ class GeometryValidator:
                 report.face_count = len(mesh.faces)
                 try:
                     report.is_watertight = bool(mesh.is_watertight)
+                    bounds = mesh.extents
+                    report.dimensions_meters = (round(float(bounds[0]), 4), round(float(bounds[1]), 4), round(float(bounds[2]), 4))
+                    report.bounding_box_volume = round(float(bounds[0] * bounds[1] * bounds[2]), 6)
                 except Exception:
                     pass
 
@@ -158,15 +199,24 @@ class GeometryValidator:
             report.warnings.append(f"Geometry validation exception: {str(e)}")
             return mesh_path, report
 
-    def _inspect_material_and_colors(self, mesh: trimesh.Trimesh, report: GeometryValidationReport):
+    def _inspect_material_and_colors(
+        self,
+        mesh: trimesh.Trimesh,
+        report: GeometryValidationReport,
+        prompt: Optional[str] = None
+    ):
         """
-        Inspects vertex colors, UVs, and material properties to detect the white-material issue.
+        Diagnoses materials and vertex colors across 4 distinct cases:
+        - Case 1: Valid vertex colors or textures.
+        - Case 2: Geometry without vertex colors or textures.
+        - Case 3: Intentional monochromatic white asset.
+        - Case 4: Extraction flat-white syndrome.
         """
         has_vc = False
         has_tex = False
         has_uv = False
 
-        if hasattr(mesh, "visual"):
+        if hasattr(mesh, "visual") and mesh.visual is not None:
             if hasattr(mesh.visual, "uv") and mesh.visual.uv is not None and len(mesh.visual.uv) > 0:
                 has_uv = True
             mat = getattr(mesh.visual, "material", None)
@@ -178,31 +228,66 @@ class GeometryValidator:
                 has_vc = True
                 colors = np.asarray(mesh.visual.vertex_colors)
                 if colors.ndim == 2 and colors.shape[1] >= 3:
-                    # Normalize to 0.0 - 1.0
                     rgb = colors[:, :3].astype(np.float32)
                     if rgb.max() > 1.0:
                         rgb = rgb / 255.0
 
-                    # Calculate color variance across RGB channels
                     variance = float(np.var(rgb))
-                    report.color_variance = round(variance, 6)
                     mean_color = np.mean(rgb, axis=0)
+                    report.color_variance = round(variance, 6)
+                    report.mean_color_rgb = (round(float(mean_color[0]), 4), round(float(mean_color[1]), 4), round(float(mean_color[2]), 4))
 
-                    # Monochromatic flat white condition:
-                    # If mean is very close to 1.0 and variance is virtually 0 (< 0.0005)
-                    if np.all(mean_color > 0.94) and variance < 0.001:
+                    # Check for flat white condition
+                    if np.all(mean_color > 0.93) and variance < 0.001:
                         report.is_flat_white = True
-                        report.warnings.append("Mesh suffers from white-material syndrome (monochromatic flat white with zero color variance).")
 
         report.has_uvs = has_uv
         report.has_textures = has_tex
         report.has_vertex_colors = has_vc
 
+        # Check prompt for intentional white artistic intent
+        is_intentional_white = False
+        if prompt:
+            if INTENTIONAL_WHITE_REGEX.search(prompt):
+                is_intentional_white = True
+
+        # Categorize into the 4 cases:
+        if has_tex:
+            # Case 1: Model generated valid textures
+            report.appearance_status = "HAS_VALID_PALETTE"
+            report.is_procedural_fallback = False
+        elif has_vc:
+            if report.color_variance >= 0.0005:
+                # Case 1: Model generated valid multicolour vertex colors
+                report.appearance_status = "HAS_VALID_PALETTE"
+                report.is_procedural_fallback = False
+            elif is_intentional_white and report.is_flat_white:
+                # Case 3: Intentional monochromatic white asset (marble, porcelain, skull, etc.)
+                report.appearance_status = "INTENTIONAL_MONOCHROMATIC_WHITE"
+                report.is_procedural_fallback = False
+                report.warnings.append("Preserved intentional monochromatic white asset without destructive tinting.")
+            elif report.is_flat_white:
+                # Case 4: Neural extraction flat-white syndrome
+                report.appearance_status = "FLAT_WHITE_SYNDROME"
+                report.warnings.append("Mesh suffers from white-material syndrome (monochromatic flat white with near-zero color variance).")
+            else:
+                # Case 2: Monochromatic zero-variance default untextured shading
+                report.appearance_status = "MISSING_COLOR_DATA"
+                report.warnings.append("Mesh has monochromatic flat vertex colors with zero variance (missing color/texture data).")
+        elif not has_vc and not has_tex:
+            # Case 2: Geometry without any color data
+            report.appearance_status = "MISSING_COLOR_DATA"
+            report.warnings.append("Mesh has no vertex colors or texture maps (missing color data).")
+        else:
+            report.appearance_status = "CORRUPT_OR_INCOMPATIBLE"
+
     def _repair_mesh(
         self,
         mesh: trimesh.Trimesh,
         report: GeometryValidationReport,
-        max_poly_budget: Optional[int]
+        max_poly_budget: Optional[int] = None,
+        target_height_m: Optional[float] = None,
+        appearance_profile: Optional[Any] = None
     ) -> Tuple[trimesh.Trimesh, List[str]]:
         """
         Executes non-destructive geometry healing operations.
@@ -243,26 +328,49 @@ class GeometryValidator:
             except Exception as dec_err:
                 report.warnings.append(f"Decimation notice: {dec_err}")
 
-        # 5. Fix monochromatic flat-white material
-        if report.is_flat_white:
+        # 5. Scale calibration
+        if target_height_m is not None and target_height_m > 0:
+            current_h = float(mesh.extents[2])
+            if current_h > 1e-5 and abs(current_h - target_height_m) > 0.05:
+                scale_factor = target_height_m / current_h
+                mesh.apply_scale(scale_factor)
+                repairs.append(f"Calibrated physical scale: scaled Z-height from {current_h:.3f}m to {target_height_m:.3f}m (factor {scale_factor:.3f}x).")
+
+        # 6. Material and Color Handling
+        if report.appearance_status == "HAS_VALID_PALETTE":
+            # Case 1: Keep untouched!
+            pass
+        elif report.appearance_status == "INTENTIONAL_MONOCHROMATIC_WHITE":
+            # Case 3: Intentional white - preserve clean white, do NOT tint warm/dark
+            repairs.append("Preserved intentional monochromatic white palette without destructive tinting.")
+        elif report.appearance_status in ["FLAT_WHITE_SYNDROME", "MISSING_COLOR_DATA"]:
+            # Case 2 or 4: Apply explicitly labeled procedural PBR fallback
             try:
-                # Synthesize directional ambient occlusion gradient to give surface depth
                 verts = np.asarray(mesh.vertices)
                 z_coords = verts[:, 2]
                 z_min, z_max = z_coords.min(), z_coords.max()
                 z_range = max(z_max - z_min, 1e-6)
                 t = (z_coords - z_min) / z_range  # 0 at bottom, 1 at top
 
-                # Neutral warm-tinted studio shading (base 0.72 - 0.88)
-                r = (0.72 + 0.16 * t) * 255
-                g = (0.70 + 0.16 * t) * 255
-                b = (0.68 + 0.16 * t) * 255
+                # Check if appearance profile provides semantic color hint
+                base_color = [0.72, 0.70, 0.68]  # Default neutral studio shade
+                if appearance_profile and hasattr(appearance_profile, "primary_color"):
+                    pc = getattr(appearance_profile, "primary_color")
+                    if pc and len(pc) >= 3 and not all(c > 240 for c in pc[:3]):
+                        base_color = [pc[0] / 255.0 * 0.8, pc[1] / 255.0 * 0.8, pc[2] / 255.0 * 0.8]
+
+                r = np.clip((base_color[0] + 0.15 * t) * 255, 0, 255)
+                g = np.clip((base_color[1] + 0.15 * t) * 255, 0, 255)
+                b = np.clip((base_color[2] + 0.15 * t) * 255, 0, 255)
                 alpha = np.full_like(r, 255)
 
                 repaired_colors = np.stack([r, g, b, alpha], axis=1).astype(np.uint8)
                 mesh.visual.vertex_colors = repaired_colors
                 report.is_flat_white = False
-                repairs.append("Repaired monochromatic white-material: synthesized depth-aware neutral studio shading.")
+                report.is_procedural_fallback = True
+                report.appearance_status = "PROCEDURAL_PBR_FALLBACK_APPLIED"
+                report.fallback_details = "Synthesized depth-aware studio shading as procedural PBR fallback."
+                repairs.append("Repaired monochromatic white-material: applied procedural PBR fallback with synthesized depth-aware ambient vertex shading.")
             except Exception as col_fix_err:
                 report.warnings.append(f"Color repair notice: {col_fix_err}")
 

@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import subprocess
+import tempfile
 from typing import Dict, Any, Optional
 from PIL import Image
 import torch
@@ -89,17 +90,39 @@ class TripoSREngine:
         if not os.path.exists(venv_python):
             venv_python = sys.executable
 
-        job_mesh_dir = os.path.join(self.output_dir, "meshes")
+        job_mesh_dir = os.path.join(tempfile.gettempdir(), "local_mesh_ai_output", "meshes")
         os.makedirs(job_mesh_dir, exist_ok=True)
+
+        # Pre-process background offline to avoid external network dependency for u2net
+        processed_image_path = os.path.abspath(image_path)
+        if not img_meta.get("has_alpha"):
+            try:
+                import numpy as np
+                with Image.open(image_path) as im:
+                    rgba = im.convert("RGBA")
+                    arr = np.array(rgba)
+                    # If background is white or light studio background, make transparent
+                    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+                    white_mask = (r > 238) & (g > 238) & (b > 238)
+                    arr[..., 3][white_mask] = 0
+                    alpha_img = Image.fromarray(arr)
+                    tmp_alpha_dir = os.path.join(tempfile.gettempdir(), "local_mesh_ai_output", "preprocessed")
+                    os.makedirs(tmp_alpha_dir, exist_ok=True)
+                    tmp_alpha_path = os.path.join(tmp_alpha_dir, "input_with_alpha.png")
+                    alpha_img.save(tmp_alpha_path)
+                    processed_image_path = tmp_alpha_path
+            except Exception:
+                pass
 
         cmd = [
             venv_python, run_script,
-            os.path.abspath(image_path),
+            processed_image_path,
             "--output-dir", job_mesh_dir,
             "--mc-resolution", str(mc_resolution),
             "--chunk-size", str(chunk_size),
             "--model-save-format", "glb",
-            "--device", device
+            "--device", device,
+            "--no-remove-bg"
         ]
         if render_turntable:
             cmd.append("--render")
@@ -108,11 +131,15 @@ class TripoSREngine:
         client_tag = f"TripoSR_Reconstruction_{device}"
         with gpu_broker.lease(client_tag, timeout=timeout):
             try:
+                env = os.environ.copy()
+                env["HF_HUB_OFFLINE"] = "1"
+                env["TRANSFORMERS_OFFLINE"] = "1"
                 proc = subprocess.run(
                     cmd,
                     cwd=self.triposr_dir,
                     capture_output=True,
                     text=True,
+                    env=env,
                     timeout=timeout
                 )
                 if proc.returncode != 0:
