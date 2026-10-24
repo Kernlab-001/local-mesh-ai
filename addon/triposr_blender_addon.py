@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+# GNU General Public License v3.0 (GPLv3)
+# Copyright (C) 2024-2026 Local Mesh AI Contributors & Blender Foundation
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 bl_info = {
     "name": "Local Neural 3D Studio",
     "author": "Antigravity Architecture & TripoSR",
@@ -6,6 +14,7 @@ bl_info = {
     "location": "View3D > Sidebar > AI 3D Generator",
     "description": "Local-first 3D asset generation & editing using TripoSR, SD-Turbo, Qwen 2.5 Coder & local GPU",
     "category": "3D View",
+    "license": "GPLv3",
 }
 
 import bpy

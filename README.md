@@ -1,7 +1,7 @@
 # Local Mesh AI 🚀
 ### Local-First Neural 3D Asset Generation & AI Technical Artist Studio
 
-[![Tests](https://img.shields.io/badge/Tests-79%2F79%20Passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-85%2F85%20Passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-orange.svg)](https://pytorch.org/)
@@ -12,7 +12,7 @@
 ---
 
 ### 🧭 Navigation & Deliverables
-[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
+[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
@@ -207,8 +207,8 @@ pytest tests -v
 ```
 
 ### Test Suite Execution Summary
-* **Total Tests Collected:** 79
-* **Passed:** 79 (100% pass rate)
+* **Total Tests Collected:** 85
+* **Passed:** 85 (100% pass rate)
 * **Failed:** 0
 * **Skipped:** 0
 
@@ -220,6 +220,7 @@ pytest tests -v
 | `tests/test_command_schemas.py` | 4 | Strict Pydantic command schemas for AI scene edits |
 | `tests/test_dependency_verification.py` | 6 | PyTorch 2.6.0+cu124, torchvision, CUDA driver readiness |
 | `tests/test_dual_mode_pipeline.py` | 4 | Mode A (Text-to-3D) and Mode B (Image-to-3D bypass) lifecycle |
+| `tests/test_failure_recovery.py` | 6 | Stale lock reclamation, CUDA OOM cleanup, Blender fallback, corrupt image rejection |
 | `tests/test_gpu_broker.py` | 4 | Cross-process atomic GPU locks and concurrency serialization |
 | `tests/test_hardware_detector.py` | 4 | GPU VRAM profiling, CUDA capability check, Blender path resolution |
 | `tests/test_image_validation.py` | 3 | Aspect ratio, alpha transparency, and image format sanitization |
@@ -247,6 +248,8 @@ local-mesh-ai/
 │
 ├── docs/                       # Official documentation & presentation assets
 │   ├── USER_GUIDE.md           # Comprehensive operations manual
+│   ├── LEGAL_AND_LICENSE_AUDIT.md # Comprehensive legal & third-party license audit
+│   ├── FAILURE_RECOVERY_AUDIT.md  # Failure-recovery and hardware resilience audit
 │   ├── assets/                 # High-resolution genuine renders and textures
 │   │   ├── chair_render_eevee.png
 │   │   ├── multiview_grid.png
@@ -265,7 +268,7 @@ local-mesh-ai/
 │   ├── 1_setup_environment.bat # Creates .venv & installs all dependencies
 │   ├── 2_detect_hardware.bat   # Auto-detects GPU, VRAM & Blender path
 │   ├── 3_start_backend.bat     # Launches local orchestration server
-│   ├── 4_run_tests.bat         # Runs 79 automated test suites
+│   ├── 4_run_tests.bat         # Runs 85 automated test suites
 │   └── 5_start_studio_ui.bat   # Launches Blender-inspired 3D Studio workstation
 │
 ├── core/
@@ -297,12 +300,12 @@ local-mesh-ai/
 │   └── export_service.py       # GLB, FBX, OBJ export pipeline (with timeouts)
 │
 ├── addon/
-│   └── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension
+│   └── triposr_blender_addon.py # Native Blender 4.2 / 5.2 N-Panel extension (GPLv3)
 │
 ├── ui/
 │   └── dashboard.py            # Blender-inspired dark 3D Studio workstation (Port 7860)
 │
-└── tests/                      # 79 unit, integration, and UI test suites
+└── tests/                      # 85 unit, integration, and UI test suites
 ```
 
 ---
@@ -310,6 +313,8 @@ local-mesh-ai/
 ## 📜 License & Model Attributions
 
 * **Application Code:** Distributed under the **Apache 2.0 License**. See [`LICENSE`](LICENSE).
-* **TripoSR:** Neural 3D reconstruction engine licensed under the **MIT License** by VAST-AI Research & Stability AI.
-* **SD-Turbo:** 1-step concept synthesis model distributed under the **Stability AI Community License** (research/non-commercial; commercial use requires a Stability AI license).
-* **Qwen 2.5 Coder:** LLM planning weights licensed under the **Tongyi Qianwen License Agreement**.
+* **Blender Add-on:** Distributed under the **GNU General Public License v3.0 (GPLv3)** in compliance with Blender Python API licensing. See [`addon/triposr_blender_addon.py`](addon/triposr_blender_addon.py).
+* **TripoSR:** Neural 3D reconstruction engine and weights licensed under the **MIT License** by VAST-AI Research & Stability AI.
+* **SD-Turbo:** 1-step concept synthesis model distributed under the **Stability AI Non-Commercial Research Community License** (research/non-commercial use only; commercial deployment requires a commercial license from Stability AI).
+* **Qwen 2.5 Coder:** LLM planning weights released by Alibaba Cloud under the **Apache 2.0 License**.
+* **Commercial Deployment Guidance:** Mode B (Image-to-3D) uses entirely permissive components (MIT / Apache / GPL) and is commercially usable. Mode A (Text-to-3D) is encumbered by SD-Turbo's non-commercial research terms. For full details, see the [`Legal & License Audit`](docs/LEGAL_AND_LICENSE_AUDIT.md).
