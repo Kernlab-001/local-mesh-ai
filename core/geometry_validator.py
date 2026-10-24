@@ -323,8 +323,20 @@ class GeometryValidator:
         if len(mesh.faces) > budget:
             try:
                 if hasattr(mesh, "simplify_quadric_decimation"):
+                    orig_verts = np.asarray(mesh.vertices).copy()
+                    orig_colors = None
+                    if hasattr(mesh.visual, "vertex_colors") and mesh.visual.vertex_colors is not None:
+                        orig_colors = np.asarray(mesh.visual.vertex_colors).copy()
+
                     mesh = mesh.simplify_quadric_decimation(face_count=budget)
-                    repairs.append(f"Decimated mesh to polygon budget ({len(mesh.faces)} faces).")
+
+                    if orig_colors is not None and len(orig_colors) == len(orig_verts):
+                        from scipy.spatial import cKDTree
+                        kdtree = cKDTree(orig_verts)
+                        _, indices = kdtree.query(mesh.vertices)
+                        mesh.visual.vertex_colors = orig_colors[indices]
+
+                    repairs.append(f"Decimated mesh to polygon budget ({len(mesh.faces)} faces) while preserving vertex colors.")
             except Exception as dec_err:
                 report.warnings.append(f"Decimation notice: {dec_err}")
 
