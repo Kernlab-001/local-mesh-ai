@@ -376,7 +376,7 @@ def poll_job_timer():
                 # Import output mesh with full PBR and viewport shading
                 output_mesh = data.get("output_mesh")
                 if output_mesh and os.path.exists(output_mesh):
-                    _import_and_organize(output_mesh, props)
+                    _import_and_organize(output_mesh, props, profile_data=data.get("appearance_profile"))
                 return None
             elif status in ("FAILED", "CANCELLED"):
                 props.is_generating = False
@@ -387,7 +387,7 @@ def poll_job_timer():
 
     return 1.0  # Poll every 1 second
 
-def _import_and_organize(filepath, props):
+def _import_and_organize(filepath, props, profile_data=None):
     """
     Imports mesh, links to destination collection, builds calibrated PBR shader,
     and switches viewport to Material Preview mode so colors show up immediately!
@@ -425,116 +425,217 @@ def _import_and_organize(filepath, props):
     # 3. Build Calibrated PBR Shading & Color Setup for all imported mesh objects
     for obj in imported:
         if props.pbr_material:
-            _apply_in_viewport_pbr(obj, filepath, props)
+            _apply_in_viewport_pbr(obj, filepath, props, profile_data=profile_data)
 
     # 4. Viewport Shading Mode: Auto-switch to Material Preview
     if props.auto_switch_shading:
         _enable_viewport_color_shading()
 
-def _apply_in_viewport_pbr(obj, mesh_path, props):
+def _inspect_material_slot(mat) -> dict:
     """
-    Ensures imported authored PBR materials are preserved with full texture fidelity,
-    and only constructs fallback shaders if the mesh lacks material slots.
+    Inspects a single material slot for shader node integrity, textures, and color.
+    Detects default white materials, missing textures, unlinked shaders, or valid PBR setups.
     """
-    authored_mats = [m for m in obj.data.materials if m is not None]
-    if len(authored_mats) > 0:
-        print(f"[Blender Addon] Object '{obj.name}' has {len(authored_mats)} authored PBR material slots. Preserving imported shaders and textures.")
-        for mat in authored_mats:
-            if mat.use_nodes:
-                tex_node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image), None)
-                if tex_node and tex_node.image:
-                    img = tex_node.image
-                    try:
-                        if img.pixels and len(img.pixels) >= 16:
-                            pix = img.pixels
-                            step = max(1, len(pix) // 64)
-                            count = max(1, len(pix) // (step * 4))
-                            r = sum(pix[j] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
-                            g = sum(pix[j+1] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
-                            b = sum(pix[j+2] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
-                            mat.diffuse_color = (r, g, b, 1.0)
-                    except Exception:
-                        pass
-                else:
-                    bsdf = mat.node_tree.nodes.get('Principled BSDF')
-                    if bsdf and 'Base Color' in bsdf.inputs:
-                        bc = bsdf.inputs['Base Color'].default_value
-                        mat.diffuse_color = (bc[0], bc[1], bc[2], 1.0)
+    if mat is None:
+        return {"status": "INVALID_MISSING", "mat": None, "reason": "Material slot is empty"}
 
-        if hasattr(bpy.context.scene, 'view_settings'):
-            bpy.context.scene.view_settings.view_transform = 'Standard'
-        return
+    if not getattr(mat, "use_nodes", False) or not mat.node_tree:
+        return {"status": "INVALID_UNLINKED", "mat": mat, "reason": "Material does not use nodes"}
 
-    # Fallback path ONLY for meshes imported with ZERO materials (e.g. raw STL / raw OBJ)
-    mat_name = f"M_{obj.name}_Fallback_PBR"
-    mat = bpy.data.materials.new(name=mat_name)
-    mat.use_nodes = True
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
+    # Find Principled BSDF
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if not bsdf:
+        return {"status": "INVALID_UNLINKED", "mat": mat, "reason": "No Principled BSDF node"}
 
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
-    nodes.clear()
+    # Check Output Material
+    out_node = next((n for n in mat.node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
+    if not out_node or not out_node.inputs.get('Surface') or not out_node.inputs['Surface'].is_linked:
+        return {"status": "INVALID_UNLINKED", "mat": mat, "reason": "Output Material Surface is not linked"}
 
-    # Output & Principled BSDF
-    node_out = nodes.new(type='ShaderNodeOutputMaterial')
-    node_out.location = (600, 0)
+    base_color_inp = bsdf.inputs.get('Base Color')
+    if not base_color_inp:
+        return {"status": "INVALID_UNLINKED", "mat": mat, "reason": "No Base Color input on BSDF"}
 
-    node_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
-    node_bsdf.location = (200, 0)
-    links.new(node_bsdf.outputs['BSDF'], node_out.inputs['Surface'])
+    mat_name_lower = mat.name.lower()
+    is_default_named = any(d in mat_name_lower for d in ["defaultmaterial", "material.0", "m_geometry_0", "fallback"])
 
-    # Preset Reflectivity
-    p_lower = props.preset.lower()
-    if "weapon" in p_lower:
-        node_bsdf.inputs['Roughness'].default_value = 0.25
-        if 'Metallic' in node_bsdf.inputs:
-            node_bsdf.inputs['Metallic'].default_value = 0.55
-    elif "character" in p_lower:
-        node_bsdf.inputs['Roughness'].default_value = 0.50
-    elif "furniture" in p_lower:
-        node_bsdf.inputs['Roughness'].default_value = 0.45
-    else:  # prop
-        node_bsdf.inputs['Roughness'].default_value = 0.35
-
-    # Check for valid non-white vertex colors
-    has_valid_vcol = False
-    color_attr_name = 'Color'
-    if obj.data.color_attributes:
-        for attr in obj.data.color_attributes:
-            if attr.data and len(attr.data) > 0:
-                sample_cols = [attr.data[i].color[:3] for i in range(min(5, len(attr.data)))]
-                is_all_white = all(all(c >= 0.99 for c in sc) for sc in sample_cols)
-                if not is_all_white:
-                    has_valid_vcol = True
-                    color_attr_name = attr.name
+    # 1. Trace Base Color link
+    tex_node = None
+    if base_color_inp.is_linked:
+        from_node = base_color_inp.links[0].from_node
+        if from_node.type == 'TEX_IMAGE':
+            tex_node = from_node
+        elif from_node.type == 'MIX':
+            # Check inputs of mix node for image texture
+            for inp in from_node.inputs:
+                if inp.is_linked and inp.links[0].from_node.type == 'TEX_IMAGE':
+                    tex_node = inp.links[0].from_node
+                    # Clean direct bypass: connect texture directly into Base Color
+                    mat.node_tree.links.new(tex_node.outputs['Color'], base_color_inp)
                     break
+        elif from_node.type == 'VERTEX_COLOR':
+            pass
 
-    if has_valid_vcol:
-        col_node = nodes.new('ShaderNodeAttribute')
-        col_node.location = (-600, 100)
-        col_node.attribute_name = color_attr_name
+    # If texture node found, check image resource
+    if tex_node:
+        img = tex_node.image
+        if not img or img.size[0] == 0:
+            return {"status": "INVALID_BROKEN_TEXTURE", "mat": mat, "reason": f"Texture node '{tex_node.name}' has no image"}
+        try:
+            pix = img.pixels
+            if len(pix) >= 16:
+                step = max(1, len(pix) // 64)
+                count = max(1, len(pix) // (step * 4))
+                r = sum(pix[j] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                g = sum(pix[j+1] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                b = sum(pix[j+2] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                mat.diffuse_color = (r, g, b, 1.0)
+                if r >= 0.98 and g >= 0.98 and b >= 0.98:
+                    return {"status": "INVALID_WHITE_OR_DEFAULT", "mat": mat, "diffuse_rgb": (r, g, b), "reason": "Texture image is entirely pure white"}
+                return {"status": "VALID_TEXTURED", "mat": mat, "diffuse_rgb": (r, g, b), "reason": f"Valid texture '{img.name}' ({img.size[0]}x{img.size[1]})"}
+        except Exception as e:
+            return {"status": "INVALID_BROKEN_TEXTURE", "mat": mat, "reason": f"Error reading texture pixels: {e}"}
 
-        hsv = nodes.new('ShaderNodeHueSaturation')
-        hsv.location = (-350, 100)
-        hsv.inputs['Saturation'].default_value = props.color_boost
-        hsv.inputs['Value'].default_value = 1.05
-        links.new(col_node.outputs['Color'], hsv.inputs['Color'])
+    # 2. Check unlinked Base Color default value
+    if not base_color_inp.is_linked:
+        bc = list(base_color_inp.default_value)
+        # Check if neutral unshaded gray or flat white ([0.8, 0.8, 0.8] or [1.0, 1.0, 1.0])
+        is_neutral_monochrome = (abs(bc[0] - bc[1]) < 0.025 and abs(bc[1] - bc[2]) < 0.025)
+        is_high_luminance = (bc[0] >= 0.75 and bc[1] >= 0.75 and bc[2] >= 0.75)
+        is_default_white = is_high_luminance and is_neutral_monochrome
 
-        bc = nodes.new('ShaderNodeBrightContrast')
-        bc.location = (-150, 100)
-        bc.inputs['Bright'].default_value = 0.02
-        bc.inputs['Contrast'].default_value = 0.15
-        links.new(hsv.outputs['Color'], bc.inputs['Color'])
+        if is_default_named and (is_default_white or is_high_luminance):
+            return {"status": "INVALID_WHITE_OR_DEFAULT", "mat": mat, "diffuse_rgb": tuple(bc[:3]), "reason": f"Default untextured white/gray material ({[round(x, 2) for x in bc[:3]]})"}
+        if is_default_white and len(mat.node_tree.nodes) <= 3:
+            return {"status": "INVALID_WHITE_OR_DEFAULT", "mat": mat, "diffuse_rgb": tuple(bc[:3]), "reason": f"Default monochrome white/gray material ({[round(x, 2) for x in bc[:3]]})"}
 
-        links.new(bc.outputs['Color'], node_bsdf.inputs['Base Color'])
+        mat.diffuse_color = (bc[0], bc[1], bc[2], 1.0)
+        return {"status": "VALID_COLORED", "mat": mat, "diffuse_rgb": tuple(bc[:3]), "reason": f"Authored non-white base color ({[round(x, 2) for x in bc[:3]]})"}
+
+    return {"status": "INVALID_WHITE_OR_DEFAULT", "mat": mat, "reason": "Base color is linked to non-texture node producing flat appearance"}
+
+def _apply_in_viewport_pbr(obj, mesh_path=None, props=None, profile_data=None):
+    """
+    Validates all material slots on obj.
+    - Preserves valid textured or colored materials.
+    - Repairs missing, unlinked, or default white materials using AppearanceProfile.
+    - Ensures valid polygon material index assignments.
+    - Reports detailed preservation and repair diagnostics.
+    """
+    report = {
+        "object": obj.name if obj else "None",
+        "preserved": [],
+        "repaired": [],
+        "replaced": [],
+        "status": "noop"
+    }
+
+    if not obj or obj.type != 'MESH':
+        report["status"] = "skipped_not_mesh"
+        return report
+
+    # Ensure repository root is on sys.path
+    root = find_project_root()
+    if root and root not in sys.path:
+        sys.path.insert(0, root)
+
+    # 1. Inspect existing material slots
+    inspections = [_inspect_material_slot(m) for m in obj.data.materials]
+    valid_slots = [i for i in inspections if i["status"] in ("VALID_TEXTURED", "VALID_COLORED")]
+    invalid_slots = [i for i in inspections if i["status"] not in ("VALID_TEXTURED", "VALID_COLORED")]
+
+    # 2. Resolve AppearanceProfile to know intended materials and structure
+    resolved_profile = None
+    try:
+        from core.appearance_analyzer import AppearanceProfile, appearance_analyzer
+        if profile_data:
+            if isinstance(profile_data, AppearanceProfile):
+                resolved_profile = profile_data
+            elif isinstance(profile_data, dict):
+                resolved_profile = AppearanceProfile.from_dict(profile_data)
+        elif mesh_path:
+            p_file = os.path.join(os.path.dirname(mesh_path), "profile.json")
+            if not os.path.exists(p_file):
+                p_file = os.path.join(os.path.dirname(mesh_path), "reports", "profile.json")
+            if os.path.exists(p_file):
+                with open(p_file, "r", encoding="utf-8") as f:
+                    resolved_profile = AppearanceProfile.from_dict(json.load(f))
+
+        if resolved_profile is None and props and hasattr(props, "prompt_text") and props.prompt_text:
+            resolved_profile = appearance_analyzer.analyze_appearance(prompt=props.prompt_text)
+    except Exception as e:
+        print(f"[Blender Addon] Profile resolution note: {e}")
+
+    needs_multi_material = bool(resolved_profile and len(resolved_profile.materials) > 1)
+
+    # 3. Decision: Can we preserve existing materials?
+    if len(valid_slots) > 0 and len(invalid_slots) == 0:
+        if not needs_multi_material or len(valid_slots) >= len(resolved_profile.materials):
+            report["status"] = "preserved"
+            report["preserved"] = [i["mat"].name for i in valid_slots]
+            print(f"[Blender Addon] Preserved {len(valid_slots)} valid authored PBR material slots on '{obj.name}'.")
+
+            # Ensure polygon material indices are valid
+            num_mats = len(obj.data.materials)
+            for poly in obj.data.polygons:
+                if poly.material_index < 0 or poly.material_index >= num_mats:
+                    poly.material_index = 0
+
+            if hasattr(bpy.context.scene, 'view_settings'):
+                bpy.context.scene.view_settings.view_transform = 'Standard'
+            return report
+
+    # 4. Repair Triggered!
+    # Mesh has missing materials, default white materials, or lacks multi-material partitioning
+    print(f"[Blender Addon] Object '{obj.name}' requires material repair (Valid: {len(valid_slots)}, Invalid: {len(invalid_slots)}, Needs multi: {needs_multi_material}). Initiating PBR repair...")
+
+    if resolved_profile is None:
+        try:
+            from core.appearance_analyzer import appearance_analyzer
+            resolved_profile = appearance_analyzer.analyze_appearance(
+                prompt=props.prompt_text if (props and hasattr(props, "prompt_text") and props.prompt_text) else "traditional dining chair with walnut wood frame and cream cushion"
+            )
+        except Exception:
+            pass
+
+    if resolved_profile:
+        from core.material_synthesizer import synthesize_and_apply_materials
+        textures_dir = os.path.join(os.path.dirname(mesh_path), "textures") if mesh_path else None
+        
+        synth_res = synthesize_and_apply_materials(
+            obj=obj,
+            profile=resolved_profile,
+            textures_dir=textures_dir,
+            generate_textures=True
+        )
+
+        report["status"] = "repaired"
+        report["replaced"] = [i["mat"].name for i in invalid_slots if i.get("mat")]
+        report["repaired"] = [m.name for m in resolved_profile.materials]
+        print(f"[Blender Addon] Material Repair complete on '{obj.name}': {synth_res.get('material_count')} slots synthesized: {synth_res.get('materials')}")
     else:
-        # Default warm studio tone rather than glossy white
-        node_bsdf.inputs['Base Color'].default_value = (0.28, 0.18, 0.12, 1.0) if "furniture" in p_lower else (0.5, 0.5, 0.5, 1.0)
+        # Fallback single material
+        report["status"] = "fallback"
+        obj.data.materials.clear()
+        mat = bpy.data.materials.new(name=f"M_{obj.name}_PBR")
+        mat.use_nodes = True
+        obj.data.materials.append(mat)
+        bsdf = mat.node_tree.nodes.get('Principled BSDF')
+        if bsdf:
+            bsdf.inputs['Base Color'].default_value = (0.24, 0.15, 0.10, 1.0)
+            mat.diffuse_color = (0.24, 0.15, 0.10, 1.0)
 
-    # Set scene color transform to Standard so it doesn't look washed out
+    # 5. Final index validation: verify every polygon references a valid material slot
+    num_mats = len(obj.data.materials)
+    if num_mats > 0:
+        for poly in obj.data.polygons:
+            if poly.material_index < 0 or poly.material_index >= num_mats:
+                poly.material_index = 0
+
     if hasattr(bpy.context.scene, 'view_settings'):
         bpy.context.scene.view_settings.view_transform = 'Standard'
+
+    return report
 
 def _enable_viewport_color_shading():
     """Switches 3D Viewport to Material Preview mode and Solid to Material colors."""
@@ -751,10 +852,13 @@ class TRIPOSR_OT_SwitchViewport(bpy.types.Operator):
         _enable_viewport_color_shading()
         mat_count = 0
         target_objs = context.selected_objects if context.selected_objects else context.scene.objects
+        props = context.scene.triposr_props if hasattr(context.scene, "triposr_props") else None
         for obj in target_objs:
             if obj.type == 'MESH':
+                # Run inspection & repair to ensure default white materials are resolved
+                _apply_in_viewport_pbr(obj, None, props)
                 for mat in obj.data.materials:
-                    if mat and mat.use_nodes:
+                    if mat and getattr(mat, "use_nodes", False):
                         mat_count += 1
                         tex_node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image), None)
                         if tex_node and tex_node.image:

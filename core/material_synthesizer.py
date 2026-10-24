@@ -155,8 +155,16 @@ def synthesize_and_apply_materials(
     slot_counts = [0] * len(profile.materials)
 
     # Check for neural vertex colors on the object from TripoSR
-    has_vc = bool(obj.data.color_attributes and len(obj.data.color_attributes) > 0)
-    vc_attr = obj.data.color_attributes[0] if has_vc else None
+    # Only use color attributes that have actual non-white color data
+    vc_attr = None
+    if obj.data.color_attributes:
+        for ca in obj.data.color_attributes:
+            if len(ca.data) > 0:
+                sample_pts = [ca.data[idx].color[:3] for idx in range(0, min(len(ca.data), 200), max(1, len(ca.data)//20))]
+                is_pure_white = all(c[0] > 0.98 and c[1] > 0.98 and c[2] > 0.98 for c in sample_pts)
+                if not is_pure_white:
+                    vc_attr = ca
+                    break
 
     category = (profile.category or "generic").lower()
 

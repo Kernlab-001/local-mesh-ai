@@ -169,6 +169,20 @@ class MaterialSlotConfig:
             "description": self.description
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MaterialSlotConfig":
+        return cls(
+            name=data.get("name", "M_Surface_PBR"),
+            color_rgb=data.get("color_rgb", [180, 180, 180]),
+            roughness=float(data.get("roughness", 0.5)),
+            metallic=float(data.get("metallic", 0.0)),
+            texture_type=data.get("texture_type", "custom"),
+            region_id=data.get("region_id", "body"),
+            z_min_norm=float(data.get("z_min_norm", 0.0)),
+            z_max_norm=float(data.get("z_max_norm", 1.0)),
+            description=data.get("description", "")
+        )
+
 class AppearanceProfile:
     def __init__(self, category: str, materials: List[MaterialSlotConfig], dominant_palette: List[List[int]]):
         self.category = category
@@ -181,6 +195,15 @@ class AppearanceProfile:
             "materials": [m.to_dict() for m in self.materials],
             "dominant_palette": self.dominant_palette
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AppearanceProfile":
+        mats = [MaterialSlotConfig.from_dict(m) for m in data.get("materials", [])]
+        return cls(
+            category=data.get("category", "generic"),
+            materials=mats,
+            dominant_palette=data.get("dominant_palette", [[180, 180, 180]])
+        )
 
 class AppearanceAnalyzer:
     def __init__(self):

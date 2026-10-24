@@ -40,6 +40,7 @@ env/
 output/
 inputs/
 jobs/
+textures/
 *.blend
 *.blend1
 *.blend2

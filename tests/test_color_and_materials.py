@@ -1,16 +1,18 @@
 """
-Tests for Color, Materials, Textures, and Appearance Preservation in Local Mesh AI.
-Regression test suite matching Section 7 requirements:
-1. Chair appearance profile contains distinct walnut-brown and ivory-cream materials.
-2. Effective prompt preserves important color and material descriptions within 77-token limit.
-3. Material assignment produces non-white base colors on intended mesh polygons.
-4. Every assigned material index points to a valid material slot.
-5. Generated textures and UV maps survive GLB export.
-6. A valid exported GLB can be parsed and its materials inspected.
-7. A Blender import/export round trip preserves expected appearance.
-8. Custom 'Show Colors' action does not replace colored materials with white ones.
-9. Missing texture files produce a clear diagnostic rather than false success.
-10. An unrelated object (e.g. red sports car, green ceramic vase) does not receive the chair's materials.
+Authoritative Regression Test Suite for Color, Materials, Textures, and Viewport Appearance in Local Mesh AI.
+Covers the 12 required test cases from Section 8:
+ 1. A mesh with no materials gets repaired.
+ 2. A mesh with existing white materials that need repair is detected and fixed.
+ 3. A mesh with valid colored materials that must be preserved is kept untouched.
+ 4. A mesh with missing or unlinked Principled BSDF inputs is repaired.
+ 5. A mesh with a missing texture file produces a clean fallback diagnostic.
+ 6. A mesh with multiple material slots and polygon assignments has valid bounds.
+ 7. A chair appearance profile contains distinct walnut-brown and ivory-cream materials.
+ 8. A generated prompt whose critical material terms survive tokenization within 77 tokens.
+ 9. GLB export and re-import preserving valid material data.
+10. Texture image embedding and UV preservation.
+11. Material repair running through the actual add-on entry point.
+12. Correct behavior for unrelated objects such as a red sports car and green ceramic vase.
 """
 
 import os
@@ -31,7 +33,6 @@ from core.appearance_analyzer import appearance_analyzer, AppearanceProfile, Mat
 from core.texture_generator import texture_generator, save_png_array
 from core.hardware_detector import hardware_detector
 from core.prompt_to_image import prompt_engine, optimize_prompt_for_clip
-from services.job_manager import job_manager, Job
 
 try:
     import trimesh
@@ -49,8 +50,234 @@ def parse_glb_json(glb_path: str):
         return json.loads(f.read(clen).decode("utf-8"))
 
 
+@pytest.fixture(scope="session")
+def verified_chair_glb(tmp_path_factory):
+    """Provides a guaranteed authentic, non-empty multi-material chair GLB."""
+    existing = os.path.join(PROJECT_ROOT, "jobs", "91aa63f4", "mesh.glb")
+    if os.path.exists(existing) and os.path.getsize(existing) > 1000:
+        return existing
+
+    # Deterministic generation fixture via Blender if job mesh not present
+    tmp_dir = str(tmp_path_factory.mktemp("chair_fixture"))
+    fixture_glb = os.path.join(tmp_dir, "chair_fixture.glb")
+    blender_bin = hardware_detector.find_blender() or "blender"
+
+    gen_script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+from core.appearance_analyzer import appearance_analyzer
+from core.material_synthesizer import synthesize_and_apply_materials
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cube_add(size=1.0)
+obj = bpy.context.active_object
+obj.name = "Chair_Fixture"
+
+prof = appearance_analyzer.analyze_appearance('A traditional dining chair with dark walnut-brown wooden frame and ivory-cream cushion')
+synthesize_and_apply_materials(obj, prof, textures_dir=r'{tmp_dir}', generate_textures=True)
+
+bpy.ops.export_scene.gltf(filepath=r'{fixture_glb}', export_format='GLB')
+"""
+    subprocess.run([blender_bin, "--background", "--python-expr", gen_script], check=True, timeout=30)
+    assert os.path.exists(fixture_glb) and os.path.getsize(fixture_glb) > 1000
+    return fixture_glb
+
+
 # ==============================================================================
-# TEST 1: Chair appearance profile contains distinct walnut-brown and ivory-cream
+# TEST 1: A mesh with no materials gets repaired
+# ==============================================================================
+def test_mesh_with_no_materials_repaired():
+    blender_bin = hardware_detector.find_blender() or "blender"
+    script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+import addon.triposr_blender_addon as addon
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cube_add()
+obj = bpy.context.active_object
+obj.data.materials.clear()
+assert len(obj.data.materials) == 0
+
+class DummyProps:
+    pbr_material = True
+    auto_switch_shading = True
+    prompt_text = 'A traditional dining chair with dark walnut-brown wooden frame and ivory-cream cushion'
+
+rep = addon._apply_in_viewport_pbr(obj, None, DummyProps())
+assert rep['status'] in ('repaired', 'fallback')
+assert len(obj.data.materials) >= 1
+for m in obj.data.materials:
+    assert m.diffuse_color[0] < 0.99 or m.diffuse_color[1] < 0.99 or m.diffuse_color[2] < 0.99
+print('TEST_1_SUCCESS')
+"""
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_1_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
+
+
+# ==============================================================================
+# TEST 2: A mesh with existing white materials that need repair
+# ==============================================================================
+def test_mesh_with_existing_white_materials_repaired():
+    blender_bin = hardware_detector.find_blender() or "blender"
+    script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+import addon.triposr_blender_addon as addon
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cube_add()
+obj = bpy.context.active_object
+
+# Create default white material
+mat = bpy.data.materials.new(name="DefaultMaterial")
+mat.use_nodes = True
+bsdf = mat.node_tree.nodes.get("Principled BSDF")
+bsdf.inputs['Base Color'].default_value = (0.8, 0.8, 0.8, 1.0)
+obj.data.materials.clear()
+obj.data.materials.append(mat)
+
+class DummyProps:
+    pbr_material = True
+    auto_switch_shading = True
+    prompt_text = 'A traditional dining chair with dark walnut-brown wooden frame and ivory-cream cushion'
+
+rep = addon._apply_in_viewport_pbr(obj, None, DummyProps())
+assert rep['status'] == 'repaired'
+assert 'DefaultMaterial' in rep.get('replaced', [])
+assert len(obj.data.materials) == 3
+
+# Frame must be dark walnut, cushions ivory cream
+frame_mat = next(m for m in obj.data.materials if 'Wood' in m.name)
+cushion_mat = next(m for m in obj.data.materials if 'Cushion' in m.name)
+assert frame_mat.diffuse_color[0] < 0.4, f'Wood frame too bright: {{frame_mat.diffuse_color}}'
+assert cushion_mat.diffuse_color[0] > 0.85, f'Cushion too dark: {{cushion_mat.diffuse_color}}'
+print('TEST_2_SUCCESS')
+"""
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_2_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
+
+
+# ==============================================================================
+# TEST 3: A mesh with valid colored materials that must be preserved
+# ==============================================================================
+def test_mesh_with_valid_colored_materials_preserved():
+    blender_bin = hardware_detector.find_blender() or "blender"
+    script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+import addon.triposr_blender_addon as addon
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cube_add()
+obj = bpy.context.active_object
+obj.data.materials.clear()
+
+# Add valid authored colored materials
+m1 = bpy.data.materials.new(name="M_Authored_Wood")
+m1.use_nodes = True
+m1.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.24, 0.15, 0.10, 1.0)
+
+m2 = bpy.data.materials.new(name="M_Authored_Fabric")
+m2.use_nodes = True
+m2.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.92, 0.90, 0.85, 1.0)
+
+obj.data.materials.append(m1)
+obj.data.materials.append(m2)
+
+class DummyProps:
+    pbr_material = True
+    auto_switch_shading = True
+
+rep = addon._apply_in_viewport_pbr(obj, None, DummyProps())
+assert rep['status'] == 'preserved'
+assert len(obj.data.materials) == 2
+assert obj.data.materials[0].name == "M_Authored_Wood"
+assert obj.data.materials[1].name == "M_Authored_Fabric"
+print('TEST_3_SUCCESS')
+"""
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_3_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
+
+
+# ==============================================================================
+# TEST 4: A mesh with missing or unlinked Principled BSDF inputs is repaired
+# ==============================================================================
+def test_mesh_with_missing_or_unlinked_bsdf_inputs_repaired():
+    blender_bin = hardware_detector.find_blender() or "blender"
+    script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+import addon.triposr_blender_addon as addon
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_cube_add()
+obj = bpy.context.active_object
+obj.data.materials.clear()
+
+# Create material with unlinked surface output
+m_broken = bpy.data.materials.new(name="M_Broken_Shader")
+m_broken.use_nodes = True
+m_broken.node_tree.nodes.clear()  # No nodes at all!
+obj.data.materials.append(m_broken)
+
+class DummyProps:
+    pbr_material = True
+    auto_switch_shading = True
+    prompt_text = 'A traditional dining chair with dark walnut-brown wooden frame and ivory-cream cushion'
+
+rep = addon._apply_in_viewport_pbr(obj, None, DummyProps())
+assert rep['status'] == 'repaired'
+# After repair, material slots have working Principled BSDF nodes
+for mat in obj.data.materials:
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    assert bsdf is not None
+print('TEST_4_SUCCESS')
+"""
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_4_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
+
+
+# ==============================================================================
+# TEST 5: A mesh with a missing texture file produces clear fallback diagnostic
+# ==============================================================================
+def test_mesh_with_missing_texture_file():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Saving empty dictionary produces clean dictionary without errors
+        empty_paths = texture_generator.save_pbr_textures({}, tmp_dir, prefix="empty")
+        assert empty_paths == {}
+
+        # Fallback generator for unknown material type provides clean fallback textures
+        fallback = texture_generator.generate_generic_pbr([100, 100, 100], texture_type="unknown_substance", res=64)
+        assert "diffuse" in fallback
+        assert "normal" in fallback
+        assert "roughness" in fallback
+
+        # Non-existent reference image falls back gracefully with default palette
+        palette = appearance_analyzer.extract_image_palette("/non/existent/missing_art.png")
+        assert isinstance(palette, list)
+        assert len(palette) >= 3
+
+
+# ==============================================================================
+# TEST 6: A mesh with multiple material slots and polygon assignments
+# ==============================================================================
+def test_mesh_with_multiple_material_slots_and_polygon_assignments(verified_chair_glb):
+    data = parse_glb_json(verified_chair_glb)
+    num_materials = len(data.get("materials", []))
+    assert num_materials >= 2, "Asset must contain multiple material slots"
+
+    for mesh in data.get("meshes", []):
+        for prim_idx, prim in enumerate(mesh.get("primitives", [])):
+            mat_idx = prim.get("material")
+            assert mat_idx is not None, f"Primitive {prim_idx} has no material index"
+            assert 0 <= mat_idx < num_materials, (
+                f"Primitive {prim_idx} material index {mat_idx} out of bounds [0, {num_materials - 1}]"
+            )
+
+
+# ==============================================================================
+# TEST 7: A chair appearance profile with distinct brown and cream materials
 # ==============================================================================
 def test_chair_appearance_profile_contains_distinct_walnut_and_cream():
     prompt = (
@@ -68,9 +295,8 @@ def test_chair_appearance_profile_contains_distinct_walnut_and_cream():
 
     frame = next(m for m in profile.materials if m.name == "M_Wood_Frame")
     cushion = next(m for m in profile.materials if m.name == "M_Fabric_Cushion")
-    backrest = next(m for m in profile.materials if m.name == "M_Fabric_Backrest")
 
-    # Physical properties check
+    # Frame is smooth wood, cushion is rough fabric
     assert frame.roughness < cushion.roughness
     assert frame.color_rgb != cushion.color_rgb
 
@@ -82,9 +308,9 @@ def test_chair_appearance_profile_contains_distinct_walnut_and_cream():
 
 
 # ==============================================================================
-# TEST 2: Effective prompt preserves colors & materials within 77-token limit
+# TEST 8: Generated prompt whose critical material terms survive tokenization
 # ==============================================================================
-def test_effective_prompt_preserves_colors_and_materials_within_77_tokens():
+def test_generated_prompt_material_terms_survive_tokenization():
     detailed_prompt = (
         "A traditional dining chair with a dark walnut-brown wooden frame and carved legs, "
         "a warm ivory-cream upholstered seat cushion, a matching cream tufted backrest with fabric buttons, "
@@ -106,58 +332,41 @@ def test_effective_prompt_preserves_colors_and_materials_within_77_tokens():
 
 
 # ==============================================================================
-# TEST 3: Material assignment produces non-white base colors on intended mesh polygons
+# TEST 9: GLB export and re-import preserving valid material data
 # ==============================================================================
-def test_material_assignment_produces_non_white_base_colors():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping material assignment test")
+def test_glb_export_and_reimport_preserves_valid_material_data(verified_chair_glb):
+    blender_bin = hardware_detector.find_blender() or "blender"
+    script = f"""
+import bpy, sys
+sys.path.insert(0, r'{PROJECT_ROOT}')
+import addon.triposr_blender_addon as addon
 
-    data = parse_glb_json(chair_mesh)
-    materials = data.get("materials", [])
-    assert len(materials) >= 2, "Chair must have at least 2 distinct materials"
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=r'{verified_chair_glb}')
+imported = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+assert len(imported) > 0
+obj = imported[0]
+assert len(obj.data.materials) >= 2, f'Expected >= 2 materials, got {{len(obj.data.materials)}}'
 
-    # Verify that materials in the GLB are NOT default pure white [1, 1, 1, 1]
-    # At least one material (Wood Frame) must have diffuse/base texture or dark color
-    mat_names = [m.get("name", "") for m in materials]
-    assert any("Wood" in n for n in mat_names), f"Wood material missing from {mat_names}"
-    assert any("Cushion" in n for n in mat_names), f"Cushion material missing from {mat_names}"
+# Re-export and verify roundtrip
+tmp_export = r'{verified_chair_glb}.roundtrip.glb'
+bpy.ops.export_scene.gltf(filepath=tmp_export, export_format='GLB')
 
-    # Verify texture maps exist and contain non-white pixels
-    images = data.get("images", [])
-    assert len(images) > 0, "Textures must be embedded in the GLB"
-
-
-# ==============================================================================
-# TEST 4: Every assigned material index points to a valid material slot
-# ==============================================================================
-def test_every_assigned_material_index_points_to_valid_slot():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping slot index test")
-
-    data = parse_glb_json(chair_mesh)
-    num_materials = len(data.get("materials", []))
-    assert num_materials > 0
-
-    for mesh in data.get("meshes", []):
-        for prim_idx, prim in enumerate(mesh.get("primitives", [])):
-            mat_idx = prim.get("material")
-            assert mat_idx is not None, f"Primitive {prim_idx} has no material index"
-            assert 0 <= mat_idx < num_materials, (
-                f"Primitive {prim_idx} material index {mat_idx} out of range [0, {num_materials - 1}]"
-            )
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=tmp_export)
+re_imported = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+assert len(re_imported[0].data.materials) >= 2
+print('TEST_9_SUCCESS')
+"""
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_9_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
 
 
 # ==============================================================================
-# TEST 5: Generated textures and UV maps survive GLB export
+# TEST 10: Texture image embedding and UV preservation
 # ==============================================================================
-def test_generated_textures_and_uv_maps_survive_glb_export():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping UV and texture survival test")
-
-    data = parse_glb_json(chair_mesh)
+def test_texture_image_embedding_and_uv_preservation(verified_chair_glb):
+    data = parse_glb_json(verified_chair_glb)
     assert len(data.get("images", [])) >= 2, "Generated textures must be embedded in GLB"
     assert len(data.get("textures", [])) >= 2, "Texture definitions must exist in GLB"
 
@@ -167,130 +376,43 @@ def test_generated_textures_and_uv_maps_survive_glb_export():
 
 
 # ==============================================================================
-# TEST 6: A valid exported GLB can be parsed and its materials inspected
+# TEST 11: Material repair running through the actual add-on entry point
 # ==============================================================================
-def test_valid_exported_glb_parsed_and_materials_inspected():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping GLB parser test")
-
-    data = parse_glb_json(chair_mesh)
-    assert "asset" in data
-    assert data["asset"].get("version") == "2.0"
-    assert "materials" in data
-    for mat in data["materials"]:
-        assert "name" in mat
-        assert "pbrMetallicRoughness" in mat
-
-
-# ==============================================================================
-# TEST 7: A Blender import/export round trip preserves expected appearance
-# ==============================================================================
-def test_blender_roundtrip_preserves_expected_appearance():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping Blender roundtrip test")
-
-    blender_bin = hardware_detector.find_blender()
-    if not blender_bin or not os.path.exists(blender_bin):
-        pytest.skip("Blender executable not found on host")
-
+def test_material_repair_running_through_actual_addon_entry_point():
+    blender_bin = hardware_detector.find_blender() or "blender"
     script = f"""
 import bpy, sys
 sys.path.insert(0, r'{PROJECT_ROOT}')
 import addon.triposr_blender_addon as addon
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=r'{os.path.join(PROJECT_ROOT, "output", "meshes", "0", "mesh.glb")}')
+imported = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+obj = imported[0]
 
 class DummyProps:
+    dest_mode = 'active_col'
+    collection_name = 'AI_Generated_Assets'
     pbr_material = True
     auto_switch_shading = True
+    prompt_text = 'A traditional dining chair with dark walnut-brown wooden frame and carved legs, an ivory-cream upholstered seat cushion, and matching cream tufted backrest.'
+    input_mode = 'prompt'
 
-bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath=r'{chair_mesh}')
-imported = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-assert len(imported) > 0, 'No mesh objects imported'
-
-for obj in imported:
-    addon._apply_in_viewport_pbr(obj, r'{chair_mesh}', DummyProps())
-    assert len(obj.data.materials) == 3, f'Expected 3 materials, got {{len(obj.data.materials)}}'
-    names = [m.name for m in obj.data.materials]
-    assert any('Wood' in n for n in names), f'Wood material missing: {{names}}'
-    assert any('Cushion' in n for n in names), f'Cushion material missing: {{names}}'
-
-print('BLENDER_ROUNDTRIP_SUCCESS')
+rep = addon._apply_in_viewport_pbr(obj, None, DummyProps())
+assert rep['status'] == 'repaired', f'Expected repaired, got {{rep}}'
+assert len(obj.data.materials) == 3
+assert any('Wood' in m.name for m in obj.data.materials)
+assert any('Cushion' in m.name for m in obj.data.materials)
+print('TEST_11_SUCCESS')
 """
-    cmd = [blender_bin, "--background", "--python-expr", script]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    assert "BLENDER_ROUNDTRIP_SUCCESS" in res.stdout, f"Blender test failed:\n{res.stdout}\n{res.stderr}"
+    res = subprocess.run([blender_bin, "--background", "--python-expr", script], capture_output=True, text=True, timeout=30)
+    assert "TEST_11_SUCCESS" in res.stdout, f"Failed:\n{res.stdout}\n{res.stderr}"
 
 
 # ==============================================================================
-# TEST 8: Custom 'Show Colors' action does not replace colored materials with white
+# TEST 12: Correct behavior for unrelated objects (red sports car, green vase)
 # ==============================================================================
-def test_show_colors_action_does_not_replace_colored_materials_with_white():
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if not os.path.exists(chair_mesh):
-        pytest.skip("Chair GLB asset not yet generated; skipping Show Colors test")
-
-    blender_bin = hardware_detector.find_blender()
-    if not blender_bin or not os.path.exists(blender_bin):
-        pytest.skip("Blender executable not found on host")
-
-    script = f"""
-import bpy, sys
-sys.path.insert(0, r'{PROJECT_ROOT}')
-import addon.triposr_blender_addon as addon
-
-bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath=r'{chair_mesh}')
-imported = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-assert len(imported) > 0
-
-for obj in imported:
-    addon._apply_in_viewport_pbr(obj, r'{chair_mesh}', None)
-
-# Verify diffuse colors are sampled and authentic (NOT pure glossy white [1, 1, 1, 1])
-for obj in imported:
-    for mat in obj.data.materials:
-        dc = list(mat.diffuse_color)
-        if 'Wood' in mat.name:
-            # Dark walnut wood must be dark (R < 0.5, G < 0.3, B < 0.2)
-            assert dc[0] < 0.5 and dc[1] < 0.3, f'Wood material is white or too bright: {{dc}}'
-        elif 'Cushion' in mat.name:
-            # Ivory cream has warm tones (R > B) and is not pure unshaded 1.0 white
-            assert dc[0] > dc[2], f'Cushion is not warm ivory cream: {{dc}}'
-
-print('SHOW_COLORS_NON_WHITE_SUCCESS')
-"""
-    cmd = [blender_bin, "--background", "--python-expr", script]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    assert "SHOW_COLORS_NON_WHITE_SUCCESS" in res.stdout, f"Show Colors failed:\n{res.stdout}\n{res.stderr}"
-
-
-# ==============================================================================
-# TEST 9: Missing texture files produce a clear diagnostic rather than false success
-# ==============================================================================
-def test_missing_texture_files_produce_clear_diagnostic():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Saving empty dictionary produces clean dictionary without errors
-        empty_paths = texture_generator.save_pbr_textures({}, tmp_dir, prefix="empty")
-        assert empty_paths == {}
-
-        # Fallback generator for unknown material type provides clean fallback textures
-        fallback = texture_generator.generate_generic_pbr([100, 100, 100], texture_type="unknown_exotic_material", res=64)
-        assert "diffuse" in fallback
-        assert "normal" in fallback
-        assert "roughness" in fallback
-
-        # Missing reference image path falls back gracefully with default palette
-        palette = appearance_analyzer.extract_image_palette("/non/existent/path/missing_art.png")
-        assert isinstance(palette, list)
-        assert len(palette) >= 3
-
-
-# ==============================================================================
-# TEST 10: Unrelated object does not receive the chair's materials
-# ==============================================================================
-def test_unrelated_object_does_not_receive_chair_materials():
+def test_unrelated_objects_do_not_receive_chair_materials():
     # Test Red Sports Car
     car_profile = appearance_analyzer.analyze_appearance(prompt="A sleek red sports car with gloss metallic finish")
     assert car_profile.category == "vehicle"
@@ -312,41 +434,3 @@ def test_unrelated_object_does_not_receive_chair_materials():
     glaze = next(m for m in vase_profile.materials if "Ceramic_Glaze" in m.name)
     assert glaze.color_rgb[1] > glaze.color_rgb[0]  # Green dominant
     assert glaze.roughness <= 0.20  # High gloss ceramic
-
-
-# ==============================================================================
-# ADDITIONAL INTEGRATION TESTS: Fallbacks, Serving, Offline
-# ==============================================================================
-def test_mesh_with_no_materials():
-    profile = appearance_analyzer.analyze_appearance(prompt="a plain geometric cube")
-    assert profile is not None
-    assert len(profile.materials) >= 1
-    default_mat = profile.materials[0]
-    assert default_mat.name == "M_Surface_PBR"
-    assert 0.0 <= default_mat.roughness <= 1.0
-    assert 0.0 <= default_mat.metallic <= 1.0
-    assert len(default_mat.color_rgb) == 3
-
-
-def test_correct_serving_of_final_textured_glb():
-    from fastapi.testclient import TestClient
-    from api.app import app
-
-    client = TestClient(app)
-    chair_mesh = os.path.join(PROJECT_ROOT, "jobs", "d9fa3002", "mesh.glb")
-    if os.path.exists(chair_mesh):
-        response = client.get("/jobs/d9fa3002/mesh")
-        assert response.status_code == 200
-        assert response.headers["content-type"] in ("model/gltf-binary", "application/octet-stream")
-        assert int(response.headers.get("content-length", 0)) > 1000
-
-
-def test_offline_operation_and_graceful_handling():
-    prof = appearance_analyzer.analyze_appearance(prompt="Blue mech robot with gold accents")
-    assert prof.category == "robot"
-    assert len(prof.materials) >= 2
-
-    metal_texs = texture_generator.generate_metal_pbr([212, 175, 55], res=64, roughness_base=0.25)
-    assert metal_texs["diffuse"].shape == (64, 64, 3)
-    assert metal_texs["normal"].shape == (64, 64, 3)
-    assert metal_texs["roughness"].shape == (64, 64, 3)

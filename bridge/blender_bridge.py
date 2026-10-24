@@ -19,10 +19,12 @@ from core.uv_projection_overlay import apply_pbr_and_projection
 from core.adaptive_weld_enhancer import enhance_thin_structures
 from core.auto_rig_and_lods import generate_lods
 
-def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=None, height=1.8, create_lods=False, preset="prop", sharp_overlay=True, prompt=None):
+def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=None, height=1.8, create_lods=False, preset="prop", sharp_overlay=True, prompt=None, profile_path=None):
     print(f"[Blender Bridge] Loading mesh: {mesh_path} (Preset: {preset})")
     if prompt:
         print(f"[Blender Bridge] Appearance guidance prompt: '{prompt}'")
+    if profile_path:
+        print(f"[Blender Bridge] Appearance profile metadata: '{profile_path}'")
     
     # If target blend project provided, load it; otherwise clear default scene
     if target_blend_path and os.path.exists(target_blend_path):
@@ -67,7 +69,8 @@ def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=
         preset=preset,
         sharp_overlay=sharp_overlay,
         prompt=prompt,
-        output_dir=output_dir
+        output_dir=output_dir,
+        profile_path=profile_path
     )
     
     # 4. Generate LODs if requested
@@ -158,6 +161,7 @@ if __name__ == "__main__":
     target_height = 1.8
     create_lods = False
     prompt_text = None
+    profile_arg = None
     
     for i, a in enumerate(args):
         if a == "--mesh" and i + 1 < len(args):
@@ -172,6 +176,8 @@ if __name__ == "__main__":
             preset = args[i + 1]
         elif a == "--prompt" and i + 1 < len(args):
             prompt_text = args[i + 1]
+        elif a == "--profile" and i + 1 < len(args):
+            profile_arg = args[i + 1]
         elif a == "--height" and i + 1 < len(args):
             try:
                 target_height = float(args[i + 1])
@@ -192,5 +198,6 @@ if __name__ == "__main__":
             create_lods=create_lods,
             preset=preset,
             sharp_overlay=sharp_overlay,
-            prompt=prompt_text
+            prompt=prompt_text,
+            profile_path=profile_arg
         )

@@ -32,7 +32,8 @@ def test_condition_1_and_2_asset_exists_and_verified_before_success(tmp_path):
             raise RuntimeError(f"Reconstruction pipeline completed but 3D mesh asset is missing or empty at '{job.output_mesh}'")
 
     # When populated with real non-empty GLB data:
-    mesh_path.write_bytes(b"glTF" + b"\x00" * 1024)
+    import trimesh
+    trimesh.creation.box().export(str(mesh_path), file_type="glb")
     assert os.path.exists(mesh_path)
     assert os.path.getsize(mesh_path) > 0
 

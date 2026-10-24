@@ -21,7 +21,8 @@ def apply_pbr_and_projection(
     preset: str = "prop",
     sharp_overlay: bool = True,
     prompt: Optional[str] = None,
-    output_dir: Optional[str] = None
+    output_dir: Optional[str] = None,
+    profile_path: Optional[str] = None
 ) -> bool:
     """
     Applies calibrated PBR shaders and multi-material segmentation to obj.
@@ -32,8 +33,20 @@ def apply_pbr_and_projection(
 
     textures_dir = os.path.join(output_dir, "textures") if output_dir else None
 
-    # 1. Analyze Appearance (From Prompt + Reference Image)
-    profile = appearance_analyzer.analyze_appearance(prompt=prompt, image_path=image_path)
+    # 1. Resolve Appearance Profile (From File, Prompt, or Reference Image)
+    profile = None
+    if profile_path and os.path.exists(profile_path):
+        try:
+            import json
+            from core.appearance_analyzer import AppearanceProfile
+            with open(profile_path, "r", encoding="utf-8") as pf:
+                profile = AppearanceProfile.from_dict(json.load(pf))
+            print(f"[PBR] Loaded appearance profile from '{profile_path}': category '{profile.category}', {len(profile.materials)} slots.")
+        except Exception as p_err:
+            print(f"[PBR Warning] Failed to load profile from '{profile_path}': {p_err}")
+
+    if profile is None:
+        profile = appearance_analyzer.analyze_appearance(prompt=prompt, image_path=image_path)
 
     # 2. Check if Mesh Already Has Valid Vertex Colors or Textures
     has_vertex_colors = bool(obj.data.color_attributes and len(obj.data.color_attributes) > 0)

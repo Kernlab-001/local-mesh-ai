@@ -76,6 +76,7 @@ class Job:
         self.baked_diffuse: Optional[str] = None
         self.game_ready_glb: Optional[str] = None
         self.manifest: Optional[Dict[str, Any]] = None
+        self.appearance_profile: Optional[Dict[str, Any]] = None
 
         self._cancel_requested = False
 
@@ -126,6 +127,7 @@ class Job:
                 "blend_url": f"/jobs/{self.job_id}/blend" if self.output_blend and os.path.exists(self.output_blend) and os.path.getsize(self.output_blend) > 0 else None,
                 "concept_url": f"/jobs/{self.job_id}/concept" if os.path.exists(os.path.join(JOBS_DIR, self.job_id, "input", "concept.png")) or os.path.exists(os.path.join(JOBS_DIR, self.job_id, "input", "source_image.png")) else None,
                 "multiview_url": f"/jobs/{self.job_id}/multiview" if os.path.exists(os.path.join(JOBS_DIR, self.job_id, "multiview", "multiview_grid.png")) or os.path.exists(os.path.join(JOBS_DIR, self.job_id, "multiview", "composite_grid.png")) else None,
+                "appearance_profile": self.appearance_profile,
                 "manifest": self.manifest,
                 "logs": self.logs[-25:],
                 "params": self.params
@@ -352,6 +354,22 @@ class JobManager:
             job.status = JobStatus.POSTPROCESSING
             job.set_stage("Blender Post-Processing & Geometry Sanitation", 75)
 
+            # Analyze and persist Appearance Profile metadata for Blender
+            profile_file = None
+            try:
+                from core.appearance_analyzer import appearance_analyzer
+                profile_obj = appearance_analyzer.analyze_appearance(
+                    prompt=job.params.get("prompt"),
+                    image_path=staged_image_path
+                )
+                job.appearance_profile = profile_obj.to_dict()
+                profile_file = os.path.join(job_dir, "profile.json")
+                with open(profile_file, "w", encoding="utf-8") as pf:
+                    json.dump(job.appearance_profile, pf, indent=2)
+                job.log(f"[Appearance Profile] Profile computed: '{profile_obj.category}' with {len(profile_obj.materials)} material slot(s): {[m.name for m in profile_obj.materials]}")
+            except Exception as prof_err:
+                job.log(f"[Appearance Profile Notice] {prof_err}")
+
             t_blender_start = time.time()
             bridge_script = os.path.join(PROJECT_ROOT, "bridge", "blender_bridge.py")
             blender_exe = hardware_detector.find_blender() or "blender"
@@ -371,6 +389,9 @@ class JobManager:
                     "--out", job_dir,
                     "--preset", job.params.get("preset", "prop")
                 ]
+
+                if profile_file and os.path.exists(profile_file):
+                    cmd.extend(["--profile", profile_file])
 
                 prompt_arg = job.params.get("prompt")
                 if prompt_arg:
@@ -505,7 +526,7 @@ class JobManager:
             except Exception as diag_err:
                 job.log(f"[Appearance Notice] Diagnostics note: {diag_err}")
 
-            # Direct GLB container inspection for authoritative attributes
+            # Direct GLB container inspection for authoritative attributes & export validation
             try:
                 import struct
                 with open(job.output_mesh, "rb") as gf:
@@ -514,21 +535,50 @@ class JobManager:
                         chunk_len, chunk_type = struct.unpack("<II", gf.read(8))
                         if chunk_type == 0x4E4F534A:
                             gltf_json = json.loads(gf.read(chunk_len).decode("utf-8"))
-                            m_list = [m.get("name") for m in gltf_json.get("materials", []) if m.get("name")]
+                            m_entries = gltf_json.get("materials", [])
+                            m_list = [m.get("name") for m in m_entries if m.get("name")]
                             if m_list:
                                 appearance_diagnostics["materials"] = m_list
                                 appearance_diagnostics["material_count"] = len(m_list)
-                            if len(gltf_json.get("textures", [])) > 0 or len(gltf_json.get("images", [])) > 0:
+
+                            # Extract material base colors and PBR settings
+                            base_colors = {}
+                            for m in m_entries:
+                                m_name = m.get("name", "unnamed")
+                                pbr = m.get("pbrMetallicRoughness", {})
+                                base_colors[m_name] = {
+                                    "baseColorFactor": pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0]),
+                                    "has_baseColorTexture": "baseColorTexture" in pbr,
+                                    "roughnessFactor": pbr.get("roughnessFactor", 1.0),
+                                    "metallicFactor": pbr.get("metallicFactor", 1.0)
+                                }
+                            appearance_diagnostics["material_base_colors"] = base_colors
+
+                            tex_count = len(gltf_json.get("textures", []))
+                            img_count = len(gltf_json.get("images", []))
+                            appearance_diagnostics["texture_count"] = tex_count
+                            appearance_diagnostics["image_count"] = img_count
+                            if tex_count > 0 or img_count > 0:
                                 appearance_diagnostics["has_textures"] = True
+
+                            total_prims = 0
                             for m in gltf_json.get("meshes", []):
                                 for p in m.get("primitives", []):
+                                    total_prims += 1
                                     attrs = p.get("attributes", {})
                                     if "TEXCOORD_0" in attrs:
                                         appearance_diagnostics["has_uvs"] = True
                                     if "COLOR_0" in attrs:
                                         appearance_diagnostics["has_vertex_colors"] = True
-            except Exception:
-                pass
+                            appearance_diagnostics["primitive_count"] = total_prims
+                            appearance_diagnostics["export_validation_status"] = "PASSED" if (len(m_entries) > 0 and total_prims > 0) else "WARNING"
+
+                            # Persist standalone diagnostic report
+                            diag_file = os.path.join(reports_dir, "appearance_diagnostics.json")
+                            with open(diag_file, "w", encoding="utf-8") as df:
+                                json.dump(appearance_diagnostics, df, indent=2)
+            except Exception as e:
+                appearance_diagnostics["export_validation_status"] = f"ERROR: {e}"
 
             timings["total_duration"] = round(time.time() - t_start_total, 2)
 
