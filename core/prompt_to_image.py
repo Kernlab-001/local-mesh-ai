@@ -53,7 +53,7 @@ def optimize_prompt_for_clip(
     Eliminates tokenizer truncation warnings and preserves critical visual features.
     """
     clean = input_validator.validate_prompt(user_prompt)
-    suffix = ", single object, white background"
+    suffix = ", isolated single 3D asset, studio product view, solid neutral background"
 
     def estimate_tokens(text: str) -> int:
         if tokenizer is not None:

@@ -882,7 +882,7 @@ def generate_3d_pipeline(
     engine_map = {
         "Auto-Detect (Adaptive Hardware Router)": "auto",
         "TripoSR (Feedforward Volumetric) [READY]": "triposr",
-        "Shap-E (Direct Latent 3D) [READY]": "shap_e",
+        "Shap-E (Direct Latent 3D) [NEEDS DOWNLOAD]": "shap_e",
         "Hybrid SD-Turbo + TripoSR [READY]": "hybrid_sd_triposr",
         "Stable Fast 3D [REQUIRES 8GB VRAM]": "sf3d",
         "Microsoft TRELLIS [REQUIRES 16GB VRAM]": "trellis"
@@ -1244,7 +1244,7 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                 choices=[
                     "Auto-Detect (Adaptive Hardware Router)",
                     "TripoSR (Feedforward Volumetric) [READY]",
-                    "Shap-E (Direct Latent 3D) [READY]",
+                    "Shap-E (Direct Latent 3D) [NEEDS DOWNLOAD]",
                     "Hybrid SD-Turbo + TripoSR [READY]",
                     "Stable Fast 3D [REQUIRES 8GB VRAM]",
                     "Microsoft TRELLIS [REQUIRES 16GB VRAM]"

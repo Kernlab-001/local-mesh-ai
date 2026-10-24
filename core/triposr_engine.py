@@ -98,19 +98,33 @@ class TripoSREngine:
         if not img_meta.get("has_alpha"):
             try:
                 import numpy as np
+                from scipy.ndimage import label
                 with Image.open(image_path) as im:
                     rgba = im.convert("RGBA")
                     arr = np.array(rgba)
-                    # If background is white or light studio background, make transparent
-                    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-                    white_mask = (r > 238) & (g > 238) & (b > 238)
-                    arr[..., 3][white_mask] = 0
-                    alpha_img = Image.fromarray(arr)
-                    tmp_alpha_dir = os.path.join(tempfile.gettempdir(), "local_mesh_ai_output", "preprocessed")
-                    os.makedirs(tmp_alpha_dir, exist_ok=True)
-                    tmp_alpha_path = os.path.join(tmp_alpha_dir, "input_with_alpha.png")
-                    alpha_img.save(tmp_alpha_path)
-                    processed_image_path = tmp_alpha_path
+                    # If image doesn't already have transparency, isolate background from borders
+                    if np.all(arr[..., 3] == 255):
+                        h, w, _ = arr.shape
+                        corners = [arr[:15, :15, :3], arr[:15, -15:, :3], arr[-15:, :15, :3], arr[-15:, -15:, :3]]
+                        corner_colors = np.vstack([c.reshape(-1, 3) for c in corners])
+                        bg_color = np.median(corner_colors, axis=0)
+
+                        diff = np.linalg.norm(arr[..., :3].astype(np.float32) - bg_color, axis=-1)
+                        bg_candidate = diff < 65.0
+
+                        labeled, num_features = label(bg_candidate)
+                        border_labels = set(labeled[0, :]).union(labeled[-1, :]).union(labeled[:, 0]).union(labeled[:, -1])
+                        border_labels.discard(0)
+
+                        is_real_bg = np.isin(labeled, list(border_labels))
+                        arr[..., 3][is_real_bg] = 0
+
+                        alpha_img = Image.fromarray(arr)
+                        tmp_alpha_dir = os.path.join(tempfile.gettempdir(), "local_mesh_ai_output", "preprocessed")
+                        os.makedirs(tmp_alpha_dir, exist_ok=True)
+                        tmp_alpha_path = os.path.join(tmp_alpha_dir, "input_with_alpha.png")
+                        alpha_img.save(tmp_alpha_path)
+                        processed_image_path = tmp_alpha_path
             except Exception:
                 pass
 

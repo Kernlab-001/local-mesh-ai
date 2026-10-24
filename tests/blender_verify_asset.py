@@ -86,6 +86,28 @@ def inspect_and_render(mesh_path: str, render_path: str, report_path: str):
                         mat_entry["has_texture"] = True
             mats_info.append(mat_entry)
 
+    # Ensure vertex color attributes are connected to Principled BSDF Base Color for accurate render
+    has_color_attr = hasattr(mesh_data, "color_attributes") and len(mesh_data.color_attributes) > 0
+    if has_color_attr:
+        attr_name = mesh_data.color_attributes[0].name
+        if not primary_obj.material_slots or not primary_obj.material_slots[0].material:
+            v_mat = bpy.data.materials.new(name="M_VertexColors")
+            v_mat.use_nodes = True
+            primary_obj.data.materials.append(v_mat)
+        else:
+            v_mat = primary_obj.material_slots[0].material
+            v_mat.use_nodes = True
+
+        if v_mat.node_tree:
+            nodes = v_mat.node_tree.nodes
+            links = v_mat.node_tree.links
+            bsdf = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+            if bsdf and not any(l.to_socket == bsdf.inputs['Base Color'] for l in links):
+                attr_node = nodes.new(type="ShaderNodeAttribute")
+                attr_node.attribute_name = attr_name
+                attr_node.attribute_type = 'GEOMETRY'
+                links.new(attr_node.outputs["Color"], bsdf.inputs["Base Color"])
+
     # 3. Setup Camera & 3-Point Studio Lighting
     # Center object origin
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
