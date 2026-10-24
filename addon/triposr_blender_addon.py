@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Local Neural 3D Studio",
     "author": "Antigravity Architecture & TripoSR",
-    "version": (4, 0, 6),
+    "version": (5, 0, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > AI 3D Generator",
     "description": "Local-first 3D asset generation & editing using TripoSR, SD-Turbo, Qwen 2.5 Coder & local GPU",
@@ -194,16 +194,18 @@ def stop_backend_console():
 atexit.register(stop_backend_console)
 
 def _on_preset_change(self, context):
-    """Updates target height to sensible defaults when preset is changed."""
+    """Updates target height to canonical architectural defaults when preset is changed."""
     p = self.preset
-    if p == "weapon":
-        self.target_height = 0.9
-    elif p == "prop":
-        self.target_height = 0.5
+    if p in ("furniture", "chair", "table"):
+        self.target_height = 0.90
+    elif p == "weapon":
+        self.target_height = 1.00
     elif p == "character":
-        self.target_height = 1.8
-    elif p == "furniture":
-        self.target_height = 1.2
+        self.target_height = 1.80
+    elif p == "vehicle":
+        self.target_height = 1.50
+    elif p == "prop":
+        self.target_height = 0.80
 
 def _on_project_dir_change(self, context):
     """Syncs project_dir changes to global AddonPreferences."""
