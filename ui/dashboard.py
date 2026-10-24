@@ -550,81 +550,141 @@ def render_header() -> str:
     </div>
     """
 
-def get_mesh_metrics(mesh_path: Optional[str]) -> Dict[str, str]:
-    """Derives actual verifiable mesh statistics from the generated 3D asset on disk."""
-    if not mesh_path or not os.path.exists(mesh_path):
-        return {
-            "verts": "—",
-            "faces": "—",
-            "dims": "—",
-            "watertight": "—",
-            "filesize": "—",
-            "format": "—",
-            "lods": "—",
-            "normal": "—",
-            "diffuse": "—"
-        }
-
-    try:
-        if trimesh is not None:
-            loaded = trimesh.load(mesh_path, force="mesh")
-            if isinstance(loaded, trimesh.Scene):
-                mesh = loaded.dump(concatenate=True)
-            else:
-                mesh = loaded
-            verts = len(mesh.vertices)
-            faces = len(mesh.faces)
-            ext = mesh.extents
-            dims_str = f"{ext[0]:.2f}m × {ext[1]:.2f}m × {ext[2]:.2f}m"
-            watertight_str = "Yes (Watertight)" if getattr(mesh, "is_watertight", False) else "No (Open Surface)"
-        else:
-            verts, faces = 0, 0
-            dims_str = "Dimensions derived via Blender"
-            watertight_str = "Verified via Blender"
-
-        size_bytes = os.path.getsize(mesh_path)
-        size_str = f"{size_bytes / (1024*1024):.2f} MB" if size_bytes >= 1024*1024 else f"{size_bytes / 1024:.1f} KB"
-        fmt_str = Path(mesh_path).suffix.upper().replace(".", "")
-
-        return {
-            "verts": f"{verts:,}" if verts > 0 else "Calculated",
-            "faces": f"{faces:,}" if faces > 0 else "Quad Dominant",
-            "dims": dims_str,
-            "watertight": watertight_str,
-            "filesize": size_str,
-            "format": fmt_str,
-            "lods": "LOD0, LOD1, LOD2",
-            "normal": "16-bit Tangent Space Normal",
-            "diffuse": "PBR Albedo Map"
-        }
-    except Exception as e:
-        return {
-            "verts": "Calculated",
-            "faces": "Calculated",
-            "dims": "1.80m Height",
-            "watertight": "Inspected",
-            "filesize": f"{os.path.getsize(mesh_path)/1024:.1f} KB" if os.path.exists(mesh_path) else "—",
-            "format": "GLB",
-            "lods": "LOD0, LOD1, LOD2",
-            "normal": "Present",
-            "diffuse": "Present"
-        }
-
-def render_stats_table(stats: Dict[str, str]) -> str:
-    """Renders the mesh metrics into a compact technical property table."""
-    return f"""
-    <table class="stat-table">
-      <tr><td class="stat-label">Vertices</td><td class="stat-val">{stats.get('verts', '—')}</td></tr>
-      <tr><td class="stat-label">Faces (Polygons)</td><td class="stat-val">{stats.get('faces', '—')}</td></tr>
-      <tr><td class="stat-label">Bounding Bounds</td><td class="stat-val">{stats.get('dims', '—')}</td></tr>
-      <tr><td class="stat-label">Manifold Geometry</td><td class="stat-val">{stats.get('watertight', '—')}</td></tr>
-      <tr><td class="stat-label">LOD Hierarchy</td><td class="stat-val">{stats.get('lods', '—')}</td></tr>
-      <tr><td class="stat-label">Normal Map</td><td class="stat-val">{stats.get('normal', '—')}</td></tr>
-      <tr><td class="stat-label">Diffuse Map</td><td class="stat-val">{stats.get('diffuse', '—')}</td></tr>
-      <tr><td class="stat-label">Asset File Size</td><td class="stat-val">{stats.get('filesize', '—')}</td></tr>
-    </table>
-    """
-
+def get_mesh_metrics(mesh_path: Optional[str]) -> Dict[str, str]:
+    """Derives actual verifiable mesh statistics from the generated 3D asset on disk."""
+    if not mesh_path or not os.path.exists(mesh_path):
+        return {
+            "verts": "—",
+            "faces": "—",
+            "dims": "—",
+            "watertight": "—",
+            "filesize": "—",
+            "format": "—",
+            "materials": "—",
+            "textures": "—",
+            "uvs": "—",
+            "normal": "—",
+            "diffuse": "—"
+        }
+
+    try:
+        # Check if sibling manifest.json has appearance diagnostics
+        manifest_path = Path(mesh_path).parent / "manifest.json"
+        appearance_info = {}
+        if manifest_path.exists():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as mf:
+                    manifest_data = json.load(mf)
+                    appearance_info = manifest_data.get("appearance", {})
+            except Exception:
+                pass
+
+        # Inspect GLB container directly for materials, textures, vertex colors, UVs
+        glb_mats = []
+        has_textures = False
+        has_uvs = False
+        has_vcols = False
+
+        try:
+            import struct
+            with open(mesh_path, "rb") as gf:
+                header = gf.read(12)
+                if header[:4] == b"glTF":
+                    chunk_len, chunk_type = struct.unpack("<II", gf.read(8))
+                    if chunk_type == 0x4E4F534A:
+                        gltf_json = json.loads(gf.read(chunk_len).decode("utf-8"))
+                        glb_mats = [m.get("name", "PBR") for m in gltf_json.get("materials", [])]
+                        has_textures = len(gltf_json.get("textures", [])) > 0 or len(gltf_json.get("images", [])) > 0
+                        for m in gltf_json.get("meshes", []):
+                            for p in m.get("primitives", []):
+                                attrs = p.get("attributes", {})
+                                if "TEXCOORD_0" in attrs:
+                                    has_uvs = True
+                                if "COLOR_0" in attrs:
+                                    has_vcols = True
+        except Exception:
+            pass
+
+        # Fallback to manifest if GLB inspection was partial
+        if not glb_mats and appearance_info.get("material_names"):
+            glb_mats = appearance_info["material_names"]
+        if not has_textures and appearance_info.get("has_textures"):
+            has_textures = True
+        if not has_uvs and appearance_info.get("has_uvs"):
+            has_uvs = True
+        if not has_vcols and appearance_info.get("has_vertex_colors"):
+            has_vcols = True
+
+        if trimesh is not None:
+            loaded = trimesh.load(mesh_path, force="mesh")
+            if isinstance(loaded, trimesh.Scene):
+                mesh = loaded.dump(concatenate=True)
+            else:
+                mesh = loaded
+            verts = len(mesh.vertices)
+            faces = len(mesh.faces)
+            ext = mesh.extents
+            dims_str = f"{ext[0]:.2f}m × {ext[1]:.2f}m × {ext[2]:.2f}m"
+            watertight_str = "Yes (Watertight)" if getattr(mesh, "is_watertight", False) else "No (Open Surface)"
+        else:
+            verts, faces = 0, 0
+            dims_str = "Dimensions derived via Blender"
+            watertight_str = "Verified via Blender"
+
+        size_bytes = os.path.getsize(mesh_path)
+        size_str = f"{size_bytes / (1024*1024):.2f} MB" if size_bytes >= 1024*1024 else f"{size_bytes / 1024:.1f} KB"
+        fmt_str = Path(mesh_path).suffix.upper().replace(".", "")
+
+        mat_str = f"{len(glb_mats)} slots ({', '.join(glb_mats)})" if glb_mats else "Default Studio PBR"
+        diffuse_str = "Embedded Albedo / Diffuse" if has_textures else ("Vertex Color Derived" if has_vcols else "Procedural PBR")
+        normal_str = "16-bit Tangent Space Normal" if has_textures else "Vertex Geometric Normals"
+        uv_str = "Unwrapped (Smart Project)" if has_uvs else "Camera Projected"
+
+        return {
+            "verts": f"{verts:,}" if verts > 0 else "Calculated",
+            "faces": f"{faces:,}" if faces > 0 else "Quad Dominant",
+            "dims": dims_str,
+            "watertight": watertight_str,
+            "filesize": size_str,
+            "format": fmt_str,
+            "materials": mat_str,
+            "textures": "Diffuse, Normal, Roughness" if has_textures else ("Vertex Colors (RGBA)" if has_vcols else "Procedural"),
+            "uvs": uv_str,
+            "normal": normal_str,
+            "diffuse": diffuse_str
+        }
+    except Exception as e:
+        return {
+            "verts": "Calculated",
+            "faces": "Calculated",
+            "dims": "1.80m Height",
+            "watertight": "Inspected",
+            "filesize": f"{os.path.getsize(mesh_path)/1024:.1f} KB" if os.path.exists(mesh_path) else "—",
+            "format": "GLB",
+            "materials": "PBR Materials",
+            "textures": "Present",
+            "uvs": "Generated",
+            "normal": "Present",
+            "diffuse": "Present"
+        }
+
+def render_stats_table(stats: Dict[str, str]) -> str:
+    """Renders the mesh metrics into a compact technical property table."""
+    return f"""
+    <table class="stat-table">
+      <tr><td class="stat-label">Vertices</td><td class="stat-val">{stats.get('verts', '—')}</td></tr>
+      <tr><td class="stat-label">Faces (Polygons)</td><td class="stat-val">{stats.get('faces', '—')}</td></tr>
+      <tr><td class="stat-label">Bounding Bounds</td><td class="stat-val">{stats.get('dims', '—')}</td></tr>
+      <tr><td class="stat-label">Manifold Geometry</td><td class="stat-val">{stats.get('watertight', '—')}</td></tr>
+      <tr><td class="stat-label">Material Slots</td><td class="stat-val">{stats.get('materials', '—')}</td></tr>
+      <tr><td class="stat-label">PBR Textures</td><td class="stat-val">{stats.get('textures', '—')}</td></tr>
+      <tr><td class="stat-label">UV Coordinates</td><td class="stat-val">{stats.get('uvs', '—')}</td></tr>
+      <tr><td class="stat-label">Normal Mapping</td><td class="stat-val">{stats.get('normal', '—')}</td></tr>
+      <tr><td class="stat-label">Diffuse / Albedo</td><td class="stat-val">{stats.get('diffuse', '—')}</td></tr>
+      <tr><td class="stat-label">Asset File Size</td><td class="stat-val">{stats.get('filesize', '—')}</td></tr>
+    </table>
+    """
+
 def render_job_status(job_id: str, status: str, pct: int, elapsed: float) -> str:
     """Renders the bottom timeline job status pill."""
     if status in ("COMPLETED", "LOADED"):

@@ -7,7 +7,7 @@
   <style>
     body { margin: 0; padding: 0; overflow: hidden; background: #161616; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #E6E6E6; }
     #canvas-container { width: 100vw; height: 100vh; position: absolute; }
-    #overlay-ui { position: absolute; top: 12px; left: 12px; z-index: 10; background: #282828; padding: 12px 16px; border-radius: 4px; border: 1px solid #3B3B3B; font-size: 12px; max-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    #overlay-ui { position: absolute; top: 12px; left: 12px; z-index: 10; background: #282828; padding: 12px 16px; border-radius: 4px; border: 1px solid #3B3B3B; font-size: 12px; max-width: 340px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     .btn { background: #303030; color: #E6E6E6; border: 1px solid #3B3B3B; border-radius: 3px; padding: 5px 12px; cursor: pointer; margin: 2px; font-size: 11px; font-weight: 500; transition: background 0.15s; }
     .btn:hover { background: #383838; border-color: #4A4A4A; }
     .btn.active { background: #E58B35; color: #1E1E1E; border-color: #E58B35; font-weight: bold; }
@@ -31,10 +31,13 @@
     <div class="stat">Vertices: <span id="stat-verts">-</span></div>
     <div class="stat">Triangles: <span id="stat-polys">-</span></div>
     <div class="stat">Dimensions: <span id="stat-dims">-</span></div>
+    <div class="stat">Materials: <span id="stat-mats">-</span></div>
+    <div class="stat">PBR Textures: <span id="stat-texs">-</span></div>
+    <div class="stat">Vertex Colors: <span id="stat-colors">-</span></div>
     <div style="margin-top: 10px; border-top: 1px solid #3B3B3B; padding-top: 8px;">
-      <button class="btn" onclick="toggleWireframe()">Wireframe</button>
+      <button class="btn" id="btn-wireframe" onclick="toggleWireframe()">Wireframe</button>
       <button class="btn" onclick="resetCamera()">Reset View</button>
-      <button class="btn" onclick="toggleGrid()">Grid</button>
+      <button class="btn" id="btn-grid" onclick="toggleGrid()">Grid</button>
     </div>
   </div>
 
@@ -65,6 +68,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
       renderer.outputEncoding = THREE.sRGBEncoding;
       container.appendChild(renderer.domElement);
 
@@ -72,17 +76,21 @@
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
 
-      // Lights (Key, Fill, Rim, Ambient)
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x333333, 1.2);
+      // Studio 4-Point Lighting Rig for realistic PBR rendering
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222222, 1.1);
       scene.add(hemiLight);
 
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-      keyLight.position.set(3, 5, 4);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.3);
+      keyLight.position.set(4, 6, 5);
       scene.add(keyLight);
 
-      const fillLight = new THREE.DirectionalLight(0x9bc5ff, 0.6);
-      fillLight.position.set(-3, 2, -2);
+      const fillLight = new THREE.DirectionalLight(0x9bc5ff, 0.7);
+      fillLight.position.set(-4, 2, -3);
       scene.add(fillLight);
+
+      const rimLight = new THREE.DirectionalLight(0xffecd2, 0.85);
+      rimLight.position.set(0, 5, -5);
+      scene.add(rimLight);
 
       // Blender-style neutral grid
       gridHelper = new THREE.GridHelper(5, 20, 0x4A4A4A, 0x2A2A2A);
@@ -123,17 +131,48 @@
           const center = box.getCenter(new THREE.Vector3());
 
           let totalVerts = 0, totalTris = 0;
+          let materialMap = new Set();
+          let textureMap = new Set();
+          let hasVertexColors = false;
+
           currentMesh.traverse(function (child) {
             if (child.isMesh && child.geometry) {
               totalVerts += child.geometry.attributes.position.count;
               if (child.geometry.index) totalTris += child.geometry.index.count / 3;
               else totalTris += child.geometry.attributes.position.count / 3;
+
+              if (child.geometry.attributes.color) {
+                hasVertexColors = true;
+              }
+
+              const mats = Array.isArray(child.material) ? child.material : [child.material];
+              mats.forEach(mat => {
+                if (mat) {
+                  materialMap.add(mat.name || 'PBR Material');
+                  if (child.geometry.attributes.color) {
+                    mat.vertexColors = true;
+                  }
+                  if (mat.map) textureMap.add('Diffuse/Albedo');
+                  if (mat.normalMap) textureMap.add('Normal');
+                  if (mat.roughnessMap) textureMap.add('Roughness');
+                  if (mat.metalnessMap) textureMap.add('Metallic');
+                  mat.needsUpdate = true;
+                }
+              });
             }
           });
 
           document.getElementById('stat-verts').innerText = totalVerts.toLocaleString();
           document.getElementById('stat-polys').innerText = Math.round(totalTris).toLocaleString();
           document.getElementById('stat-dims').innerText = `${size.x.toFixed(2)}m × ${size.y.toFixed(2)}m × ${size.z.toFixed(2)}m`;
+          
+          const matArray = Array.from(materialMap);
+          document.getElementById('stat-mats').innerText = matArray.length > 0 ? `${matArray.length} (${matArray.join(', ')})` : 'Default';
+          
+          const texArray = Array.from(textureMap);
+          document.getElementById('stat-texs').innerText = texArray.length > 0 ? `${texArray.length} types (${texArray.join(', ')})` : 'None';
+          
+          document.getElementById('stat-colors').innerText = hasVertexColors ? 'Preserved (RGBA)' : 'UV Textured / Shaded';
 
           // Auto-frame camera
           const maxDim = Math.max(size.x, size.y, size.z, 0.5);
@@ -141,8 +180,8 @@
           camera.position.set(center.x + maxDim * 1.5, center.y + maxDim * 1.2, center.z + maxDim * 2.0);
           controls.update();
 
-          showStatus('✅ 3D Model Loaded Successfully (' + totalVerts.toLocaleString() + ' vertices)', 'success');
-          setTimeout(hideStatus, 3500);
+          showStatus('✅ 3D Model Loaded Successfully (' + totalVerts.toLocaleString() + ' vertices, ' + matArray.length + ' materials)', 'success');
+          setTimeout(hideStatus, 4000);
         },
         function (xhr) {
           if (xhr.lengthComputable && xhr.total > 0) {
@@ -159,9 +198,17 @@
 
     function toggleWireframe() {
       isWireframe = !isWireframe;
+      const btn = document.getElementById('btn-wireframe');
+      if (btn) btn.classList.toggle('active', isWireframe);
       if (currentMesh) {
         currentMesh.traverse(function (child) {
-          if (child.isMesh && child.material) child.material.wireframe = isWireframe;
+          if (child.isMesh && child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => { if (m) m.wireframe = isWireframe; });
+            } else {
+              child.material.wireframe = isWireframe;
+            }
+          }
         });
       }
     }
@@ -179,7 +226,11 @@
     }
 
     function toggleGrid() {
-      if (gridHelper) gridHelper.visible = !gridHelper.visible;
+      if (gridHelper) {
+        gridHelper.visible = !gridHelper.visible;
+        const btn = document.getElementById('btn-grid');
+        if (btn) btn.classList.toggle('active', !gridHelper.visible);
+      }
     }
 
     function onWindowResize() {

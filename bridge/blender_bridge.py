@@ -19,8 +19,10 @@ from core.uv_projection_overlay import apply_pbr_and_projection
 from core.adaptive_weld_enhancer import enhance_thin_structures
 from core.auto_rig_and_lods import generate_lods
 
-def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=None, height=1.8, create_lods=False, preset="prop", sharp_overlay=True):
+def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=None, height=1.8, create_lods=False, preset="prop", sharp_overlay=True, prompt=None):
     print(f"[Blender Bridge] Loading mesh: {mesh_path} (Preset: {preset})")
+    if prompt:
+        print(f"[Blender Bridge] Appearance guidance prompt: '{prompt}'")
     
     # If target blend project provided, load it; otherwise clear default scene
     if target_blend_path and os.path.exists(target_blend_path):
@@ -58,8 +60,15 @@ def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=
     # 2. Weld micro-gaps
     enhance_thin_structures(main_obj, weld_distance=0.001)
     
-    # 3. Apply Calibrated PBR Shaders with Accurate Colors
-    apply_pbr_and_projection(main_obj, image_path=image_path, preset=preset, sharp_overlay=sharp_overlay)
+    # 3. Apply Multi-Material Segmentation & PBR Shaders
+    apply_pbr_and_projection(
+        main_obj,
+        image_path=image_path,
+        preset=preset,
+        sharp_overlay=sharp_overlay,
+        prompt=prompt,
+        output_dir=output_dir
+    )
     
     # 4. Generate LODs if requested
     if create_lods and output_dir:
@@ -88,14 +97,21 @@ def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=
         except Exception as e:
             print(f"[Render Notice] {e}")
 
-        # Export sanitized, grounded 3D asset (.glb)
+        # Export sanitized, grounded, multi-material 3D asset (.glb)
         mesh_export_path = os.path.join(output_dir, "mesh.glb")
         try:
             bpy.ops.export_scene.gltf(
                 filepath=mesh_export_path,
-                export_format='GLB'
+                export_format='GLB',
+                use_selection=False,
+                export_materials='EXPORT',
+                export_attributes=True,
+                export_all_vertex_colors=True,
+                export_apply=True
             )
-            print(f"[Blender Bridge] Exported sanitized 3D asset: {mesh_export_path}")
+            export_size = os.path.getsize(mesh_export_path) if os.path.exists(mesh_export_path) else 0
+            mat_count = len(main_obj.data.materials)
+            print(f"[Blender Bridge] Exported PBR 3D asset: {mesh_export_path} ({export_size:,} bytes, {mat_count} materials)")
         except Exception as e:
             print(f"[Blender Bridge Mesh Export Notice] {e}")
             
@@ -141,6 +157,7 @@ if __name__ == "__main__":
     sharp_overlay = True
     target_height = 1.8
     create_lods = False
+    prompt_text = None
     
     for i, a in enumerate(args):
         if a == "--mesh" and i + 1 < len(args):
@@ -153,6 +170,8 @@ if __name__ == "__main__":
             target_blend = args[i + 1]
         elif a == "--preset" and i + 1 < len(args):
             preset = args[i + 1]
+        elif a == "--prompt" and i + 1 < len(args):
+            prompt_text = args[i + 1]
         elif a == "--height" and i + 1 < len(args):
             try:
                 target_height = float(args[i + 1])
@@ -172,5 +191,6 @@ if __name__ == "__main__":
             height=target_height,
             create_lods=create_lods,
             preset=preset,
-            sharp_overlay=sharp_overlay
+            sharp_overlay=sharp_overlay,
+            prompt=prompt_text
         )

@@ -372,6 +372,10 @@ class JobManager:
                     "--preset", job.params.get("preset", "prop")
                 ]
 
+                prompt_arg = job.params.get("prompt")
+                if prompt_arg:
+                    cmd.extend(["--prompt", prompt_arg])
+
                 if not job.params.get("sharp_overlay", True):
                     cmd.append("--no-overlay")
 
@@ -463,6 +467,69 @@ class JobManager:
             if not job.output_mesh or not os.path.exists(job.output_mesh) or os.path.getsize(job.output_mesh) == 0:
                 raise RuntimeError(f"Reconstruction pipeline completed but 3D mesh asset is missing or empty at '{job.output_mesh}'")
 
+            # Diagnostic inspection of final 3D asset appearance & material properties
+            appearance_diagnostics = {
+                "mesh_path": job.output_mesh,
+                "file_size_bytes": os.path.getsize(job.output_mesh),
+                "materials": [],
+                "material_count": 0,
+                "has_uvs": False,
+                "has_textures": False,
+                "has_vertex_colors": False
+            }
+            try:
+                import trimesh
+                m_scene = trimesh.load(job.output_mesh)
+                geoms = m_scene.geometry.values() if isinstance(m_scene, trimesh.Scene) else [m_scene]
+                mat_names = set()
+                has_tex = False
+                has_uv = False
+                has_vc = False
+                for g in geoms:
+                    if hasattr(g, 'visual'):
+                        mat = getattr(g.visual, 'material', None)
+                        if mat and hasattr(mat, 'name') and mat.name:
+                            mat_names.add(mat.name)
+                        if hasattr(g.visual, 'uv') and g.visual.uv is not None and len(g.visual.uv) > 0:
+                            has_uv = True
+                        if getattr(mat, 'baseColorTexture', None) is not None:
+                            has_tex = True
+                        if hasattr(g.visual, 'vertex_colors') and g.visual.vertex_colors is not None and len(g.visual.vertex_colors) > 0:
+                            has_vc = True
+                appearance_diagnostics["materials"] = list(mat_names)
+                appearance_diagnostics["material_count"] = max(len(mat_names), len(geoms))
+                appearance_diagnostics["has_uvs"] = has_uv
+                appearance_diagnostics["has_textures"] = has_tex
+                appearance_diagnostics["has_vertex_colors"] = has_vc
+                job.log(f"[Appearance Diagnostics] 3D Asset verified: {appearance_diagnostics['material_count']} material slot(s) {list(mat_names)}, UVs: {has_uv}, Textures: {has_tex}, VertexColors: {has_vc}.")
+            except Exception as diag_err:
+                job.log(f"[Appearance Notice] Diagnostics note: {diag_err}")
+
+            # Direct GLB container inspection for authoritative attributes
+            try:
+                import struct
+                with open(job.output_mesh, "rb") as gf:
+                    header = gf.read(12)
+                    if header[:4] == b"glTF":
+                        chunk_len, chunk_type = struct.unpack("<II", gf.read(8))
+                        if chunk_type == 0x4E4F534A:
+                            gltf_json = json.loads(gf.read(chunk_len).decode("utf-8"))
+                            m_list = [m.get("name") for m in gltf_json.get("materials", []) if m.get("name")]
+                            if m_list:
+                                appearance_diagnostics["materials"] = m_list
+                                appearance_diagnostics["material_count"] = len(m_list)
+                            if len(gltf_json.get("textures", [])) > 0 or len(gltf_json.get("images", [])) > 0:
+                                appearance_diagnostics["has_textures"] = True
+                            for m in gltf_json.get("meshes", []):
+                                for p in m.get("primitives", []):
+                                    attrs = p.get("attributes", {})
+                                    if "TEXCOORD_0" in attrs:
+                                        appearance_diagnostics["has_uvs"] = True
+                                    if "COLOR_0" in attrs:
+                                        appearance_diagnostics["has_vertex_colors"] = True
+            except Exception:
+                pass
+
             timings["total_duration"] = round(time.time() - t_start_total, 2)
 
             # Stage 4: Production Manifest Generation
@@ -473,6 +540,7 @@ class JobManager:
                 "settings": job.params,
                 "source_input": staged_image_path,
                 "input_metadata": input_metadata,
+                "appearance": appearance_diagnostics,
                 "timings": timings,
                 "assets": {
                     "high_poly_reference": job.high_poly_mesh,
