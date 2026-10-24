@@ -76,9 +76,11 @@ Below is an authentic dining chair generated completely end-to-end via **Mode A:
 
 Official packaged release archives are available under [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases):
 
-* 📦 **Production Bundle:** **`local-mesh-ai-v4.0.6.zip`** (40.7 MB)
-  * **SHA-256 Checksum:** `BF6B255FAFDF9FB8CE37CEAB3E052AB252562A5BD62C417FB2570D0AB604426A`
-  * Contains the entire application, batch runners, Blender add-on, test suites, and documentation.
+* 📦 **Production Release v5.0:** **`local-mesh-ai-v5.0.zip`** (49.5 MB)
+  * **SHA-256 Checksum:** `63642280F0406615C409A740A0C50C6EEBC64C2D855890534A8D51AD2692ACD5`
+  * Contains the full neural engine, canonical scale calibrator, batch runners, test suites, and the native Blender v5.0 add-on.
+* 🔌 **Standalone Blender Add-on v5.0:** **`triposr_blender_addon_v5.0.zip`** (12 KB)
+  * One-click direct installation archive for Blender 4.2 LTS / 5.2 LTS Preferences.
 
 ---
 
