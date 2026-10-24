@@ -856,7 +856,9 @@ def load_latest_job():
 def generate_3d_pipeline(
     gen_mode,
     concept_prompt,
+    concept_strategy,
     input_image,
+    engine_choice,
     target_height,
     preset,
     quality,
@@ -877,7 +879,18 @@ def generate_3d_pipeline(
     is_text_mode = (gen_mode == "Mode A: Text-to-3D")
     input_mode = "prompt" if is_text_mode else "image"
 
+    engine_map = {
+        "Auto-Detect (Adaptive Hardware Router)": "auto",
+        "TripoSR (Feedforward Volumetric) [READY]": "triposr",
+        "Shap-E (Direct Latent 3D) [READY]": "shap_e",
+        "Hybrid SD-Turbo + TripoSR [READY]": "hybrid_sd_triposr",
+        "Stable Fast 3D [REQUIRES 8GB VRAM]": "sf3d",
+        "Microsoft TRELLIS [REQUIRES 16GB VRAM]": "trellis"
+    }
+
     params = {
+        "engine": engine_map.get(engine_choice, "auto"),
+        "strategy": "direct_text_to_3d" if "Strategy A" in str(concept_strategy) else "hybrid_concept_art",
         "target_height": float(target_height),
         "preset": preset,
         "quality": quality,
@@ -1203,9 +1216,17 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                     value="medieval glowing battleaxe with carved runes and iron handle",
                     lines=3
                 )
+                concept_strategy = gr.Radio(
+                    choices=[
+                        "Strategy B: Hybrid Concept Art (SD-Turbo + 3D) [Recommended]",
+                        "Strategy A: Direct Text-to-3D (Shap-E)"
+                    ],
+                    value="Strategy B: Hybrid Concept Art (SD-Turbo + 3D) [Recommended]",
+                    label="Text-to-3D Strategy"
+                )
                 with gr.Row():
                     load_beginner_text_btn = gr.Button("💡 Load Beginner Example (Treasure Chest)", size="sm", elem_classes=["blender-btn"])
-                gr.Markdown("<span style='font-size:10px; color:#888;'>Mode A executes local SD-Turbo FP16 diffusion under strict GPU lease.</span>")
+                gr.Markdown("<span style='font-size:10px; color:#888;'>Mode A executes multi-stage diffusion or direct neural radiance field under strict GPU lease.</span>")
 
             # Mode B: Image Controls
             with gr.Group(visible=False) as image_group:
@@ -1219,6 +1240,19 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                 gr.Markdown("<span style='font-size:10px; color:#4E8B58;'>Mode B strictly bypasses text diffusion and directly stages reference image.</span>")
 
             # Common Parameters
+            engine_dropdown = gr.Dropdown(
+                choices=[
+                    "Auto-Detect (Adaptive Hardware Router)",
+                    "TripoSR (Feedforward Volumetric) [READY]",
+                    "Shap-E (Direct Latent 3D) [READY]",
+                    "Hybrid SD-Turbo + TripoSR [READY]",
+                    "Stable Fast 3D [REQUIRES 8GB VRAM]",
+                    "Microsoft TRELLIS [REQUIRES 16GB VRAM]"
+                ],
+                value="Auto-Detect (Adaptive Hardware Router)",
+                label="3D AI Neural Engine"
+            )
+
             with gr.Row():
                 preset = gr.Dropdown(
                     choices=["prop", "character", "weapon", "furniture", "vehicle"],
@@ -1317,6 +1351,19 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                         label="Bake Resolution (Normal & Diffuse Maps)"
                     )
                     gr.Markdown("<span style='font-size:10px; color:#888;'>Executes headless Blender Cycles ray-casting for 16-bit normal & diffuse maps.</span>")
+
+                with gr.TabItem("🎨 Appearance"):
+                    gr.Markdown("**Appearance Studio (Live PBR Controls)**")
+                    app_preset_ui = gr.Dropdown(
+                        choices=["Walnut Wood", "Oak Wood", "Royal Velvet", "Brushed Steel", "Polished Gold", "Clean Glossy Plastic", "Weathered Stone", "Glazed Ceramic"],
+                        value="Walnut Wood",
+                        label="Material Preset"
+                    )
+                    with gr.Row():
+                        app_metallic_ui = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.05, label="Metallic")
+                        app_roughness_ui = gr.Slider(minimum=0.0, maximum=1.0, value=0.65, step=0.05, label="Roughness")
+                    app_color_tint_ui = gr.ColorPicker(label="Base Color Tint", value="#8B5A2B")
+                    gr.Markdown("<span style='font-size:10px; color:#888;'>Tune PBR material attributes directly on generated 3D meshes without rerunning neural inference.</span>")
 
                 with gr.TabItem("AI Artist"):
                     edit_prompt = gr.Textbox(
@@ -1507,7 +1554,9 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
         inputs=[
             mode_radio,
             concept_prompt,
+            concept_strategy,
             input_image,
+            engine_dropdown,
             target_height,
             preset,
             quality,

@@ -1,7 +1,7 @@
 # Local Mesh AI 🚀
 ### Local-First Neural 3D Asset Generation & AI Technical Artist Studio
 
-[![Tests](https://img.shields.io/badge/Tests-85%2F85%20Passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-101%2F101%20Passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-orange.svg)](https://pytorch.org/)
@@ -12,7 +12,7 @@
 ---
 
 ### 🧭 Navigation & Deliverables
-[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
+[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
@@ -69,6 +69,14 @@ Below is an authentic dining chair generated completely end-to-end via **Mode A:
   * One-click terminal auto-launcher, isolated collection management (`AI_Generated_Assets`), and automatic viewport material preview.
 * **📦 AAA Quad Retopology & UV Unwrapping:**
   * Automatic quad-dominant decimation targeting 8,000 polygons, smart UV unwrapping (0.02 island margin), and Cycles ray-cast normal/diffuse map baking.
+* **🧩 Modular Multi-Engine AI 3D Generation Architecture:**
+  * Dynamic hardware-adaptive router supporting TripoSR (feedforward baseline), OpenAI Shap-E (Strategy A direct text-to-3D), Hybrid SD-Turbo + TripoSR (Strategy B concept art to 3D), Stable Fast 3D, and Microsoft TRELLIS.
+  * Rigorous hardware gating that prevents OOM crashes on consumer GPUs (RTX 3050 6GB) while unlocking heavy models on high-memory workstations.
+* **🎨 Live Appearance Studio (Blender & Web UI):**
+  * Real-time PBR material customization directly on active 3D meshes without regenerating neural geometry.
+  * Built-in material presets (Walnut, Oak, Royal Velvet, Brushed Steel, Gold, Clean Plastic, Stone, Glazed Ceramic) with interactive Metallic, Roughness, Specular, and Color Tint sliders.
+* **🛡️ Shared Geometry Quality, Validation & Finishing:**
+  * Purges NaN/Inf coordinates, eliminates degenerate zero-area faces, enforces consistent outward normal winding, and diagnoses/repairs monochromatic "white-material" meshes.
 
 ---
 

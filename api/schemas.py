@@ -24,6 +24,9 @@ class CreateJobRequest(BaseModel):
     retopology_and_bake: bool = Field(default=False, description="Executes automated quad retopology decimation and bakes Normal/Diffuse maps")
     target_faces: int = Field(default=8000, ge=1000, le=100000, description="Target face count for retopology")
     target_blend: Optional[str] = Field(default=None, max_length=512)
+    engine: Optional[str] = Field(default="auto", description="3D Engine: auto | triposr | shap_e | hybrid_sd_triposr | sf3d | trellis")
+    strategy: Optional[str] = Field(default="hybrid_concept_art", description="Text-to-3D Strategy: hybrid_concept_art | direct_text_to_3d")
+    max_poly_budget: Optional[int] = Field(default=150000, description="Maximum polygon triangle budget for geometry validator")
 
 class JobResponse(BaseModel):
     job_id: str

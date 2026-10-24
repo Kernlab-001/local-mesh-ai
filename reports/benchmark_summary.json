@@ -1,0 +1,354 @@
+{
+  "suite_name": "Local Mesh AI - 20-Case Multi-Engine Architecture Benchmark",
+  "timestamp": "2026-10-24 19:18:49",
+  "hardware": {
+    "has_cuda": true,
+    "device_name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+    "total_vram_gb": 6.0,
+    "available_vram_gb": 5.04,
+    "total_ram_gb": 15.71,
+    "available_ram_gb": 6.28
+  },
+  "total_cases": 20,
+  "passed_cases": 20,
+  "pass_rate_pct": 100.0,
+  "total_duration_seconds": 1.81,
+  "results": [
+    {
+      "case_id": "case_01",
+      "name": "Medieval Glowing Battleaxe",
+      "category": "weapon",
+      "target_height_m": 0.9,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.001
+    },
+    {
+      "case_id": "case_02",
+      "name": "Polished Walnut Dining Chair",
+      "category": "furniture",
+      "target_height_m": 0.9,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "chair",
+      "detected_materials": [
+        "M_Wood_Frame",
+        "M_Fabric_Cushion",
+        "M_Fabric_Backrest"
+      ],
+      "material_match_score": 1.0,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_03",
+      "name": "Vintage Leather Armchair",
+      "category": "furniture",
+      "target_height_m": 0.85,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "chair",
+      "detected_materials": [
+        "M_Wood_Frame",
+        "M_Fabric_Cushion",
+        "M_Fabric_Backrest"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_04",
+      "name": "Red Glazed Ceramic Teapot",
+      "category": "prop",
+      "target_height_m": 0.18,
+      "selected_engine": "TripoSR (Feedforward Volumetric)",
+      "engine_id": "triposr",
+      "router_reason": "Optimal feedforward volumetric reconstruction calibrated for consumer GPU memory (3.0GB-6.0GB VRAM).",
+      "detected_category": "ceramic",
+      "detected_materials": [
+        "M_Ceramic_Glaze",
+        "M_Terracotta_Base"
+      ],
+      "material_match_score": 1.0,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_05",
+      "name": "Sci-Fi Plasma Rifle",
+      "category": "weapon",
+      "target_height_m": 0.8,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_06",
+      "name": "Weathered Stone Gargoyle",
+      "category": "organic",
+      "target_height_m": 1.1,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_07",
+      "name": "Brass Victorian Lantern",
+      "category": "prop",
+      "target_height_m": 0.35,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_08",
+      "name": "Steel Knight Helm",
+      "category": "armor",
+      "target_height_m": 0.32,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_09",
+      "name": "Oak Wooden Barrel",
+      "category": "prop",
+      "target_height_m": 0.95,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_10",
+      "name": "Royal Gold Chalice",
+      "category": "prop",
+      "target_height_m": 0.22,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_11",
+      "name": "Modern Ergonomic Office Desk",
+      "category": "furniture",
+      "target_height_m": 0.75,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_12",
+      "name": "Gnarled Wizard Staff",
+      "category": "weapon",
+      "target_height_m": 1.85,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_13",
+      "name": "Ironbound Pirate Treasure Chest",
+      "category": "prop",
+      "target_height_m": 0.55,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_14",
+      "name": "Bipedal Humanoid Android",
+      "category": "character",
+      "target_height_m": 1.8,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "robot",
+      "detected_materials": [
+        "M_Armor_Plates",
+        "M_Joint_Mechanics"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_15",
+      "name": "Automotive Alloy Wheel & Tire",
+      "category": "vehicle",
+      "target_height_m": 0.65,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 1.0,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_16",
+      "name": "Terracotta Garden Plant Pot",
+      "category": "prop",
+      "target_height_m": 0.3,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_17",
+      "name": "Runic Stone Altar",
+      "category": "prop",
+      "target_height_m": 0.85,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "vehicle",
+      "detected_materials": [
+        "M_Car_Paint",
+        "M_Tire_Rubber",
+        "M_Window_Glass"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_18",
+      "name": "Tufted Emerald Velvet Cushion",
+      "category": "furniture",
+      "target_height_m": 0.2,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.001
+    },
+    {
+      "case_id": "case_19",
+      "name": "Heavy Iron Ship Anchor",
+      "category": "prop",
+      "target_height_m": 1.4,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    },
+    {
+      "case_id": "case_20",
+      "name": "Sci-Fi Cryo Energy Container",
+      "category": "prop",
+      "target_height_m": 0.7,
+      "selected_engine": "Hybrid Text-to-3D (SD-Turbo + TripoSR)",
+      "engine_id": "hybrid_sd_triposr",
+      "router_reason": "Multi-stage visual concept synthesis with 4-view canonical projections and PBR appearance transfer (Strategy B).",
+      "detected_category": "generic",
+      "detected_materials": [
+        "M_Surface_PBR"
+      ],
+      "material_match_score": 0.5,
+      "status": "PASS",
+      "eval_time_seconds": 0.0
+    }
+  ]
+}

@@ -26,6 +26,8 @@ from core.color_calibrator import color_calibrator
 from core.multiview_synthesizer import multiview_synthesizer
 from core.model_lifecycle import model_lifecycle, ModelSlot
 from core.input_validator import input_validator, ValidationError
+from core.engines.registry import engine_registry
+from core.geometry_validator import geometry_validator
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS_DIR = os.path.join(PROJECT_ROOT, "jobs")
@@ -224,10 +226,31 @@ class JobManager:
 
             staged_image_path = None
             input_metadata = {}
+            geo_report = None
+
+            # Dynamic Engine Selection via EngineRegistry
+            engine_override = job.params.get("engine")
+            if engine_override in ("auto", "", None):
+                engine_override = None
+
+            strategy = job.params.get("strategy", "hybrid_concept_art")
+            routing_profile = "direct_latent" if (strategy == "direct_text_to_3d" and job.input_mode == "prompt") else job.params.get("quality", "balanced")
+            modality = "text-to-3d" if job.input_mode == "prompt" else "image-to-3d"
+
+            selected_engine, routing_info = engine_registry.resolve_best_engine(
+                modality=modality,
+                profile=routing_profile,
+                user_override_engine=engine_override
+            )
+            job.log(f"[Multi-Engine Router] Selected engine: '{selected_engine.name}' (Reason: {routing_info.get('reason')})")
+            if routing_info.get("warning"):
+                job.log(f"[Multi-Engine Router Warning] {routing_info['warning']}")
 
             # =========================================================================
-            # DUAL ENTRY PATH HANDLING
+            # DUAL ENTRY PATH HANDLING & 3D RECONSTRUCTION
             # =========================================================================
+            direct_mesh_generated = False
+
             if job.input_mode == "prompt":
                 # ---------------------------------------------------------------------
                 # MODE A: TEXT-TO-3D
@@ -237,23 +260,53 @@ class JobManager:
                 clean_prompt = input_validator.validate_prompt(prompt)
                 job.log(f"[Mode A: Text-to-3D] Validated text prompt: '{clean_prompt}'")
 
-                job.set_stage("Synthesizing Concept Image from Prompt (SD-Turbo)", 15)
-                synth_target = os.path.join(input_dir, "concept.png")
+                # Strategy A: Direct Latent Text-to-3D (if selected engine supports it directly)
+                if selected_engine.engine_id == "shap_e" and strategy == "direct_text_to_3d":
+                    job.set_stage(f"Direct Text-to-3D Synthesis ({selected_engine.name})", 25)
+                    job.log("[Strategy A: Direct Text-to-3D] Generating implicit 3D geometry directly from prompt...")
+                    t_gen_start = time.time()
+                    engine_params = dict(job.params)
+                    engine_params["prompt"] = clean_prompt
+                    engine_params["output_dir"] = high_poly_dir
 
-                t_prompt_start = time.time()
-                prompt_engine.generate(prompt=clean_prompt, output_path=synth_target)
-                timings["concept_synthesis"] = round(time.time() - t_prompt_start, 2)
+                    asset = selected_engine.generate(
+                        params=engine_params,
+                        progress_callback=lambda p, s: job.set_stage(s, int(25 + p * 40))
+                    )
+                    timings["reconstruction"] = asset.generation_time_seconds or round(time.time() - t_gen_start, 2)
+                    raw_mesh = asset.mesh_path
+                    high_poly_target = os.path.join(high_poly_dir, "mesh.glb")
+                    if os.path.exists(raw_mesh) and os.path.getsize(raw_mesh) > 0:
+                        if raw_mesh != high_poly_target:
+                            shutil.copy2(raw_mesh, high_poly_target)
+                        job.high_poly_mesh = high_poly_target
+                        job.output_mesh = high_poly_target
+                        direct_mesh_generated = True
 
-                # Validate generated concept output
-                input_metadata = input_validator.validate_generated_concept(synth_target)
-                staged_image_path = synth_target
-                concept_art_copy = os.path.join(input_dir, "concept_art.png")
-                try:
-                    if not os.path.exists(concept_art_copy):
-                        shutil.copy2(synth_target, concept_art_copy)
-                except Exception:
-                    pass
-                job.log(f"Concept image synthesized in {timings['concept_synthesis']}s: {synth_target}")
+                    if asset.preview_path and os.path.exists(asset.preview_path):
+                        synth_target = os.path.join(input_dir, "concept.png")
+                        shutil.copy2(asset.preview_path, synth_target)
+                        staged_image_path = synth_target
+
+                else:
+                    # Strategy B: Multi-Stage Hybrid Text-to-Image-to-3D (SD-Turbo + TripoSR)
+                    job.set_stage("Synthesizing Concept Image from Prompt (SD-Turbo)", 15)
+                    synth_target = os.path.join(input_dir, "concept.png")
+
+                    t_prompt_start = time.time()
+                    prompt_engine.generate(prompt=clean_prompt, output_path=synth_target)
+                    timings["concept_synthesis"] = round(time.time() - t_prompt_start, 2)
+
+                    # Validate generated concept output
+                    input_metadata = input_validator.validate_generated_concept(synth_target)
+                    staged_image_path = synth_target
+                    concept_art_copy = os.path.join(input_dir, "concept_art.png")
+                    try:
+                        if not os.path.exists(concept_art_copy):
+                            shutil.copy2(synth_target, concept_art_copy)
+                    except Exception:
+                        pass
+                    job.log(f"[Strategy B] Concept image synthesized in {timings['concept_synthesis']}s: {synth_target}")
 
             else:
                 # ---------------------------------------------------------------------
@@ -277,7 +330,7 @@ class JobManager:
                     pass
                 job.log(f"[Mode B: Image-to-3D] Uploaded image validated & staged: {input_metadata['width']}x{input_metadata['height']} ({input_metadata['format']})")
 
-            if not staged_image_path or not os.path.exists(staged_image_path):
+            if not direct_mesh_generated and (not staged_image_path or not os.path.exists(staged_image_path)):
                 raise ValidationError("Failed to prepare a valid input image for 3D reconstruction.")
 
             if job._cancel_requested:
@@ -289,61 +342,107 @@ class JobManager:
             # SHARED DOWNSTREAM 3D PRODUCTION PIPELINE
             # =========================================================================
 
-            # Stage 1.5: Multi-Angle Reference Perspectives
-            t_mv_start = time.time()
-            try:
-                job.set_stage("Generating 360 Multi-View Reference Grid", 25)
-                mv_res = multiview_synthesizer.generate_canonical_views(staged_image_path, multiview_dir)
-                timings["multiview_reference"] = round(time.time() - t_mv_start, 2)
-                mv_grid = os.path.join(multiview_dir, "multiview_grid.png")
-                comp_grid = os.path.join(multiview_dir, "composite_grid.png")
+            # Stage 1.5: Multi-Angle Reference Perspectives (for image-based flows)
+            if not direct_mesh_generated and staged_image_path:
+                t_mv_start = time.time()
                 try:
-                    if os.path.exists(mv_grid) and not os.path.exists(comp_grid):
-                        shutil.copy2(mv_grid, comp_grid)
-                except Exception:
-                    pass
-                job.log(f"Multi-view reference generation complete in {timings['multiview_reference']}s (Front, Right, Back, Left views).")
-            except Exception as mv_err:
-                job.log(f"Multi-view reference notice: {mv_err}. Proceeding with primary input.")
+                    job.set_stage("Generating 360 Multi-View Reference Grid", 25)
+                    mv_res = multiview_synthesizer.generate_canonical_views(staged_image_path, multiview_dir)
+                    timings["multiview_reference"] = round(time.time() - t_mv_start, 2)
+                    mv_grid = os.path.join(multiview_dir, "multiview_grid.png")
+                    comp_grid = os.path.join(multiview_dir, "composite_grid.png")
+                    try:
+                        if os.path.exists(mv_grid) and not os.path.exists(comp_grid):
+                            shutil.copy2(mv_grid, comp_grid)
+                    except Exception:
+                        pass
+                    job.log(f"Multi-view reference generation complete in {timings['multiview_reference']}s (Front, Right, Back, Left views).")
+                except Exception as mv_err:
+                    job.log(f"Multi-view reference notice: {mv_err}. Proceeding with primary input.")
 
             if job._cancel_requested:
                 job.status = JobStatus.CANCELLED
                 job.end_time = time.time()
                 return
 
-            # Stage 2: Volumetric 3D Reconstruction
-            job.status = JobStatus.RECONSTRUCTING
-            job.set_stage("Reconstructing Volumetric Geometry (TripoSR)", 45)
+            # Stage 2: Volumetric 3D Reconstruction (if not already directly generated)
+            if not direct_mesh_generated:
+                job.status = JobStatus.RECONSTRUCTING
+                job.set_stage(f"Reconstructing Volumetric Geometry ({selected_engine.name})", 45)
 
-            t_rec_start = time.time()
-            quality = job.params.get("quality", "balanced")
-            rec_result = triposr_engine.reconstruct(
-                image_path=staged_image_path,
-                quality=quality,
-                render_turntable=job.params.get("render_turntable", False)
-            )
-            timings["reconstruction"] = rec_result.get("elapsed_seconds", round(time.time() - t_rec_start, 2))
+                t_rec_start = time.time()
+                quality = job.params.get("quality", "balanced")
 
-            # Stage raw high-poly reference mesh
-            raw_mesh = rec_result["mesh_path"]
-            high_poly_target = os.path.join(high_poly_dir, "mesh.glb")
-            if os.path.exists(raw_mesh) and os.path.getsize(raw_mesh) > 0:
-                shutil.copy2(raw_mesh, high_poly_target)
-                job.high_poly_mesh = high_poly_target
-                job.output_mesh = high_poly_target
-            else:
-                raise RuntimeError("Reconstruction completed but output mesh file is missing or empty.")
+                raw_mesh = None
+                # Route through selected engine with safe fallback to TripoSR
+                try:
+                    if selected_engine.engine_id == "triposr":
+                        rec_result = triposr_engine.reconstruct(
+                            image_path=staged_image_path,
+                            quality=quality,
+                            render_turntable=job.params.get("render_turntable", False)
+                        )
+                        timings["reconstruction"] = rec_result.get("elapsed_seconds", round(time.time() - t_rec_start, 2))
+                        raw_mesh = rec_result["mesh_path"]
+                    else:
+                        job.log(f"Executing generation via adapter: {selected_engine.name}...")
+                        engine_params = dict(job.params)
+                        engine_params["image_path"] = staged_image_path
+                        engine_params["output_dir"] = high_poly_dir
+                        asset = selected_engine.generate(
+                            params=engine_params,
+                            progress_callback=lambda p, s: job.set_stage(s, int(45 + p * 20))
+                        )
+                        timings["reconstruction"] = asset.generation_time_seconds or round(time.time() - t_rec_start, 2)
+                        raw_mesh = asset.mesh_path
 
-            job.log(f"Volumetric reconstruction completed in {timings['reconstruction']}s on device: {rec_result.get('device', 'auto')}.")
+                except Exception as engine_err:
+                    job.log(f"[Engine Fallback Notice] {selected_engine.name} encountered error: {engine_err}. Falling back to TripoSR baseline...")
+                    rec_result = triposr_engine.reconstruct(
+                        image_path=staged_image_path,
+                        quality=quality,
+                        render_turntable=job.params.get("render_turntable", False)
+                    )
+                    timings["reconstruction"] = rec_result.get("elapsed_seconds", round(time.time() - t_rec_start, 2))
+                    raw_mesh = rec_result["mesh_path"]
+
+                # Stage raw high-poly reference mesh
+                high_poly_target = os.path.join(high_poly_dir, "mesh.glb")
+                if raw_mesh and os.path.exists(raw_mesh) and os.path.getsize(raw_mesh) > 0:
+                    shutil.copy2(raw_mesh, high_poly_target)
+                    job.high_poly_mesh = high_poly_target
+                    job.output_mesh = high_poly_target
+                else:
+                    raise RuntimeError("Reconstruction completed but output mesh file is missing or empty.")
+
+                job.log(f"Volumetric reconstruction completed in {timings['reconstruction']}s.")
 
             # Stage 2.5: Accurate Color Calibration (Reinhard Lab Space Transfer)
-            if job.params.get("accurate_colors", True):
-                job.set_stage("Calibrating Color Distribution (Reinhard Lab)", 65)
+            if staged_image_path and os.path.exists(staged_image_path) and job.params.get("accurate_colors", True):
+                job.set_stage("Calibrating Color Distribution (Reinhard Lab)", 60)
                 try:
                     color_calibrator.calibrate_mesh_colors(job.output_mesh, staged_image_path)
                     job.log("Color calibration complete: perceptual Lab palette aligned with source artwork.")
                 except Exception as col_err:
                     job.log(f"Color calibration notice: {col_err}")
+
+            # Stage 2.8: Shared Geometry Quality & Validation Finishing Pipeline
+            job.set_stage("Validating & Finishing Geometry Topology", 70)
+            target_poly_budget = job.params.get("max_poly_budget", 150000)
+            try:
+                valid_mesh, geo_report = geometry_validator.validate_and_repair(
+                    mesh_path=job.output_mesh,
+                    auto_repair=job.params.get("sanitize", True),
+                    max_poly_budget=target_poly_budget
+                )
+                job.output_mesh = valid_mesh
+                if geo_report.repair_actions_taken:
+                    job.log(f"[Geometry Finishing] Repaired: {', '.join(geo_report.repair_actions_taken)}")
+                if geo_report.warnings:
+                    for gw in geo_report.warnings:
+                        job.log(f"[Geometry Notice] {gw}")
+            except Exception as geo_err:
+                job.log(f"[Geometry Finishing Notice] {geo_err}")
 
             if job._cancel_requested:
                 job.status = JobStatus.CANCELLED
@@ -594,6 +693,8 @@ class JobManager:
                 "settings": job.params,
                 "source_input": staged_image_path,
                 "input_metadata": input_metadata,
+                "engine_routing": routing_info,
+                "geometry_validation": geo_report.to_dict() if geo_report else None,
                 "appearance": appearance_diagnostics,
                 "timings": timings,
                 "assets": {

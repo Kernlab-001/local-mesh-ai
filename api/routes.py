@@ -14,6 +14,9 @@ from services.export_service import export_service
 from core.gpu_broker import gpu_broker
 from core.qwen_planner import qwen_planner
 from core.hardware_detector import hardware_detector
+from core.engines.registry import engine_registry
+from core.model_manager import model_manager
+from core.geometry_validator import geometry_validator
 
 router = APIRouter()
 
@@ -43,6 +46,28 @@ def health_check():
             "present": os.path.exists(qwen_path),
             "path": qwen_path
         }
+    }
+
+@router.get("/engines")
+def list_available_engines():
+    """Returns all registered 3D neural generation engines and live status."""
+    return {
+        "engines": engine_registry.list_engines(),
+        "hardware": engine_registry.get_hardware_telemetry()
+    }
+
+@router.get("/hardware")
+def get_hardware_telemetry():
+    """Returns detailed hardware profile and memory allocation metrics."""
+    return engine_registry.get_hardware_telemetry()
+
+@router.get("/models")
+def list_model_catalog():
+    """Returns local model catalog and storage capacity report."""
+    catalog = [m.__dict__ for m in model_manager.get_model_catalog()]
+    return {
+        "models": catalog,
+        "free_disk_space_gb": model_manager.get_free_disk_space_gb()
     }
 
 @router.post("/jobs", response_model=JobResponse)
