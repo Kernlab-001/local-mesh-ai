@@ -1,0 +1,138 @@
+{
+  "job_id": "8f914d69",
+  "status": "COMPLETED",
+  "total_time_seconds": 90.05,
+  "peak_vram_mb": 3095.86,
+  "mesh_path": "E:\\GPUPLAT\\jobs\\8f914d69\\mesh.glb",
+  "file_size_bytes": 6507504,
+  "vertices": 52552,
+  "faces": 81351,
+  "watertight": false,
+  "bounds": [
+    2.611,
+    1.8,
+    1.648
+  ],
+  "materials": [
+    "M_M_Wood_Frame",
+    "M_M_Fabric_Cushion",
+    "M_M_Fabric_Backrest"
+  ],
+  "has_uvs": true,
+  "has_textures": true,
+  "manifest": {
+    "job_id": "8f914d69",
+    "input_mode": "prompt",
+    "status": "completed",
+    "settings": {
+      "prompt": "A traditional dining chair with a dark walnut-brown wooden frame and carved legs, a warm ivory-cream upholstered seat cushion, a matching cream tufted backrest with fabric buttons, realistic wood grain, woven upholstery fabric, subtle stitching, and detailed trim.",
+      "target_height": 0.9,
+      "preset": "furniture",
+      "quality": "balanced",
+      "remove_bg": true,
+      "sanitize": true,
+      "sharp_overlay": true,
+      "weld": true,
+      "pbr_material": true,
+      "accurate_colors": true,
+      "retopology_and_bake": true,
+      "target_faces": 8000
+    },
+    "source_input": "E:\\GPUPLAT\\jobs\\8f914d69\\input\\concept.png",
+    "input_metadata": {
+      "valid": true,
+      "format": "PNG",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB",
+      "size_bytes": 401150,
+      "path": "E:\\GPUPLAT\\jobs\\8f914d69\\input\\concept.png"
+    },
+    "appearance": {
+      "mesh_path": "E:\\GPUPLAT\\jobs\\8f914d69\\mesh.glb",
+      "file_size_bytes": 6507504,
+      "materials": [
+        "M_M_Wood_Frame",
+        "M_M_Fabric_Cushion",
+        "M_M_Fabric_Backrest"
+      ],
+      "material_count": 3,
+      "has_uvs": true,
+      "has_textures": true,
+      "has_vertex_colors": true,
+      "material_base_colors": {
+        "M_M_Wood_Frame": {
+          "baseColorFactor": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "has_baseColorTexture": true,
+          "roughnessFactor": 0.3499999940395355,
+          "metallicFactor": 0
+        },
+        "M_M_Fabric_Cushion": {
+          "baseColorFactor": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "has_baseColorTexture": true,
+          "roughnessFactor": 0.8500000238418579,
+          "metallicFactor": 0
+        },
+        "M_M_Fabric_Backrest": {
+          "baseColorFactor": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "has_baseColorTexture": true,
+          "roughnessFactor": 0.8199999928474426,
+          "metallicFactor": 0
+        }
+      },
+      "texture_count": 6,
+      "image_count": 6,
+      "primitive_count": 3,
+      "export_validation_status": "PASSED"
+    },
+    "timings": {
+      "concept_synthesis": 11.42,
+      "multiview_reference": 0.26,
+      "reconstruction": 60.32,
+      "blender_processing": 17.09,
+      "total_duration": 89.68
+    },
+    "assets": {
+      "high_poly_reference": "E:\\GPUPLAT\\jobs\\8f914d69\\high_poly_reference\\mesh.glb",
+      "low_poly_game_ready": "E:\\GPUPLAT\\jobs\\8f914d69\\low_poly_asset\\model_game_ready.glb",
+      "baked_normal": "E:\\GPUPLAT\\jobs\\8f914d69\\textures\\baked_normal.png",
+      "baked_diffuse": "E:\\GPUPLAT\\jobs\\8f914d69\\textures\\baked_diffuse.png",
+      "blender_project": "E:\\GPUPLAT\\jobs\\8f914d69\\project.blend",
+      "preview_render": "E:\\GPUPLAT\\jobs\\8f914d69\\preview.png"
+    }
+  },
+  "logs": [
+    "[17:08:28] Stage: Validating Input Parameters (5%)",
+    "[17:08:28] [Mode A: Text-to-3D] Validated text prompt: 'A traditional dining chair with a dark walnut-brown wooden frame and carved legs, a warm ivory-cream upholstered seat cushion, a matching cream tufted backrest with fabric buttons, realistic wood grain, woven upholstery fabric, subtle stitching, and detailed trim.'",
+    "[17:08:28] Stage: Synthesizing Concept Image from Prompt (SD-Turbo) (15%)",
+    "[17:08:39] Concept image synthesized in 11.42s: E:\\GPUPLAT\\jobs\\8f914d69\\input\\concept.png",
+    "[17:08:39] Stage: Generating 360 Multi-View Reference Grid (25%)",
+    "[17:08:39] Multi-view reference generation complete in 0.26s (Front, Right, Back, Left views).",
+    "[17:08:39] Stage: Reconstructing Volumetric Geometry (TripoSR) (45%)",
+    "[17:09:40] Volumetric reconstruction completed in 60.32s on device: cuda:0.",
+    "[17:09:40] Stage: Calibrating Color Distribution (Reinhard Lab) (65%)",
+    "[17:09:40] Color calibration complete: perceptual Lab palette aligned with source artwork.",
+    "[17:09:40] Stage: Blender Post-Processing & Geometry Sanitation (75%)",
+    "[17:09:40] [Appearance Profile] Profile computed: 'chair' with 3 material slot(s): ['M_Wood_Frame', 'M_Fabric_Cushion', 'M_Fabric_Backrest']",
+    "[17:09:49] Stage: Quad-Dominant Retopology & Texture Baking (85%)",
+    "[17:09:57] Quad retopology decimation & normal/diffuse texture baking completed.",
+    "[17:09:57] [Appearance Diagnostics] 3D Asset verified: 3 material slot(s) ['M_M_Fabric_Cushion', 'M_M_Fabric_Backrest', 'M_M_Wood_Frame'], UVs: True, Textures: True, VertexColors: False.",
+    "[17:09:57] Stage: Completed Successfully (100%)",
+    "[17:09:57] All pipeline stages completed successfully in 89.68s."
+  ]
+}

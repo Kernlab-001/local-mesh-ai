@@ -1,0 +1,38 @@
+{
+  "job_id": "8ba9cd73",
+  "input_mode": "image",
+  "source_image": "E:\\GPUPLAT\\TripoSR\\examples\\teapot.png",
+  "status": "COMPLETED",
+  "total_time_seconds": 58.02,
+  "peak_vram_mb": 0.0,
+  "mesh_path": "E:\\GPUPLAT\\jobs\\8ba9cd73\\mesh.glb",
+  "file_size_bytes": 2862868,
+  "vertices": 51214,
+  "faces": 78423,
+  "bounds": [
+    1.188,
+    1.8,
+    1.08
+  ],
+  "materials": [
+    "M_M_Surface_PBR"
+  ],
+  "has_uvs": true,
+  "has_textures": true,
+  "logs": [
+    "[17:10:49] Stage: Validating Input Parameters (5%)",
+    "[17:10:49] Stage: Validating Uploaded Reference Image (10%)",
+    "[17:10:49] [Mode B: Image-to-3D] Uploaded image validated & staged: 874x874 (PNG)",
+    "[17:10:49] Stage: Generating 360 Multi-View Reference Grid (25%)",
+    "[17:10:49] Multi-view reference generation complete in 0.16s (Front, Right, Back, Left views).",
+    "[17:10:49] Stage: Reconstructing Volumetric Geometry (TripoSR) (45%)",
+    "[17:11:38] Volumetric reconstruction completed in 49.61s on device: cuda:0.",
+    "[17:11:38] Stage: Calibrating Color Distribution (Reinhard Lab) (65%)",
+    "[17:11:39] Color calibration complete: perceptual Lab palette aligned with source artwork.",
+    "[17:11:39] Stage: Blender Post-Processing & Geometry Sanitation (75%)",
+    "[17:11:39] [Appearance Profile] Profile computed: 'generic' with 1 material slot(s): ['M_Surface_PBR']",
+    "[17:11:46] [Appearance Diagnostics] 3D Asset verified: 1 material slot(s) ['M_M_Surface_PBR'], UVs: True, Textures: True, VertexColors: False.",
+    "[17:11:46] Stage: Completed Successfully (100%)",
+    "[17:11:46] All pipeline stages completed successfully in 57.59s."
+  ]
+}
