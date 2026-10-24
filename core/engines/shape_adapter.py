@@ -57,16 +57,16 @@ class ShapEAdapter(Base3DEngine):
         }
 
     def _is_cached(self, model_id: str) -> bool:
-        """Checks if model weights exist in local Hugging Face cache."""
+        """Checks if model weights exist in local Hugging Face cache without network calls."""
         try:
-            from huggingface_hub import try_to_load_from_cache
-            # Check for a core weight file in cache
-            res = try_to_load_from_cache(model_id, "model.safetensors")
-            if res and isinstance(res, str) and os.path.exists(res):
-                return True
-            res_bin = try_to_load_from_cache(model_id, "pytorch_model.bin")
-            if res_bin and isinstance(res_bin, str) and os.path.exists(res_bin):
-                return True
+            from pathlib import Path
+            hf_cache = Path(os.path.expanduser("~/.cache/huggingface/hub"))
+            cache_folder = "models--" + model_id.replace("/", "--")
+            snapshots_dir = hf_cache / cache_folder / "snapshots"
+            if snapshots_dir.exists():
+                for s in snapshots_dir.iterdir():
+                    if s.is_dir() and any(s.iterdir()):
+                        return True
         except Exception:
             pass
         return False

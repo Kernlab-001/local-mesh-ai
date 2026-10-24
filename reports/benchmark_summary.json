@@ -1,14 +1,14 @@
 {
   "suite_name": "Local Mesh AI - Corrected 20-Case Multi-Engine Architecture & Generation Benchmark",
   "honesty_disclaimer": "All statuses reflect verified system reality. Smoke tests evaluate routing, hardware feasibility, and appearance parsing (threshold >= 0.70). Generation is ONLY reported as PASS when neural inference was executed on host hardware, output geometry was validated and calibrated, and Blender certification rendered a preview.",
-  "timestamp": "2026-10-24 20:48:00",
+  "timestamp": "2026-10-24 21:58:20",
   "hardware": {
     "has_cuda": true,
     "device_name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
     "total_vram_gb": 6.0,
     "available_vram_gb": 5.04,
     "total_ram_gb": 15.71,
-    "available_ram_gb": 5.54
+    "available_ram_gb": 4.24
   },
   "total_cases": 20,
   "architecture_smoke_passed": 20,
@@ -17,7 +17,7 @@
   "real_generation_passed": 2,
   "blocked_cases": 0,
   "not_run_cases": 18,
-  "total_duration_seconds": 107.84,
+  "total_duration_seconds": 77.7,
   "results": [
     {
       "case_id": "case_01",
@@ -47,7 +47,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.006
+      "eval_time_seconds": 0.004
     },
     {
       "case_id": "case_02",
@@ -72,24 +72,23 @@
       "overall_status": "PASS",
       "generation_details": {
         "generation_status": "PASS",
-        "runtime_seconds": 49.05,
+        "runtime_seconds": 27.92,
         "measured_peak_vram_gb": 3.024,
         "mesh_path": "C:\\Users\\diyaj\\AppData\\Local\\Temp\\local_mesh_ai_benchmarks\\assets\\case_02\\final_calibrated.glb",
         "geometry_validation": {
-          "vertex_count": 75052,
-          "face_count": 150000,
+          "vertex_count": 51282,
+          "face_count": 102568,
           "dimensions_meters": [
-            1.1368,
-            1.2453,
+            2.167,
+            1.8808,
             0.9
           ],
-          "is_watertight": false,
+          "is_watertight": true,
           "appearance_status": "HAS_VALID_PALETTE",
           "is_procedural_fallback": false,
           "repairs_applied": [
             "Enforced outward-consistent face normals and vertex winding.",
-            "Decimated mesh to polygon budget (150000 faces).",
-            "Calibrated physical scale: scaled Z-height from 0.683m to 0.900m (factor 1.318x)."
+            "Calibrated physical scale: scaled Z-height from 0.418m to 0.900m (factor 2.153x)."
           ]
         },
         "export_reimport_valid": true,
@@ -97,21 +96,29 @@
           "blender_verified": true,
           "mesh_path": "C:\\Users\\diyaj\\AppData\\Local\\Temp\\local_mesh_ai_benchmarks\\assets\\case_02\\final_calibrated.glb",
           "object_name": "geometry_0",
-          "vertex_count": 75052,
-          "polygon_count": 149987,
+          "vertex_count": 51282,
+          "polygon_count": 102568,
           "dimensions_meters": [
-            1.1368,
+            2.167,
             0.9,
-            1.2453
+            1.8808
           ],
-          "height_m": 1.2453,
-          "material_count": 0,
-          "materials": [],
+          "height_m": 1.8808,
+          "material_count": 1,
+          "materials": [
+            {
+              "name": "DefaultMaterial",
+              "use_nodes": true,
+              "has_texture": false,
+              "roughness": 0.5,
+              "metallic": 0.0
+            }
+          ],
           "render_path": "C:\\Users\\diyaj\\AppData\\Local\\Temp\\local_mesh_ai_benchmarks\\assets\\case_02\\blender_render.png"
         },
         "failure_reason": null
       },
-      "eval_time_seconds": 55.475
+      "eval_time_seconds": 54.511
     },
     {
       "case_id": "case_03",
@@ -142,7 +149,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.002
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_04",
@@ -165,7 +172,7 @@
       "overall_status": "PASS",
       "generation_details": {
         "generation_status": "PASS",
-        "runtime_seconds": 45.17,
+        "runtime_seconds": 18.46,
         "measured_peak_vram_gb": 0.008,
         "mesh_path": "C:\\Users\\diyaj\\AppData\\Local\\Temp\\local_mesh_ai_benchmarks\\assets\\case_04\\final_calibrated.glb",
         "geometry_validation": {
@@ -211,7 +218,7 @@
         },
         "failure_reason": null
       },
-      "eval_time_seconds": 52.237
+      "eval_time_seconds": 23.122
     },
     {
       "case_id": "case_05",
@@ -241,7 +248,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.004
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_06",
@@ -270,7 +277,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.008
+      "eval_time_seconds": 0.002
     },
     {
       "case_id": "case_07",
@@ -300,7 +307,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.007
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_08",
@@ -330,7 +337,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.004
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_09",
@@ -360,7 +367,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.005
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_10",
@@ -390,7 +397,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.003
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_11",
@@ -420,7 +427,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.003
+      "eval_time_seconds": 0.002
     },
     {
       "case_id": "case_12",
@@ -450,7 +457,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.004
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_13",
@@ -480,7 +487,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.006
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_14",
@@ -510,7 +517,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.004
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_15",
@@ -540,7 +547,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.003
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_16",
@@ -570,7 +577,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.003
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_17",
@@ -599,7 +606,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.004
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_18",
@@ -629,7 +636,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.002
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_19",
@@ -658,7 +665,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.005
+      "eval_time_seconds": 0.001
     },
     {
       "case_id": "case_20",
@@ -688,7 +695,7 @@
         "export_reimport_valid": false,
         "blender_validation": null
       },
-      "eval_time_seconds": 0.005
+      "eval_time_seconds": 0.001
     }
   ]
 }

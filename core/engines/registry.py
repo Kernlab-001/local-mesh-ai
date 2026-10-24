@@ -48,6 +48,29 @@ class EngineRegistry:
             result.append(details)
         return result
 
+    def get_dynamic_engine_choices(self) -> Tuple[List[str], Dict[str, str]]:
+        """Dynamically queries engine registry and builds truthful label -> engine_id map."""
+        choices = ["Auto-Detect (Adaptive Hardware Router)"]
+        mapping = {"Auto-Detect (Adaptive Hardware Router)": "auto"}
+
+        for eng in self.list_engines():
+            status = eng["status"]
+            if status == "ready":
+                tag = "[READY]"
+            elif status == "needs_download":
+                tag = "[NEEDS DOWNLOAD]"
+            elif status == "unsupported_hardware":
+                req_vram = eng["hardware_requirements"].get("min_vram_gb", "HIGH")
+                tag = f"[REQUIRES {req_vram}GB VRAM]"
+            else:
+                tag = f"[{status.upper()}]"
+
+            label = f"{eng['name']} {tag}"
+            choices.append(label)
+            mapping[label] = eng["engine_id"]
+
+        return choices, mapping
+
     def get_hardware_telemetry(self) -> Dict[str, Any]:
         """Probes live hardware VRAM and RAM availability."""
         has_cuda = torch.cuda.is_available()

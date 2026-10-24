@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 import gradio as gr
 from PIL import Image
 
@@ -853,6 +854,31 @@ def load_latest_job():
 
     return None, None, None, None, render_stats_table(get_mesh_metrics(None)), render_job_status("", "NO_JOBS", 0, 0.0), render_stage_bar(0, "prompt"), "No previous jobs with 3D mesh files found.", "No artifacts found.", ""
 
+def get_dynamic_engine_choices():
+    """Dynamically queries engine registry and builds truthful label -> engine_id map."""
+    from core.engines.registry import engine_registry
+    choices = ["Auto-Detect (Adaptive Hardware Router)"]
+    mapping = {"Auto-Detect (Adaptive Hardware Router)": "auto"}
+
+    for eng in engine_registry.list_engines():
+        status = eng["status"]
+        if status == "ready":
+            tag = "[READY]"
+        elif status == "needs_download":
+            tag = "[NEEDS DOWNLOAD]"
+        elif status == "unsupported_hardware":
+            req_vram = eng["hardware_requirements"].get("min_vram_gb", "HIGH")
+            tag = f"[REQUIRES {req_vram}GB VRAM]"
+        else:
+            tag = f"[{status.upper()}]"
+
+        label = f"{eng['name']} {tag}"
+        choices.append(label)
+        mapping[label] = eng["engine_id"]
+
+    return choices, mapping
+
+
 def generate_3d_pipeline(
     gen_mode,
     concept_prompt,
@@ -879,17 +905,37 @@ def generate_3d_pipeline(
     is_text_mode = (gen_mode == "Mode A: Text-to-3D")
     input_mode = "prompt" if is_text_mode else "image"
 
-    engine_map = {
-        "Auto-Detect (Adaptive Hardware Router)": "auto",
-        "TripoSR (Feedforward Volumetric) [READY]": "triposr",
-        "Shap-E (Direct Latent 3D) [NEEDS DOWNLOAD]": "shap_e",
-        "Hybrid SD-Turbo + TripoSR [READY]": "hybrid_sd_triposr",
-        "Stable Fast 3D [REQUIRES 8GB VRAM]": "sf3d",
-        "Microsoft TRELLIS [REQUIRES 16GB VRAM]": "trellis"
-    }
+    _, engine_map = get_dynamic_engine_choices()
+    selected_engine_id = engine_map.get(engine_choice, "auto")
+
+    # Honest engine gating check
+    if selected_engine_id != "auto":
+        from core.engines.registry import engine_registry
+        from core.engines.base import EngineStatus
+        eng_obj = engine_registry.get_engine(selected_engine_id)
+        if eng_obj:
+            eng_status = eng_obj.get_status()
+            if eng_status == EngineStatus.NEEDS_DOWNLOAD:
+                details = eng_obj.get_status_details()
+                sz = details.get("approximate_download_size", "model weights")
+                raise gr.Error(
+                    f"Selected engine '{eng_obj.name}' requires weights to be downloaded ({sz}). "
+                    "Please download model weights before running inference."
+                )
+            elif eng_status == EngineStatus.UNSUPPORTED_HARDWARE:
+                reqs = eng_obj.hardware_requirements
+                min_v = reqs.get("min_vram_gb", "higher")
+                raise gr.Error(
+                    f"Selected engine '{eng_obj.name}' is unsupported on this hardware "
+                    f"(requires at least {min_v} GB VRAM). Please choose an available engine or use Auto-Detect."
+                )
+            elif eng_status == EngineStatus.NOT_INSTALLED:
+                raise gr.Error(
+                    f"Selected engine '{eng_obj.name}' has missing dependencies. Check System Diagnostics."
+                )
 
     params = {
-        "engine": engine_map.get(engine_choice, "auto"),
+        "engine": selected_engine_id,
         "strategy": "direct_text_to_3d" if "Strategy A" in str(concept_strategy) else "hybrid_concept_art",
         "target_height": float(target_height),
         "preset": preset,
@@ -1240,16 +1286,10 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                 gr.Markdown("<span style='font-size:10px; color:#4E8B58;'>Mode B strictly bypasses text diffusion and directly stages reference image.</span>")
 
             # Common Parameters
+            dynamic_choices, _ = get_dynamic_engine_choices()
             engine_dropdown = gr.Dropdown(
-                choices=[
-                    "Auto-Detect (Adaptive Hardware Router)",
-                    "TripoSR (Feedforward Volumetric) [READY]",
-                    "Shap-E (Direct Latent 3D) [NEEDS DOWNLOAD]",
-                    "Hybrid SD-Turbo + TripoSR [READY]",
-                    "Stable Fast 3D [REQUIRES 8GB VRAM]",
-                    "Microsoft TRELLIS [REQUIRES 16GB VRAM]"
-                ],
-                value="Auto-Detect (Adaptive Hardware Router)",
+                choices=dynamic_choices,
+                value=dynamic_choices[0],
                 label="3D AI Neural Engine"
             )
 
@@ -1316,10 +1356,10 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                         refresh_diag_btn = gr.Button("🔄 Re-Run Diagnostics", size="sm", elem_classes=["blender-btn"])
                         copy_diag_btn = gr.Button("📋 Copy Diagnostics Report", size="sm", elem_classes=["blender-btn"])
 
-                    diag_display_html = gr.HTML(value=render_diagnostics_html())
+                    diag_display_html = gr.HTML(value="<div style='color:#A6A6A6; font-size:11px; padding:12px; background:#1A1A1A; border:1px solid #3B3B3B; border-radius:3px;'>Click <b>'🔄 Re-Run Diagnostics'</b> above to execute live hardware, dependency, and model cache checks.</div>")
                     diag_markdown_box = gr.Textbox(
                         label="Sanitized Technical Diagnostics (Ready to Paste)",
-                        value=system_diagnostics.generate_sanitized_markdown(),
+                        value="Click '🔄 Re-Run Diagnostics' to populate technical report.",
                         lines=7,
                         elem_classes=["blender-console"]
                     )

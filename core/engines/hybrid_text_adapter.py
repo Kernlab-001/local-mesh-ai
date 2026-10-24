@@ -14,6 +14,7 @@ from pathlib import Path
 from core.engines.base import Base3DEngine, EngineStatus, StandardizedAsset
 from core.prompt_to_image import prompt_engine
 from core.multiview_synthesizer import multiview_synthesizer
+from core.foreground_segmenter import foreground_segmenter, SegmentationError
 from core.input_validator import input_validator
 from core.gpu_broker import gpu_broker
 
@@ -150,43 +151,63 @@ class HybridTextTo3DAdapter(Base3DEngine):
         except Exception as synth_err:
             raise RuntimeError(f"Stage 1 [Concept Art Synthesis] failed: {synth_err}")
 
-        # Stage 2: Canonical 4-view projections
+        # Stage 2: Offline Foreground Segmentation & Alpha Matting
         if progress_callback:
-            progress_callback("Generating 4-view canonical perspective grid", 30)
+            progress_callback("Isolating foreground subject and generating alpha matte", 30)
+
+        segmented_path = os.path.join(out_dir, "concept_segmented.png")
+        seg_result = None
+        try:
+            seg_result = foreground_segmenter.segment(
+                image_path=concept_path,
+                output_path=segmented_path
+            )
+            reconstruction_input = segmented_path
+        except SegmentationError as seg_err:
+            raise RuntimeError(f"Stage 2 [Foreground Segmentation] failed: {seg_err}")
+        except Exception as seg_err:
+            raise RuntimeError(f"Stage 2 [Foreground Matting Error]: {seg_err}")
+
+        # Stage 3: Canonical 4-view projections
+        if progress_callback:
+            progress_callback("Generating 4-view canonical perspective grid", 45)
 
         mv_dir = os.path.join(out_dir, "multiview")
         os.makedirs(mv_dir, exist_ok=True)
         try:
-            multiview_synthesizer.generate_canonical_views(concept_path, mv_dir)
+            multiview_synthesizer.generate_canonical_views(reconstruction_input, mv_dir)
         except Exception as mv_err:
             print(f"[Notice] Multi-view reference notice: {mv_err}. Proceeding with primary concept.")
 
-        # Stage 3: Reconstruct 3D geometry using TripoSR
+        # Stage 4: Reconstruct 3D geometry using TripoSR
         if progress_callback:
-            progress_callback("Reconstructing 3D neural geometry from concept", 50)
+            progress_callback("Reconstructing 3D neural geometry from isolated subject", 60)
 
         from core.engines.triposr_adapter import TripoSRAdapter
         downstream = self.secondary_engine or TripoSRAdapter()
 
         try:
             asset = downstream.generate(
-                input_data=concept_path,
+                input_data=reconstruction_input,
                 output_dir=out_dir,
                 modality="image-to-3d",
                 params=params,
-                progress_callback=lambda msg, pct: progress_callback(msg, 50 + int(pct * 0.45)) if progress_callback else None
+                progress_callback=lambda msg, pct: progress_callback(msg, 60 + int(pct * 0.35)) if progress_callback else None
             )
         except Exception as rec_err:
-            raise RuntimeError(f"Stage 3 [Volumetric Reconstruction] failed: {rec_err}")
+            raise RuntimeError(f"Stage 4 [Volumetric Reconstruction] failed: {rec_err}")
 
         elapsed = time.time() - start_time
         asset.engine_id = self.engine_id
         asset.engine_name = self.name
         asset.generation_time_seconds = elapsed
-        asset.preview_image_path = concept_path
+        asset.preview_image_path = reconstruction_input
         asset.diagnostics["multi_stage"] = True
         asset.diagnostics["prompt"] = prompt_text
         asset.diagnostics["concept_image"] = concept_path
+        asset.diagnostics["segmented_concept_image"] = reconstruction_input
+        if seg_result:
+            asset.diagnostics["segmentation"] = seg_result.to_dict()
 
         if progress_callback:
             progress_callback("Hybrid Text-to-3D asset ready", 100)
