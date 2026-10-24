@@ -183,8 +183,8 @@
 ### Presenter Speaking Script
 > "We enforce rigorous software engineering practices across the entire repository. Every capability we claim is verified by automated pytest suites:
 > 
-> - **78 Total Tests Collected across 16 test modules**.
-> - **78 Passed, 0 Failed, and 0 Skipped**—a 100% pass rate in 37.34 seconds on our Windows 11 host.
+> - **79 Total Tests Collected across 15 test modules**.
+> - **79 Passed, 0 Failed, and 0 Skipped**—a 100% pass rate on our Windows 11 host.
 > - We do not use fake tests or fabricated assertions:
 >   - **7 tests execute real headless Blender 5.2.2 LTS subprocesses**, verifying material node inspection, default white repair, and glTF export/re-import roundtrips.
 >   - **5 tests execute real PyTorch CUDA inference**, initializing the SD-Turbo pipeline, testing FP16 diffusion, and verifying token limits.
@@ -252,7 +252,7 @@
 > - A functional, zero-cloud, 100% local neural 3D asset studio.
 > - A definitive solution to the white-mesh rendering bug through deep shader graph inspection and semantic PBR synthesis.
 > - A seamless bidirectional bridge into Blender 4.x and 5.2 LTS.
-> - A battle-tested codebase with 78/78 passing automated tests and verified GLB exports.
+> - A battle-tested codebase with 79/79 passing automated tests and verified GLB exports.
 > 
 > For our live demonstration today, we follow this 4-step sequence:
 > 1. Launch the server via `python run_server.py --ui`.

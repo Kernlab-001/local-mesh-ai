@@ -158,10 +158,20 @@ if __name__ == "__main__":
     
     preset = "prop"
     sharp_overlay = True
-    target_height = 1.8
+    target_height = None
     create_lods = False
     prompt_text = None
     profile_arg = None
+    
+    PRESET_CANONICAL_HEIGHTS = {
+        "furniture": 0.90,  # Standard chair/table height ~0.9m
+        "chair": 0.90,
+        "table": 0.75,
+        "weapon": 1.00,     # Sword/axe ~1.0m
+        "character": 1.80,  # Human height ~1.8m
+        "vehicle": 1.50,    # Compact vehicle height ~1.5m
+        "prop": 0.80        # Small prop ~0.8m
+    }
     
     for i, a in enumerate(args):
         if a == "--mesh" and i + 1 < len(args):
@@ -187,6 +197,10 @@ if __name__ == "__main__":
             create_lods = True
         elif a == "--no-overlay":
             sharp_overlay = False
+
+    # Resolve target height: user-specified override > preset canonical height > safe fallback
+    if target_height is None or target_height <= 0.0:
+        target_height = PRESET_CANONICAL_HEIGHTS.get(preset.lower(), 1.00)
             
     if mesh_file:
         process_mesh(

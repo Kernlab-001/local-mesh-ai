@@ -390,6 +390,10 @@ class JobManager:
                     "--preset", job.params.get("preset", "prop")
                 ]
 
+                target_h = job.params.get("target_height")
+                if target_h is not None:
+                    cmd.extend(["--height", str(float(target_h))])
+
                 if profile_file and os.path.exists(profile_file):
                     cmd.extend(["--profile", profile_file])
 

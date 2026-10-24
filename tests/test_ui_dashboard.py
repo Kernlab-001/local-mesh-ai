@@ -103,3 +103,15 @@ def test_cancel_active_job_handler():
 def test_gradio_demo_structure():
     """Verifies the Blocks demo initialized properly with expected title and theme."""
     assert demo.title == "Local Mesh AI - 3D Studio Workspace"
+
+
+def test_preset_scale_auto_calibration():
+    """Verifies that selecting presets auto-calibrates canonical real-world dimensions."""
+    from ui.dashboard import on_preset_change
+    assert on_preset_change("furniture") == 0.90
+    assert on_preset_change("chair") == 0.90
+    assert on_preset_change("character") == 1.80
+    assert on_preset_change("weapon") == 1.00
+    assert on_preset_change("vehicle") == 1.50
+    assert on_preset_change("prop") == 0.80
+    assert on_preset_change("unknown_preset") == 1.00

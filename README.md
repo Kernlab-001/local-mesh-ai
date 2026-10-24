@@ -1,66 +1,84 @@
 # Local Mesh AI 🚀
 ### Local-First Neural 3D Asset Generation & AI Technical Artist Studio
 
-[![Beginner Guide](https://img.shields.io/badge/Guide-Beginner_Guide-orange.svg)](BEGINNER_GUIDE.md)
+[![Tests](https://img.shields.io/badge/Tests-79%2F79%20Passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-orange.svg)](https://pytorch.org/)
 [![Blender](https://img.shields.io/badge/Blender-4.2%20%7C%205.2%20LTS-green.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-57%2F57%20Passing-brightgreen.svg)](tests/)
+[![Inference](https://img.shields.io/badge/Inference-100%25%20Local%20GPU-blueviolet.svg)](#-zero-vram-overlap--memory-broker)
+[![Presentation](https://img.shields.io/badge/Presentation-12--Slide%20Deck%20(16%3A9)-orange.svg)](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx)
 
 ---
 
-### 🧭 Navigation & Documentation
-[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**📜 License**](LICENSE) • [**🏗️ Architecture**](#system-architecture) • [**❓ FAQ**](BEGINNER_GUIDE.md#11-frequently-asked-questions-faq) • [**📚 3D Glossary**](BEGINNER_GUIDE.md#12-beginner-3d-graphics-glossary)
+### 🧭 Navigation & Deliverables
+[**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
-**Local Mesh AI** is an open-source, local-first 3D asset generation, inspection, and editing suite designed for local consumer and workstation GPUs. Generate watertight, color-accurate, PBR-textured 3D models directly from pure text prompts or reference images with **zero cloud dependencies** and **zero subscription fees**.
+## 🌟 Executive Overview
+
+**Local Mesh AI** is an open-source, local-first 3D asset generation, inspection, and AI technical-art studio engineered for workstation and consumer NVIDIA GPUs. It produces watertight, multi-material, PBR-textured 3D models directly from pure text descriptions or 2D concept images with **zero cloud dependencies, zero subscription fees, and 100% local privacy**.
+
+Featuring a serialized Zero-VRAM GPU lease broker, Local Mesh AI runs full neural reconstruction and high-fidelity texture baking seamlessly on **6 GB VRAM GPUs** (such as the RTX 3050 Laptop) up to multi-GPU workstations.
 
 ---
 
-## 🔰 Beginner Guide (Quick Start & Fundamentals)
+## 🎨 Genuine Production Output Showcase
 
-> New to 3D generation, AI models, or Blender? Local Mesh AI is built with 1-click batch runners, an interactive in-app tour, and beginner presets.
->
-> 📖 **[Read the Full Beginner Operations Manual & 3D Glossary](BEGINNER_GUIDE.md)**
+Below is an authentic dining chair generated completely end-to-end via **Mode A: Text-to-3D** using the prompt:
+> *"a dining chair with a dark walnut-brown wooden frame and legs, an ivory-cream fabric upholstered seat cushion, and a matching cream tufted backrest"*
 
-### 🚀 3-Step Quick Start
-1. **Setup Environment:** Double-click [`launchers/1_setup_environment.bat`](launchers/1_setup_environment.bat) (creates virtual environment and installs all dependencies).
-2. **Verify Hardware:** Double-click [`launchers/2_detect_hardware.bat`](launchers/2_detect_hardware.bat) (scans GPU, VRAM, and locates Blender).
-3. **Launch 3D Workstation:** Double-click [`launchers/5_start_studio_ui.bat`](launchers/5_start_studio_ui.bat) (opens the 3D Studio at `http://127.0.0.1:7860`).
+| High-Fidelity EEVEE Viewport Render | 4-View Canonical Projections |
+| :---: | :---: |
+| ![Local Mesh AI Chair EEVEE Render](docs/assets/chair_render_eevee.png) | ![Local Mesh AI Canonical Multi-View Grid](docs/assets/multiview_grid.png) |
+| *Blender 5.2 EEVEE render: Distinct dark walnut wood frame and ivory-cream tufted upholstery (52,552 vertices, 3 PBR material slots).* | *Canonical orthographic projections (0°, 90°, 180°, 270°) feeding the TripoSR neural reconstruction engine.* |
 
-### 🎨 The Two Creation Modes
-* **Mode A (Text-to-3D):** Enter any descriptive prompt (e.g. *"medieval wooden treasure chest with iron hinges"*). The local SD-Turbo model paints a concept artwork first, then reconstructs it into 3D geometry.
-* **Mode B (Image-to-3D):** Drag and drop your own 2D concept artwork or drawing. The system **strictly bypasses** text diffusion and directly reconstructs your image into a 3D asset.
-
-### ⏱️ Your First 5-Minute Project (Treasure Chest)
-1. Open the workstation at `http://127.0.0.1:7860`.
-2. In the left panel, click **`💡 Load Beginner Example (Treasure Chest)`**.
-3. Click **`⚡ EXECUTE 3D PIPELINE`**.
-4. Watch the 10-stage timeline: Validation ➔ Concept Art ➔ Multi-View ➔ TripoSR 3D ➔ Color Transfer ➔ Quad Retopology ➔ UV Unwrap ➔ Texture Bake ➔ Done!
-5. Orbit your model in the **3D Viewport**, inspect the quad wireframe, and click **`Export GLB`** or **`Open in Blender`**!
+| 2D Diffusion Concept Artwork | Procedural PBR Diffuse Maps (Wood & Fabric) |
+| :---: | :---: |
+| ![Concept Artwork](docs/assets/concept_art_chair.png) | ![Wood and Fabric Textures](docs/assets/tex_wood_diffuse.png) |
+| *SD-Turbo 1-step concept synthesis on isolated studio background.* | *Authoritative 1024×1024 diffuse, normal, and roughness maps embedded in final GLB.* |
 
 ---
 
-## 🌟 Key Features
+## 🌟 Core Capabilities
 
-* **⚡ Text-to-3D & Image-to-3D:** Generate complete 3D assets from text prompts (*"medieval glowing battleaxe"*, *"cyberpunk power crate"*) or upload any 2D concept art.
-* **🎨 Accurate Color Calibration (Tripo AI Style):** Uses statistical perceptual $L^*a^*b^*$ color distribution transfer to match the 3D model's palette 1:1 with source artwork, eliminating muddy or desaturated textures.
-* **🧠 AI Technical Artist (Qwen 2.5 Coder 7B):** Edit 3D scenes using natural language (*"Make it shiny gold metallic and bevel edges by 2mm"*). Powered by a deterministic, schema-validated command allowlist with **zero arbitrary code execution**.
-* **🔌 Native Blender 5.2 / 4.2 LTS Add-on:** N-Panel extension with non-blocking background polling (`bpy.app.timers`), automatic viewport material preview, and isolated collection management.
-* **🖥️ Blender-Inspired 3D Workstation:** Charcoal neutral interface matching Blender dark theme (`#1E1E1E`), interactive Three.js 3D solid/wireframe viewport, and live 10-stage execution timeline.
-* **🛡️ Zero-VRAM Overlap & Memory Broker:** Serializes model residency (`NONE` ➔ `SD_TURBO` ➔ `TRIPOSR` ➔ `BLENDER`), offloading inactive models to system RAM to prevent Out-Of-Memory crashes on 6GB–8GB GPUs.
-* **📦 Quad-Dominant Retopology Decimation & PBR Texture Baking:** Automatically decimates neural meshes into an 8,000 polygon quad-dominant target, unwraps non-overlapping UVs, and bakes 16-bit Tangent Normal Maps and PBR Diffuse Maps via headless Cycles ray-casting.
-* **🔍 System Readiness Diagnostics:** Built-in verification engine inspecting Python libraries, GPU VRAM headroom, model cache, Blender executable, and directory permissions.
+* **⚡ Dual-Mode 3D Generation:**
+  * **Mode A (Text-to-3D):** Synthesizes crisp concept artwork via local SD-Turbo diffusion, projects canonical orthographic views, and reconstructs 3D geometry with automated appearance analysis.
+  * **Mode B (Image-to-3D):** Direct upload of user concept art with **strict diffusion bypass**—reconstructing 3D geometry directly from source pixels.
+* **🎨 Multi-Material PBR Shader Synthesis:**
+  * Extracts distinct semantic material regions via NLP prompt analysis and CIELAB color clustering.
+  * Authors dedicated Blender Principled BSDF material slots (`m_wood_frame`, `m_fabric_cushion`, `m_fabric_backrest`).
+  * Generates 1024×1024 Diffuse, 16-bit Normal, and Roughness texture maps baked directly into the exported GLB.
+* **📐 Preset-Aware Canonical Scale Calibration:**
+  * Enforces real-world dimensional accuracy across asset classes:
+    * **Furniture / Chairs:** `0.90 m` canonical height
+    * **Weapons / Swords / Axes:** `1.00 m` canonical length
+    * **Characters / Humanoids:** `1.80 m` canonical height
+    * **Vehicles / Karts:** `1.50 m` canonical height
+    * **Props / Items:** `0.80 m` canonical height
+  * Eliminates oversized neural reconstructions while strictly preserving aspect ratios, UV coordinates, and vertex normals.
+* **🛡️ Zero-VRAM Overlap & Memory Broker:**
+  * Serializes model residency (`NONE` $\rightarrow$ `SD_TURBO` $\rightarrow$ `TRIPOSR` $\rightarrow$ `BLENDER`), purging VRAM to **0.0 MB** between stages.
+  * Cross-process atomic file and thread leases eliminate Out-Of-Memory exceptions on 6GB–8GB GPUs.
+* **🧠 AI Technical Artist (Qwen 2.5 Coder 7B):**
+  * Natural language 3D scene editing (*"Make the frame polished brass metallic and bevel edges by 2mm"*).
+  * Enforces strict Pydantic command schemas with **zero arbitrary code execution**.
+* **🔌 Native Blender 4.2 / 5.2 LTS Add-on:**
+  * Sidebar N-Panel extension with non-blocking async background timers (`bpy.app.timers`).
+  * One-click terminal auto-launcher, isolated collection management (`AI_Generated_Assets`), and automatic viewport material preview.
+* **📦 AAA Quad Retopology & UV Unwrapping:**
+  * Automatic quad-dominant decimation targeting 8,000 polygons, smart UV unwrapping (0.02 island margin), and Cycles ray-cast normal/diffuse map baking.
 
 ---
 
-## 📥 Downloads & Releases
+## 📥 Downloads & Release Bundles
 
-Get the latest release bundle directly from [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest):
+Official packaged release archives are available under [**GitHub Releases**](https://github.com/Kernlab-001/local-mesh-ai/releases):
 
-* 📦 **Complete Project Archive:** [**`local-mesh-ai-vx.x.zip`**](https://github.com/Kernlab-001/local-mesh-ai/releases/latest) — All-in-one release package containing the full neural engine, hardware calibrator, batch runners, and the native Blender add-on.
+* 📦 **Production Bundle:** **`local-mesh-ai-v4.0.6.zip`** (40.7 MB)
+  * **SHA-256 Checksum:** `BF6B255FAFDF9FB8CE37CEAB3E052AB252562A5BD62C417FB2570D0AB604426A`
+  * Contains the entire application, batch runners, Blender add-on, test suites, and documentation.
 
 ---
 
@@ -74,7 +92,7 @@ flowchart TD
         C3["Direct REST API (Port 8000)"]
     end
 
-    subgraph Orchestration["Local Orchestration Layer"]
+    subgraph Orchestration["Local Orchestration & Concurrency"]
         DET["Hardware Auto-Detector & Diagnostics"]
         API["FastAPI Orchestrator (run_server.py)"]
         JM["Async Job Manager & Production Manifest"]
@@ -82,20 +100,21 @@ flowchart TD
         LIFECYCLE["Zero-VRAM Sequential Model Manager"]
     end
 
-    subgraph GPU_Workloads["Serialized Zero-VRAM Pipeline"]
-        SDT["Mode A: Local SD-Turbo Concept Diffusion"]
+    subgraph GPU_Workloads["Serialized Zero-VRAM Inference Pipeline"]
+        SDT["Mode A: SD-Turbo Concept Diffusion"]
         PURGE0["VRAM Purge & torch.cuda.empty_cache()"]
         MV["Multi-View Canonical Projections (0°/90°/180°/270°)"]
         TSR["TripoSR Neural 3D Engine (mc_resolution=256)"]
         PURGE1["VRAM Purge & Garbage Collection"]
     end
 
-    subgraph Post_Processing["Geometry, Retopology & Baking Engine"]
-        CALIB["Perceptual Lab Reinhard Color Transfer"]
-        RETOPO["AAA Quad Remeshing (8,000 Quad Budget)"]
+    subgraph Appearance_Geometry["Appearance, Scale & PBR Engine"]
+        ANALYZER["Appearance Analyzer (NLP & CIELAB Clustering)"]
+        SCALE["Preset-Aware Scale Calibration (Canonical Dimensions)"]
+        SYNTH["Material Synthesizer & Procedural Texture Engine"]
+        RETOPO["AAA Quad Remeshing (8,000 Quad Target)"]
         UV["Smart UV Unwrapping (0.02 Island Margin)"]
         BAKE["Cycles Ray-Cast Normal & Diffuse Map Bake"]
-        LOD["LOD0 / LOD1 / LOD2 Generation"]
     end
 
     subgraph Technical_Artist["AI Scene Editor"]
@@ -108,108 +127,106 @@ flowchart TD
     DET --> API
     API --> JM --> BROKER
     BROKER --> LIFECYCLE
-    LIFECYCLE -->|Stage 1: Concept| SDT --> PURGE0
+    LIFECYCLE -->|Stage 1: Concept Art| SDT --> PURGE0
     PURGE0 --> MV --> TSR --> PURGE1
-    PURGE1 -->|Stage 2: Color Calibration| CALIB
-    CALIB -->|Stage 3: Headless Blender| RETOPO --> UV --> BAKE --> LOD
-    LOD -->|Asset Ready| Clients
-    Clients -.->|Stage 4: AI Technical Artist| QWEN --> ALLOW --> EXEC
+    PURGE1 -->|Stage 2: Material & Scale| ANALYZER --> SCALE --> SYNTH
+    SYNTH -->|Stage 3: Headless Blender| RETOPO --> UV --> BAKE
+    BAKE -->|Production GLB Asset| Clients
+    Clients -.->|Stage 4: AI Scene Modification| QWEN --> ALLOW --> EXEC
 ```
 
 ---
 
 ## 🚀 Quickstart Guide
 
-### 1. Prerequisites
-* **Operating System:** Windows 10/11, Linux, or macOS.
-* **GPU:** NVIDIA GPU with 6GB+ VRAM (CUDA 12+) recommended; CPU mode supported for basic testing.
+### 1. System Requirements
+* **Operating System:** Windows 10/11 (64-bit), Linux (x86_64), or macOS.
+* **Graphics Card (GPU):** NVIDIA GPU with 6GB+ VRAM (CUDA 12+) recommended; CPU inference mode supported for basic testing.
 * **Blender:** Blender 4.2 LTS or Blender 5.2 LTS installed.
 * **Python:** Python 3.10 – 3.12.
 
-### 2. 1-Click Setup (`launchers/` folder)
+### 2. 1-Click Windows Setup (`launchers/` folder)
 
-After extracting `local-mesh-ai-vx.x.zip`, open the **`launchers/`** folder:
+1. **Step 1 — Environment Setup:**
+   Double-click [`launchers/1_setup_environment.bat`](launchers/1_setup_environment.bat).
+   * Automatically initializes the `.venv` virtual environment and installs PyTorch CUDA 12.4, diffusers, trimesh, and requirements.
+2. **Step 2 — Hardware Detection:**
+   Double-click [`launchers/2_detect_hardware.bat`](launchers/2_detect_hardware.bat).
+   * Probes GPU model, physical VRAM, CUDA capabilities, and auto-locates Blender executable.
+3. **Step 3 — Launch 3D Studio Workstation:**
+   Double-click [`launchers/5_start_studio_ui.bat`](launchers/5_start_studio_ui.bat).
+   * Spawns the studio workspace at `http://127.0.0.1:7860`.
 
-1. **Step 1:** Double-click **`launchers/1_setup_environment.bat`**
-   * Automatically creates the `.venv` virtual environment, upgrades pip, and installs all dependencies (PyTorch CUDA 12.4, diffusers, TripoSR requirements).
-2. **Step 2:** Double-click **`launchers/2_detect_hardware.bat`**
-   * Automatically detects your GPU model, physical VRAM, and Blender installation, tuning `config.json` for zero Out-Of-Memory crashes.
-3. **Step 3:** Double-click **`launchers/5_start_studio_ui.bat`**
-   * Launches the 3D Studio workstation at `http://127.0.0.1:7860`.
-
-*(For Linux / macOS, run `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 detect_hardware.py`)*
+*(For Linux / macOS: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python3 detect_hardware.py`)*
 
 ---
 
-## 🎨 Using the Blender Add-on
+## 🎨 Native Blender Add-on Setup
 
-### Installation in Blender
+### Installation in Blender (4.2 LTS & 5.2 LTS)
 1. Open **Blender 5.2** (or 4.2 LTS).
 2. Go to **Edit > Preferences > Add-ons**.
-3. In the top-right corner, click **Dropdown Arrow (⌄) > Install from Disk...**
-4. Select [`addon/triposr_blender_addon.py`](addon/triposr_blender_addon.py).
-5. Check the box to enable **Local Neural 3D Studio**.
+3. In the upper-right corner, click **Dropdown Arrow (⌄) > Install from Disk...**
+4. Select [`addon/triposr_blender_addon.py`](addon/triposr_blender_addon.py) and enable **Local Neural 3D Studio**.
 
-### Generating Assets in Blender
-1. In Blender's 3D Viewport, press **`N`** to reveal the sidebar $\rightarrow$ click the **`AI 3D Generator`** tab.
-2. **Configure Repo Root (One-time):** Expand **Server & Path Settings** and ensure **Repo Root** points to your extracted `local-mesh-ai` folder (this is saved permanently to your global Blender Add-on Preferences).
-3. **⚡ Zero-Click Terminal Auto-Launcher:** You don't need to manually start a terminal window before working. When you click **⚡ Generate 3D Asset**, Blender automatically checks if the backend server is running; if not, it automatically spawns the server terminal console in a separate window, initializes the GPU pipeline, and submits your generation!
-4. Alternatively, you can click **`Launch Terminal`** in the status header at the top of the N-Panel at any time to open the console and inspect live GPU memory logs.
-5. Choose your generation mode:
-   * **Prompt to 3D:** Enter any descriptive prompt (*e.g., "medieval glowing battleaxe with carved runes"*) $\rightarrow$ Click **⚡ Generate 3D from Prompt**.
-   * **Image to 3D:** Pick any 2D reference artwork $\rightarrow$ Click **⚡ Generate 3D from Image**.
-6. The asset generates with live non-blocking progress updates and imports automatically into an isolated collection (`AI_Generated_Assets`) with full PBR shaders, centered pivot, and perceptually calibrated colors matching reference artwork vibrancy.
+### In-Blender Generation Workflow
+1. In the 3D Viewport, press **`N`** to reveal the sidebar $\rightarrow$ select the **`AI 3D Generator`** tab.
+2. **Server & Path Settings (One-time):** Expand the panel and ensure **Repo Root** points to your `local-mesh-ai` folder (persisted in preferences).
+3. **⚡ Zero-Click Terminal Auto-Launcher:** Clicking **⚡ Generate 3D Asset** automatically verifies if the background server is running; if not, it launches the server terminal window automatically!
+4. Choose **Prompt to 3D** or **Image to 3D**, enter your prompt or select an image, and click generate.
+5. Assets stream directly into an isolated `AI_Generated_Assets` collection with fully wired PBR shaders, centered pivots, and authentic materials.
 
 ---
 
-## ⚡ Local Orchestration Server & REST API
+## 📊 Hardware Benchmarks & Performance Profiles
 
-The local server orchestrates all AI model loading, cross-process GPU leasing, and geometry processing over a high-performance REST API on port `8000`.
-
-To start the server manually (optional):
-```bash
-# Windows
-launchers\3_start_backend.bat
-# or
-python run_server.py
-```
-
-* **Interactive API Documentation:** Available at `http://127.0.0.1:8000/docs` (Swagger UI).
-* **Endpoints:**
-  * `POST /jobs`: Queue a Prompt-to-3D or Image-to-3D generation task.
-  * `GET /jobs/{id}`: Poll non-blocking progress, stage, and memory status.
-  * `POST /jobs/{id}/edit`: Execute natural-language scene modifications via Qwen 2.5 Coder.
-  * `POST /jobs/{id}/export`: Export any scene asset to GLB, FBX, or OBJ.
-  * `GET /health`: GPU status, active leases, and VRAM telemetry.
-
----
-
-## 📊 Benchmark Performance Across Hardware Tiers
-
-| Hardware Profile | Target GPUs / Processors | VRAM / RAM | Quality Profile | Recommended Local LLM Model (GGUF) | Reconstruction | Total End-to-End |
+| Hardware Profile | Target GPUs / Hardware | VRAM / RAM | Quality Profile | Recommended Local LLM | Reconstruction | Total End-to-End |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Workstation / Enthusiast** | NVIDIA RTX 4090, 3090, RTX 6000 Ada, A5000 / A6000 | 24 GB – 48 GB | High (`res=384, chunk=4096`) | **Qwen 2.5 Coder 14B / 32B Instruct** (`Q4_K_M`) | ~8–10s | **~12–15s** |
-| **Pro / Performance** | NVIDIA RTX 4080, 4070 Ti Super, AMD Radeon RX 7900 XTX / 7900 XT | 16 GB | High (`res=384, chunk=4096`) | **Qwen 2.5 Coder 14B Instruct** (`Q4_K_M`) | ~10–12s | **~15–18s** |
-| **Upper Mid-Range** | NVIDIA RTX 4070, 4070 Super, 3080, 4060 Ti 16GB, AMD RX 7800 XT | 12 GB – 16 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B Instruct** (`Q5_K_M`) | ~11–13s | **~18–22s** |
-| **Mainstream Desktop** | NVIDIA RTX 4060, 3060 12GB, 2070 Super, 2080, AMD RX 7600 XT, Intel Arc A770 | 8 GB – 12 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B Instruct** (`Q4_K_M`) | ~12–15s | **~20–24s** |
-| **Entry-Level / Laptop** | NVIDIA RTX 3050 Laptop / Desktop (6GB), RTX 2060 (6GB), GTX 1660 Ti | 6 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B** (`Q4_K_M`) or **3B** (`Q5_K_M`) | ~14–18s | **~28–32s** |
-| **Budget / Handheld / Mac** | NVIDIA RTX 3050 (4GB), GTX 1650, Steam Deck, ROG Ally, Apple M1/M2/M3 | 4 GB VRAM / Unified | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 3B / 1.5B Instruct** (`Q4_K_M`) | ~10–12s | **~24–28s** |
-| **CPU / Integrated Mode** | Intel Core i5/i7/i9 (12th–14th Gen), AMD Ryzen 5/7/9 (AVX2 mode) | 16 GB+ System RAM | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 1.5B Instruct** (`Q4_K_M`) | ~40–55s | **~60–75s** |
-
-*All profiles enforce cross-process GPU leasing, purges VRAM to **0.0 MB** between stages to eliminate Out-Of-Memory exceptions.*
+| **Workstation / Enthusiast** | NVIDIA RTX 4090, 3090, RTX 6000 Ada, A5000 / A6000 | 24 GB – 48 GB | High (`res=384, chunk=4096`) | **Qwen 2.5 Coder 14B / 32B** | ~8–10s | **~12–15s** |
+| **Pro / Performance** | NVIDIA RTX 4080, 4070 Ti Super, AMD RX 7900 XTX | 16 GB | High (`res=384, chunk=4096`) | **Qwen 2.5 Coder 14B** | ~10–12s | **~15–18s** |
+| **Upper Mid-Range** | NVIDIA RTX 4070, 3080, 4060 Ti 16GB, AMD RX 7800 XT | 12 GB – 16 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B** | ~11–13s | **~18–22s** |
+| **Mainstream Desktop** | NVIDIA RTX 4060, 3060 12GB, 2070 Super, Intel Arc A770 | 8 GB – 12 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B** | ~12–15s | **~20–24s** |
+| **Entry-Level / Laptop** | NVIDIA RTX 3050 Laptop / Desktop (6GB), RTX 2060 (6GB) | 6 GB | Balanced (`res=256, chunk=8192`) | **Qwen 2.5 Coder 7B** | ~14–18s | **~28–32s** |
+| **Budget / Handheld / Mac** | NVIDIA RTX 3050 (4GB), GTX 1650, Steam Deck, Apple M1/M2/M3 | 4 GB VRAM / Unified | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 3B / 1.5B** | ~10–12s | **~24–28s** |
+| **CPU / Integrated Mode** | Intel Core i5/i7/i9 (12th–14th Gen), AMD Ryzen 5/7/9 (AVX2) | 16 GB+ System RAM | Draft (`res=128, chunk=8192`) | **Qwen 2.5 Coder 1.5B** | ~40–55s | **~60–75s** |
 
 ---
 
-## 🧪 Automated Testing
+## 🧪 Automated Testing & Verification
 
-Local Mesh AI includes an automated test suite verifying GPU broker locks, command schemas, prompt generation, color transfer mathematics, retopology scripts, system diagnostics, and UI components:
+The test suite covers API routing, multi-material shader synthesis, color calibration math, GPU concurrency leasing, geometry sanitization, and UI event binding:
+
 ```bash
 # Windows
 launchers\4_run_tests.bat
-# Linux/macOS
+
+# Linux / macOS
 pytest tests -v
 ```
-**51 / 51 test cases passing.**
+
+### Test Suite Execution Summary
+* **Total Tests Collected:** 79
+* **Passed:** 79 (100% pass rate)
+* **Failed:** 0
+* **Skipped:** 0
+
+| Test Module | Tests | Description |
+| :--- | :---: | :--- |
+| `tests/test_api.py` | 11 | REST endpoints, health check, job status polling |
+| `tests/test_color_and_materials.py` | 12 | PBR material slots, texture generation, UV unwrap, GLB appearance |
+| `tests/test_color_calibrator.py` | 2 | Perceptual $L^*a^*b^*$ Reinhard color distribution math |
+| `tests/test_command_schemas.py` | 4 | Strict Pydantic command schemas for AI scene edits |
+| `tests/test_dependency_verification.py` | 6 | PyTorch 2.6.0+cu124, torchvision, CUDA driver readiness |
+| `tests/test_dual_mode_pipeline.py` | 4 | Mode A (Text-to-3D) and Mode B (Image-to-3D bypass) lifecycle |
+| `tests/test_gpu_broker.py` | 4 | Cross-process atomic GPU locks and concurrency serialization |
+| `tests/test_hardware_detector.py` | 4 | GPU VRAM profiling, CUDA capability check, Blender path resolution |
+| `tests/test_image_validation.py` | 3 | Aspect ratio, alpha transparency, and image format sanitization |
+| `tests/test_job_lifecycle.py` | 3 | Asynchronous queue state progression and cancel handling |
+| `tests/test_mesh_serving_and_viewer.py` | 5 | glTF/GLB MIME types, Three.js viewer embedding, error states |
+| `tests/test_onboarding_and_diagnostics.py` | 7 | First-launch tour, environment checks, diagnostic reports |
+| `tests/test_production_pipeline.py` | 3 | End-to-end multi-view synthesis and decimation |
+| `tests/test_prompt_engine.py` | 2 | 77-token CLIP sequence management and SD-Turbo prompt cleaning |
+| `tests/test_ui_dashboard.py` | 9 | Blender design system tokens, wireframe toggles, preset auto-calibration |
 
 ---
 
@@ -217,39 +234,55 @@ pytest tests -v
 
 ```text
 local-mesh-ai/
-├── BEGINNER_GUIDE.md           # Complete beginner guide, walkthrough & 3D glossary
+├── BEGINNER_GUIDE.md           # Beginner guide, step-by-step tutorial & 3D glossary
+├── CONTRIBUTING.md             # Developer setup, coding standards, and PR guide
+├── LICENSE                     # Apache 2.0 Open Source License
 ├── config.example.json         # Reference configuration template
 ├── detect_hardware.py          # Dynamic GPU & environment auto-detection
 ├── run_server.py               # Starts FastAPI local orchestration backend (Port 8000)
 ├── run_master.py               # Master CLI orchestration runner
 ├── requirements.txt            # Python dependencies
 │
-├── docs/                       # Official documentation
-│   └── USER_GUIDE.md           # Complete user manual & operations guide
+├── docs/                       # Official documentation & presentation assets
+│   ├── USER_GUIDE.md           # Comprehensive operations manual
+│   ├── assets/                 # High-resolution genuine renders and textures
+│   │   ├── chair_render_eevee.png
+│   │   ├── multiview_grid.png
+│   │   ├── concept_art_chair.png
+│   │   ├── tex_wood_diffuse.png
+│   │   └── tex_fabric_diffuse.png
+│   └── presentation/           # Technical presentation deliverables
+│       ├── Local_Mesh_AI_Project_Presentation.pptx  # 12-slide widescreen deck (5.0 MB)
+│       ├── Presenter_Notes.md                       # Verbatim presentation script
+│       ├── Live_Demo_Checklist.md                   # 7-step fail-safe live demo guide
+│       ├── Project_Facts.md                         # Authoritative technical facts ledger
+│       ├── Release_Validation_Report.md             # Senior QA validation audit
+│       └── Release_Demo_Results.md                  # Measured runtime telemetry
 │
 ├── launchers/                  # 1-Click numbered Windows batch runners
 │   ├── 1_setup_environment.bat # Creates .venv & installs all dependencies
 │   ├── 2_detect_hardware.bat   # Auto-detects GPU, VRAM & Blender path
 │   ├── 3_start_backend.bat     # Launches local orchestration server
-│   ├── 4_run_tests.bat         # Runs 51 automated test suites
+│   ├── 4_run_tests.bat         # Runs 79 automated test suites
 │   └── 5_start_studio_ui.bat   # Launches Blender-inspired 3D Studio workstation
 │
 ├── core/
-│   ├── input_validator.py      # Dual-mode input validation (Prompt vs Image)
-│   ├── model_lifecycle.py      # Zero-VRAM sequential model manager
-│   ├── multiview_synthesizer.py# Canonical 4-view projection & 2x2 grid engine
-│   ├── system_diagnostics.py   # System readiness & environment diagnostics engine
-│   ├── hardware_detector.py    # Auto-detects GPU, VRAM limits & Blender executable
-│   ├── gpu_broker.py           # Cross-process GPU lease broker (atomic lock)
+│   ├── appearance_analyzer.py  # NLP material extraction & CIELAB color clustering
+│   ├── material_synthesizer.py # Smart UV unwrapping & polygon slot partitioning
+│   ├── texture_generator.py    # Procedural 1024x1024 diffuse, normal, & roughness maps
 │   ├── prompt_to_image.py      # Real-time concept image synthesis (SD-Turbo)
-│   ├── color_calibrator.py     # Perceptual Lab Reinhard color transfer engine
 │   ├── triposr_engine.py       # Validated TripoSR neural reconstruction manager
+│   ├── color_calibrator.py     # Perceptual Lab Reinhard color transfer engine
+│   ├── multiview_synthesizer.py# Canonical 4-view projection & 2x2 grid engine
+│   ├── geometry_sanitizer.py   # Preset-aware canonical scaling & mesh repair
+│   ├── gpu_broker.py           # Cross-process GPU lease broker (atomic lock)
+│   ├── model_lifecycle.py      # Zero-VRAM sequential model manager
 │   ├── qwen_planner.py         # Qwen 2.5 Coder natural language planner
 │   ├── command_schemas.py      # Strict Pydantic command schemas (zero arbitrary code)
 │   └── blender_executor.py     # Deterministic Blender Python executor
 │
 ├── bridge/
-│   ├── blender_bridge.py       # Headless Blender scene integration
+│   ├── blender_bridge.py       # Headless Blender scene integration & scale calibration
 │   └── retopology_and_baker.py # AAA quad remeshing, UV unwrap & Cycles ray baking
 │
 ├── api/
@@ -267,7 +300,7 @@ local-mesh-ai/
 ├── ui/
 │   └── dashboard.py            # Blender-inspired dark 3D Studio workstation (Port 7860)
 │
-└── tests/                      # 51 unit, integration, and UI test suites
+└── tests/                      # 79 unit, integration, and UI test suites
 ```
 
 ---
