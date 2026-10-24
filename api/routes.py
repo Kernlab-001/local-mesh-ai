@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from api.schemas import CreateJobRequest, JobResponse, EditJobRequest, ExportJobRequest
 from services.job_manager import job_manager
 from services.export_service import export_service
@@ -66,6 +67,70 @@ def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
     return job.to_dict()
+
+@router.get("/jobs/{job_id}/mesh")
+def get_job_mesh(job_id: str):
+    validate_job_id(job_id)
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    if not job.output_mesh or not os.path.exists(job.output_mesh) or os.path.getsize(job.output_mesh) == 0:
+        raise HTTPException(status_code=404, detail=f"3D mesh asset not available or job incomplete.")
+
+    media_type = "model/gltf-binary"
+    if job.output_mesh.lower().endswith(".obj"):
+        media_type = "model/obj"
+
+    return FileResponse(
+        path=job.output_mesh,
+        media_type=media_type,
+        filename=os.path.basename(job.output_mesh)
+    )
+
+@router.get("/jobs/{job_id}/preview")
+def get_job_preview(job_id: str):
+    validate_job_id(job_id)
+    job = job_manager.get_job(job_id)
+    if not job or not job.preview_png or not os.path.exists(job.preview_png) or os.path.getsize(job.preview_png) == 0:
+        raise HTTPException(status_code=404, detail=f"Preview render not available for job '{job_id}'.")
+    return FileResponse(path=job.preview_png, media_type="image/png", filename="preview.png")
+
+@router.get("/jobs/{job_id}/blend")
+def get_job_blend(job_id: str):
+    validate_job_id(job_id)
+    job = job_manager.get_job(job_id)
+    if not job or not job.output_blend or not os.path.exists(job.output_blend) or os.path.getsize(job.output_blend) == 0:
+        raise HTTPException(status_code=404, detail=f"Blender project not available for job '{job_id}'.")
+    return FileResponse(path=job.output_blend, media_type="application/x-blender", filename=f"{job_id}_project.blend")
+
+@router.get("/jobs/{job_id}/concept")
+def get_job_concept(job_id: str):
+    validate_job_id(job_id)
+    job_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs", job_id)
+    for name in ("concept.png", "concept_art.png", "source_image.png"):
+        p = os.path.join(job_dir, "input", name)
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            return FileResponse(path=p, media_type="image/png", filename=name)
+    raise HTTPException(status_code=404, detail=f"Concept image not available for job '{job_id}'.")
+
+@router.get("/jobs/{job_id}/multiview")
+def get_job_multiview(job_id: str):
+    validate_job_id(job_id)
+    job_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jobs", job_id)
+    for name in ("multiview_grid.png", "composite_grid.png"):
+        p = os.path.join(job_dir, "multiview", name)
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            return FileResponse(path=p, media_type="image/png", filename=name)
+    raise HTTPException(status_code=404, detail=f"Multi-view grid not available for job '{job_id}'.")
+
+@router.get("/viewer", response_class=HTMLResponse)
+def serve_3d_viewer():
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    viewer_path = os.path.join(project_root, "ui", "static", "viewer.html")
+    if not os.path.exists(viewer_path):
+        raise HTTPException(status_code=404, detail="Viewer template not found.")
+    with open(viewer_path, "r", encoding="utf-8") as f:
+        return f.read()
 
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str):

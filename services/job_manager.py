@@ -121,6 +121,11 @@ class Job:
                 "baked_normal": self.baked_normal,
                 "baked_diffuse": self.baked_diffuse,
                 "game_ready_glb": self.game_ready_glb,
+                "mesh_url": f"/jobs/{self.job_id}/mesh" if self.output_mesh and os.path.exists(self.output_mesh) and os.path.getsize(self.output_mesh) > 0 else None,
+                "preview_url": f"/jobs/{self.job_id}/preview" if self.preview_png and os.path.exists(self.preview_png) and os.path.getsize(self.preview_png) > 0 else None,
+                "blend_url": f"/jobs/{self.job_id}/blend" if self.output_blend and os.path.exists(self.output_blend) and os.path.getsize(self.output_blend) > 0 else None,
+                "concept_url": f"/jobs/{self.job_id}/concept" if os.path.exists(os.path.join(JOBS_DIR, self.job_id, "input", "concept.png")) or os.path.exists(os.path.join(JOBS_DIR, self.job_id, "input", "source_image.png")) else None,
+                "multiview_url": f"/jobs/{self.job_id}/multiview" if os.path.exists(os.path.join(JOBS_DIR, self.job_id, "multiview", "multiview_grid.png")) or os.path.exists(os.path.join(JOBS_DIR, self.job_id, "multiview", "composite_grid.png")) else None,
                 "manifest": self.manifest,
                 "logs": self.logs[-25:],
                 "params": self.params
@@ -240,6 +245,12 @@ class JobManager:
                 # Validate generated concept output
                 input_metadata = input_validator.validate_generated_concept(synth_target)
                 staged_image_path = synth_target
+                concept_art_copy = os.path.join(input_dir, "concept_art.png")
+                try:
+                    if not os.path.exists(concept_art_copy):
+                        shutil.copy2(synth_target, concept_art_copy)
+                except Exception:
+                    pass
                 job.log(f"Concept image synthesized in {timings['concept_synthesis']}s: {synth_target}")
 
             else:
@@ -256,6 +267,12 @@ class JobManager:
                     destination_dir=input_dir
                 )
                 staged_image_path = input_metadata["staged_path"]
+                source_img_copy = os.path.join(input_dir, "source_image.png")
+                try:
+                    if not os.path.exists(source_img_copy) and os.path.exists(staged_image_path):
+                        shutil.copy2(staged_image_path, source_img_copy)
+                except Exception:
+                    pass
                 job.log(f"[Mode B: Image-to-3D] Uploaded image validated & staged: {input_metadata['width']}x{input_metadata['height']} ({input_metadata['format']})")
 
             if not staged_image_path or not os.path.exists(staged_image_path):
@@ -276,6 +293,13 @@ class JobManager:
                 job.set_stage("Generating 360 Multi-View Reference Grid", 25)
                 mv_res = multiview_synthesizer.generate_canonical_views(staged_image_path, multiview_dir)
                 timings["multiview_reference"] = round(time.time() - t_mv_start, 2)
+                mv_grid = os.path.join(multiview_dir, "multiview_grid.png")
+                comp_grid = os.path.join(multiview_dir, "composite_grid.png")
+                try:
+                    if os.path.exists(mv_grid) and not os.path.exists(comp_grid):
+                        shutil.copy2(mv_grid, comp_grid)
+                except Exception:
+                    pass
                 job.log(f"Multi-view reference generation complete in {timings['multiview_reference']}s (Front, Right, Back, Left views).")
             except Exception as mv_err:
                 job.log(f"Multi-view reference notice: {mv_err}. Proceeding with primary input.")
@@ -411,6 +435,13 @@ class JobManager:
             else:
                 job.log("Blender executable not found on system; generated 3D mesh saved directly.")
 
+            # If Blender exported a sanitized mesh to job_dir/mesh.glb, prioritize it as the primary output mesh
+            blender_mesh = os.path.join(job_dir, "mesh.glb")
+            if os.path.exists(blender_mesh) and os.path.getsize(blender_mesh) > 0:
+                job.output_mesh = blender_mesh
+            elif job.high_poly_mesh and os.path.exists(job.high_poly_mesh) and os.path.getsize(job.high_poly_mesh) > 0:
+                job.output_mesh = job.high_poly_mesh
+
             # Only assign output files if they actually exist on disk and have non-zero size
             blend_candidate = os.path.join(job_dir, "project.blend")
             if os.path.exists(blend_candidate) and os.path.getsize(blend_candidate) > 0:
@@ -424,9 +455,13 @@ class JobManager:
             else:
                 job.preview_png = None
 
-            tt_path = os.path.join(os.path.dirname(job.output_mesh), "render.mp4")
-            if os.path.exists(tt_path) and os.path.getsize(tt_path) > 0:
+            tt_path = os.path.join(os.path.dirname(job.output_mesh), "render.mp4") if job.output_mesh else None
+            if tt_path and os.path.exists(tt_path) and os.path.getsize(tt_path) > 0:
                 job.turntable_mp4 = tt_path
+
+            # Strict verification: Ensure output 3D mesh exists and has non-zero size
+            if not job.output_mesh or not os.path.exists(job.output_mesh) or os.path.getsize(job.output_mesh) == 0:
+                raise RuntimeError(f"Reconstruction pipeline completed but 3D mesh asset is missing or empty at '{job.output_mesh}'")
 
             timings["total_duration"] = round(time.time() - t_start_total, 2)
 

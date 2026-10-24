@@ -41,6 +41,11 @@ class JobResponse(BaseModel):
     baked_normal: Optional[str] = None
     baked_diffuse: Optional[str] = None
     game_ready_glb: Optional[str] = None
+    mesh_url: Optional[str] = None
+    preview_url: Optional[str] = None
+    blend_url: Optional[str] = None
+    concept_url: Optional[str] = None
+    multiview_url: Optional[str] = None
     manifest: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     logs: List[str] = []

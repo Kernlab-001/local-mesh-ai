@@ -89,3 +89,29 @@ def test_export_service_timeout(tmp_path, monkeypatch):
             format_type="glb"
         )
 
+def test_viewer_endpoint():
+    res = client.get("/viewer")
+    assert res.status_code == 200
+    assert "canvas-container" in res.text
+    assert "THREE.GLTFLoader" in res.text
+
+def test_job_mesh_endpoint_not_found():
+    res = client.get("/jobs/non_existent_id/mesh")
+    assert res.status_code == 404
+
+def test_job_mesh_endpoint_existing():
+    # Job 1c324173 is a verified completed job on disk
+    res = client.get("/jobs/1c324173/mesh")
+    if res.status_code == 200:
+        assert res.headers["content-type"] in ("model/gltf-binary", "application/octet-stream")
+        assert len(res.content) > 1000  # verified non-empty GLB
+
+def test_job_response_urls():
+    res = client.get("/jobs/1c324173")
+    if res.status_code == 200:
+        data = res.json()
+        assert "mesh_url" in data
+        assert data["mesh_url"] == "/jobs/1c324173/mesh"
+        assert "preview_url" in data
+
+

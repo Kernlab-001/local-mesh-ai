@@ -87,6 +87,17 @@ def process_mesh(mesh_path, image_path=None, target_blend_path=None, output_dir=
             print(f"[Blender Bridge] Rendered preview image: {render_path}")
         except Exception as e:
             print(f"[Render Notice] {e}")
+
+        # Export sanitized, grounded 3D asset (.glb)
+        mesh_export_path = os.path.join(output_dir, "mesh.glb")
+        try:
+            bpy.ops.export_scene.gltf(
+                filepath=mesh_export_path,
+                export_format='GLB'
+            )
+            print(f"[Blender Bridge] Exported sanitized 3D asset: {mesh_export_path}")
+        except Exception as e:
+            print(f"[Blender Bridge Mesh Export Notice] {e}")
             
     return True
 
