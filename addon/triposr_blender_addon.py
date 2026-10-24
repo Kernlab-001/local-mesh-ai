@@ -422,17 +422,51 @@ def _import_and_organize(filepath, props):
     bpy.context.view_layer.objects.active = main_obj
     main_obj.select_set(True)
 
-    # 3. Build Calibrated PBR Shading & Color Setup
-    if props.pbr_material:
-        _apply_in_viewport_pbr(main_obj, filepath, props)
+    # 3. Build Calibrated PBR Shading & Color Setup for all imported mesh objects
+    for obj in imported:
+        if props.pbr_material:
+            _apply_in_viewport_pbr(obj, filepath, props)
 
     # 4. Viewport Shading Mode: Auto-switch to Material Preview
     if props.auto_switch_shading:
         _enable_viewport_color_shading()
 
 def _apply_in_viewport_pbr(obj, mesh_path, props):
-    """Constructs native Blender 5.2 / 4.2 PBR shader with calibrated colors."""
-    mat_name = f"M_{obj.name}_PBR"
+    """
+    Ensures imported authored PBR materials are preserved with full texture fidelity,
+    and only constructs fallback shaders if the mesh lacks material slots.
+    """
+    authored_mats = [m for m in obj.data.materials if m is not None]
+    if len(authored_mats) > 0:
+        print(f"[Blender Addon] Object '{obj.name}' has {len(authored_mats)} authored PBR material slots. Preserving imported shaders and textures.")
+        for mat in authored_mats:
+            if mat.use_nodes:
+                tex_node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image), None)
+                if tex_node and tex_node.image:
+                    img = tex_node.image
+                    try:
+                        if img.pixels and len(img.pixels) >= 16:
+                            pix = img.pixels
+                            step = max(1, len(pix) // 64)
+                            count = max(1, len(pix) // (step * 4))
+                            r = sum(pix[j] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                            g = sum(pix[j+1] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                            b = sum(pix[j+2] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                            mat.diffuse_color = (r, g, b, 1.0)
+                    except Exception:
+                        pass
+                else:
+                    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+                    if bsdf and 'Base Color' in bsdf.inputs:
+                        bc = bsdf.inputs['Base Color'].default_value
+                        mat.diffuse_color = (bc[0], bc[1], bc[2], 1.0)
+
+        if hasattr(bpy.context.scene, 'view_settings'):
+            bpy.context.scene.view_settings.view_transform = 'Standard'
+        return
+
+    # Fallback path ONLY for meshes imported with ZERO materials (e.g. raw STL / raw OBJ)
+    mat_name = f"M_{obj.name}_Fallback_PBR"
     mat = bpy.data.materials.new(name=mat_name)
     mat.use_nodes = True
     obj.data.materials.clear()
@@ -463,37 +497,47 @@ def _apply_in_viewport_pbr(obj, mesh_path, props):
     else:  # prop
         node_bsdf.inputs['Roughness'].default_value = 0.35
 
-    # Check Color Attributes
+    # Check for valid non-white vertex colors
+    has_valid_vcol = False
     color_attr_name = 'Color'
     if obj.data.color_attributes:
-        color_attr_name = obj.data.color_attributes[0].name
+        for attr in obj.data.color_attributes:
+            if attr.data and len(attr.data) > 0:
+                sample_cols = [attr.data[i].color[:3] for i in range(min(5, len(attr.data)))]
+                is_all_white = all(all(c >= 0.99 for c in sc) for sc in sample_cols)
+                if not is_all_white:
+                    has_valid_vcol = True
+                    color_attr_name = attr.name
+                    break
 
-    # Color Attribute Node
-    col_node = nodes.new('ShaderNodeAttribute')
-    col_node.location = (-600, 100)
-    col_node.attribute_name = color_attr_name
+    if has_valid_vcol:
+        col_node = nodes.new('ShaderNodeAttribute')
+        col_node.location = (-600, 100)
+        col_node.attribute_name = color_attr_name
 
-    # Color Enhancement Chain (Perceptual Saturation & Vibrancy Boost)
-    hsv = nodes.new('ShaderNodeHueSaturation')
-    hsv.location = (-350, 100)
-    hsv.inputs['Saturation'].default_value = props.color_boost
-    hsv.inputs['Value'].default_value = 1.05
-    links.new(col_node.outputs['Color'], hsv.inputs['Color'])
+        hsv = nodes.new('ShaderNodeHueSaturation')
+        hsv.location = (-350, 100)
+        hsv.inputs['Saturation'].default_value = props.color_boost
+        hsv.inputs['Value'].default_value = 1.05
+        links.new(col_node.outputs['Color'], hsv.inputs['Color'])
 
-    bc = nodes.new('ShaderNodeBrightContrast')
-    bc.location = (-150, 100)
-    bc.inputs['Bright'].default_value = 0.02
-    bc.inputs['Contrast'].default_value = 0.15
-    links.new(hsv.outputs['Color'], bc.inputs['Color'])
+        bc = nodes.new('ShaderNodeBrightContrast')
+        bc.location = (-150, 100)
+        bc.inputs['Bright'].default_value = 0.02
+        bc.inputs['Contrast'].default_value = 0.15
+        links.new(hsv.outputs['Color'], bc.inputs['Color'])
 
-    links.new(bc.outputs['Color'], node_bsdf.inputs['Base Color'])
+        links.new(bc.outputs['Color'], node_bsdf.inputs['Base Color'])
+    else:
+        # Default warm studio tone rather than glossy white
+        node_bsdf.inputs['Base Color'].default_value = (0.28, 0.18, 0.12, 1.0) if "furniture" in p_lower else (0.5, 0.5, 0.5, 1.0)
 
     # Set scene color transform to Standard so it doesn't look washed out
     if hasattr(bpy.context.scene, 'view_settings'):
         bpy.context.scene.view_settings.view_transform = 'Standard'
 
 def _enable_viewport_color_shading():
-    """Switches 3D Viewport to Material Preview mode and Solid to Vertex Color."""
+    """Switches 3D Viewport to Material Preview mode and Solid to Material colors."""
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == 'VIEW_3D':
@@ -501,9 +545,11 @@ def _enable_viewport_color_shading():
                     if space.type == 'VIEW_3D':
                         space.shading.type = 'MATERIAL'
                         try:
-                            space.shading.color_type = 'VERTEX'
+                            space.shading.color_type = 'MATERIAL'
                         except Exception:
                             pass
+    if hasattr(bpy.context.scene, 'view_settings'):
+        bpy.context.scene.view_settings.view_transform = 'Standard'
 
 def _submit_job_to_server(context, payload):
     """Submits payload to the FastAPI backend and begins non-blocking polling."""
@@ -703,7 +749,33 @@ class TRIPOSR_OT_SwitchViewport(bpy.types.Operator):
 
     def execute(self, context):
         _enable_viewport_color_shading()
-        self.report({'INFO'}, "Switched Viewport to Material Preview mode.")
+        mat_count = 0
+        target_objs = context.selected_objects if context.selected_objects else context.scene.objects
+        for obj in target_objs:
+            if obj.type == 'MESH':
+                for mat in obj.data.materials:
+                    if mat and mat.use_nodes:
+                        mat_count += 1
+                        tex_node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image), None)
+                        if tex_node and tex_node.image:
+                            img = tex_node.image
+                            try:
+                                if img.pixels and len(img.pixels) >= 16:
+                                    pix = img.pixels
+                                    step = max(1, len(pix) // 64)
+                                    count = max(1, len(pix) // (step * 4))
+                                    r = sum(pix[j] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                                    g = sum(pix[j+1] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                                    b = sum(pix[j+2] for j in range(0, min(len(pix), step * 4 * count), step * 4)) / count
+                                    mat.diffuse_color = (r, g, b, 1.0)
+                            except Exception:
+                                pass
+                        else:
+                            bsdf = mat.node_tree.nodes.get('Principled BSDF')
+                            if bsdf and 'Base Color' in bsdf.inputs and not bsdf.inputs['Base Color'].is_linked:
+                                bc = bsdf.inputs['Base Color'].default_value
+                                mat.diffuse_color = (bc[0], bc[1], bc[2], 1.0)
+        self.report({'INFO'}, f"Switched Viewport to Material Preview mode ({mat_count} material slots active).")
         return {'FINISHED'}
 
 class TRIPOSR_OT_ResetDefaults(bpy.types.Operator):

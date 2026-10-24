@@ -2,9 +2,10 @@
 Material Synthesizer for Local Mesh AI.
 Executes inside Blender (headless or GUI) to:
 1. Ensure valid, non-overlapping UV mappings via Smart UV Project.
-2. Segment polygon faces into multiple distinct semantic material slots based on AppearanceProfile.
+2. Segment polygon faces into multiple distinct semantic material slots based on AppearanceProfile,
+   combining height, surface normals, radial distance, and neural vertex color guidance.
 3. Build 100% glTF 2.0 compliant PBR shader node trees (Direct TexImage / ColorAttribute -> BSDF).
-4. Pack all textures into the mesh for seamless, zero-loss glTF binary export.
+4. Pack all textures into the mesh for seamless, zero-loss glTF binary export and viewport display.
 """
 
 import os
@@ -61,11 +62,12 @@ def synthesize_and_apply_materials(
     if obj.data.uv_layers and obj.data.uv_layers.active:
         uv_count = len(obj.data.uv_layers.active.data)
 
-    # 2. Compute mesh bounding box and normalized heights
+    # 2. Compute mesh bounding box and spatial metrics
     vertices = np.array([v.co for v in obj.data.vertices])
     z_min = float(vertices[:, 2].min())
     z_max = float(vertices[:, 2].max())
     z_height = max(z_max - z_min, 1e-5)
+    r_max = max(float(np.sqrt(vertices[:, 0]**2 + vertices[:, 1]**2).max()), 1e-5)
 
     # 3. Create Blender Material Slots
     obj.data.materials.clear()
@@ -98,6 +100,9 @@ def synthesize_and_apply_materials(
 
         norm_color = [c / 255.0 for c in mat_cfg.color_rgb] + [1.0]
         bsdf.inputs['Base Color'].default_value = tuple(norm_color)
+
+        # Set viewport diffuse color for immediate solid mode visual feedback
+        mat.diffuse_color = (norm_color[0], norm_color[1], norm_color[2], 1.0)
 
         # 4. Generate and bind PBR texture maps (Albedo, Normal, Roughness)
         if generate_textures:
@@ -145,24 +150,108 @@ def synthesize_and_apply_materials(
         mat_to_index[mat_cfg.name] = idx
         material_slots.append(mat_name)
 
-    # 5. Partition Polygon Faces into Semantic Material Slots
+    # 5. Multi-Attribute Semantic Polygon Face Partitioning
     num_polygons = len(obj.data.polygons)
     slot_counts = [0] * len(profile.materials)
 
+    # Check for neural vertex colors on the object from TripoSR
+    has_vc = bool(obj.data.color_attributes and len(obj.data.color_attributes) > 0)
+    vc_attr = obj.data.color_attributes[0] if has_vc else None
+
+    category = (profile.category or "generic").lower()
+
     for poly in obj.data.polygons:
-        # Normalized height of polygon centroid in object space
         cz = poly.center.z
         norm_z = np.clip((cz - z_min) / z_height, 0.0, 1.0)
+        nz = poly.normal.z
+        ny = poly.normal.y
+        nx = poly.normal.x
+        norm_r = np.sqrt(poly.center.x**2 + poly.center.y**2) / r_max
 
-        # Match polygon to appropriate material slot based on height & orientation rules
-        assigned_slot = 0
-        for s_idx, m_cfg in enumerate(profile.materials):
-            if m_cfg.z_min_norm <= norm_z <= m_cfg.z_max_norm:
-                assigned_slot = s_idx
-                break
+        # Extract face average vertex color if available
+        face_lum = None
+        if vc_attr:
+            try:
+                loop_cols = [vc_attr.data[l_idx].color[:3] for l_idx in poly.loop_indices]
+                if loop_cols:
+                    mean_col = np.mean(loop_cols, axis=0) * 255.0
+                    face_lum = 0.299 * mean_col[0] + 0.587 * mean_col[1] + 0.114 * mean_col[2]
+            except Exception:
+                pass
 
-        poly.material_index = assigned_slot
-        slot_counts[assigned_slot] += 1
+        if category == "chair" and len(profile.materials) >= 3:
+            # Slot 0: Wood Frame / Legs
+            # Slot 1: Seat Cushion (Fabric)
+            # Slot 2: Backrest Cushion (Fabric)
+            score_wood = 0.0
+            score_seat = 0.0
+            score_back = 0.0
+
+            if norm_z < 0.42:
+                # Lower height is overwhelmingly wooden legs and undercarriage
+                score_wood += 3.5
+            elif norm_z < 0.62:
+                # Mid height: upward facing surface is upholstered cushion
+                if nz > 0.25:
+                    score_seat += 3.5
+                else:
+                    score_wood += 2.0  # side rim and seat rails
+            else:
+                # Upper height: central forward-facing area is tufted cushion
+                # Outer perimeter and rear are wooden stiles / back frame
+                if norm_r < 0.82 and ny < 0.35:
+                    score_back += 3.2
+                else:
+                    score_wood += 2.5
+
+            # Incorporate neural vertex color guidance if available
+            if face_lum is not None:
+                if face_lum < 140:
+                    score_wood += 2.5
+                else:
+                    if norm_z < 0.62:
+                        score_seat += 2.0
+                    else:
+                        score_back += 2.0
+
+            best_slot = int(np.argmax([score_wood, score_seat, score_back]))
+
+        elif category == "vehicle" and len(profile.materials) >= 3:
+            # Slot 0: Body Paint
+            # Slot 1: Tire Rubber
+            # Slot 2: Window Glass
+            score_body = 1.0
+            score_tire = 0.0
+            score_glass = 0.0
+            if norm_z < 0.28:
+                score_tire += 3.5
+            if norm_z > 0.68 and (nz > 0.3 or abs(ny) > 0.3):
+                score_glass += 3.0
+            best_slot = int(np.argmax([score_body, score_tire, score_glass]))
+
+        elif category == "ceramic" and len(profile.materials) >= 2:
+            # Slot 0: Glaze
+            # Slot 1: Base Foot Ring
+            if norm_z < 0.08 or nz < -0.4:
+                best_slot = 1
+            else:
+                best_slot = 0
+
+        else:
+            # Standard height and normal interval matching
+            assigned_slot = 0
+            for s_idx, m_cfg in enumerate(profile.materials):
+                if m_cfg.z_min_norm <= norm_z <= m_cfg.z_max_norm:
+                    assigned_slot = s_idx
+                    break
+            best_slot = assigned_slot
+
+        # Boundary safety check
+        if best_slot >= len(profile.materials):
+            best_slot = 0
+
+        poly.material_index = best_slot
+        slot_counts[best_slot] += 1
 
     print(f"[Material Synthesizer] Polygon partitioning across {len(profile.materials)} slots:")
     for s_idx, m_cfg in enumerate(profile.materials):
