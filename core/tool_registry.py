@@ -21,6 +21,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from core.geometry_analyzer import geometry_analyzer, CompleteGeometryReport
 from core.component_decomposer import component_decomposer, ComponentHierarchy
 from core.precision_aligner import precision_aligner, AlignmentResult
+from core.geometry_construction import GeometryConstructionEngine, ConstructPrimitiveArgs
+from core.geometry_editing import GeometryEditingEngine, EditComponentArgs, ComponentEditResult
+from core.engines.partfield_adapter import partfield_adapter
+from core.engines.vision_language_adapter import vision_language_adapter
 
 
 # ==============================================================================
@@ -80,6 +84,18 @@ class ExportSubmeshesArgs(BaseModel):
     mesh_path: str = Field(...)
     output_dir: str = Field(...)
     asset_id: Optional[str] = Field(default=None)
+
+
+class SegmentSpecialist3DArgs(BaseModel):
+    mesh_path: str = Field(...)
+    num_clusters: int = Field(default=4, ge=2, le=16)
+    output_dir: Optional[str] = Field(default=None)
+
+
+class InterpretVisionLanguageArgs(BaseModel):
+    mesh_path: str = Field(...)
+    user_asset_description: Optional[str] = Field(default=None)
+    render_dir: Optional[str] = Field(default=None)
 
 
 # ==============================================================================
@@ -193,6 +209,42 @@ class ToolRegistry:
             is_destructive=False
         )
 
+        self.register_tool(
+            name="construct_primitive",
+            description="Constructs a parametric 3D primitive (cube, uv_sphere, icosphere, cylinder, cone, torus, plane, circle, custom_profile).",
+            args_model=ConstructPrimitiveArgs,
+            func=self._execute_primitive_construction,
+            is_destructive=False
+        )
+
+        self.register_tool(
+            name="edit_component",
+            description="Executes a parameterized transformation or geometric edit targeting a specific component in a mesh.",
+            args_model=EditComponentArgs,
+            func=lambda args: GeometryEditingEngine.execute_component_edit(args).model_dump(),
+            is_destructive=True
+        )
+
+        self.register_tool(
+            name="segment_specialist_3d",
+            description="Decomposes a mesh using specialist PartField feature-field clustering.",
+            args_model=SegmentSpecialist3DArgs,
+            func=lambda args: partfield_adapter.decompose_mesh(
+                mesh_or_path=args.mesh_path,
+                num_clusters=args.num_clusters,
+                output_dir=args.output_dir
+            ).model_dump(),
+            is_destructive=False
+        )
+
+        self.register_tool(
+            name="interpret_vision_language",
+            description="Interprets multi-view visual evidence and assigns semantic labels to candidate components.",
+            args_model=InterpretVisionLanguageArgs,
+            func=self._execute_vision_interpretation,
+            is_destructive=False
+        )
+
     def register_tool(
         self,
         name: str,
@@ -273,6 +325,27 @@ class ToolRegistry:
         mesh.export(out_path)
         report = geometry_analyzer.analyze_mesh(mesh)
         return report.model_dump()
+
+    def _execute_primitive_construction(self, args: ConstructPrimitiveArgs) -> Dict[str, Any]:
+        mesh = GeometryConstructionEngine.construct_from_args(args)
+        report = geometry_analyzer.analyze_mesh(mesh)
+        return {
+            "primitive_type": args.primitive_type,
+            "output_path": args.output_path,
+            "vertex_count": len(mesh.vertices),
+            "face_count": len(mesh.faces),
+            "dimensions": report.bounds.dimensions,
+            "is_watertight": report.topology.is_watertight
+        }
+
+    def _execute_vision_interpretation(self, args: InterpretVisionLanguageArgs) -> Dict[str, Any]:
+        import trimesh
+        mesh = trimesh.load(args.mesh_path, force="mesh")
+        h = component_decomposer.decompose(mesh)
+        rdir = args.render_dir or os.path.join(os.path.dirname(os.path.abspath(args.mesh_path)), "renders")
+        renders = vision_language_adapter.generate_multiview_renders(mesh, rdir, h)
+        proposal = vision_language_adapter.interpret_components(h, renders, args.user_asset_description)
+        return proposal.model_dump()
 
 
 # Global singleton instance

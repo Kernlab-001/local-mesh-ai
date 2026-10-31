@@ -26,11 +26,16 @@ except ImportError:
 
 def build_blender_hierarchy(
     mesh_path: str,
-    hierarchy_dict: dict,
+    hierarchy_dict: dict = None,
     alignment_dict: dict = None,
     out_blend_path: str = None,
     out_glb_path: str = None,
-    target_height_m: float = None
+    target_height_m: float = None,
+    edit_comp_id: str = None,
+    edit_op: str = None,
+    edit_factor: float = 1.2,
+    edit_axis: str = "Z",
+    render_multiview_dir: str = None
 ) -> dict:
     """
     Main headless Blender hierarchy construction and alignment worker.
@@ -198,7 +203,23 @@ def build_blender_hierarchy(
         bpy.ops.wm.save_as_mainfile(filepath=out_blend_path)
         saved_blend = out_blend_path
 
-    # 7. Export Consolidated GLB
+    # 7. Component Editing in Viewport if requested
+    if edit_comp_id and edit_op:
+        applied_edit = apply_blender_component_edit(
+            scene=scene,
+            comp_id=edit_comp_id,
+            op=edit_op,
+            factor=edit_factor or 1.2,
+            axis=edit_axis or "Z"
+        )
+        applied_ops.append(f"Blender component edit: {applied_edit}")
+
+    # 8. Render Multi-View passes if requested
+    rendered_views = {}
+    if render_multiview_dir:
+        rendered_views = render_blender_multiview(scene, render_multiview_dir)
+
+    # 9. Export Consolidated GLB
     saved_glb = None
     if out_glb_path:
         os.makedirs(os.path.dirname(os.path.abspath(out_glb_path)), exist_ok=True)
@@ -219,8 +240,88 @@ def build_blender_hierarchy(
         "objects_created": created_objects,
         "alignment_operations": applied_ops,
         "blend_path": saved_blend,
-        "glb_path": saved_glb
+        "glb_path": saved_glb,
+        "rendered_views": rendered_views
     }
+
+
+def apply_blender_component_edit(scene, comp_id: str, op: str, factor: float = 1.2, axis: str = "Z") -> dict:
+    """Applies a direct BMesh or object transformation on target component in Blender."""
+    target_obj = None
+    for obj in scene.objects:
+        if obj.type == 'MESH':
+            if obj.get("ai_component_id") == comp_id or comp_id in obj.name:
+                target_obj = obj
+                break
+
+    if not target_obj:
+        # Fallback to first mesh object
+        mesh_objs = [o for o in scene.objects if o.type == 'MESH']
+        if mesh_objs:
+            target_obj = mesh_objs[0]
+
+    if not target_obj:
+        return {"status": "failed", "reason": f"Component {comp_id} not found"}
+
+    op_lower = op.lower()
+    if op_lower in ("scale_axis", "scale"):
+        axis_upper = axis.upper()
+        if axis_upper == "X":
+            target_obj.scale.x *= factor
+        elif axis_upper == "Y":
+            target_obj.scale.y *= factor
+        elif axis_upper == "Z":
+            target_obj.scale.z *= factor
+        else:
+            target_obj.scale *= factor
+        bpy.context.view_layer.objects.active = target_obj
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        return {"status": "success", "obj": target_obj.name, "op": op, "factor": factor, "axis": axis}
+    elif op_lower == "subdivision":
+        mod = target_obj.modifiers.new(name="AI_Subsurf", type='SUBSURF')
+        mod.levels = int(factor) if factor >= 1 else 1
+        return {"status": "success", "obj": target_obj.name, "modifier": "SUBSURF", "levels": mod.levels}
+    elif op_lower == "bevel":
+        mod = target_obj.modifiers.new(name="AI_Bevel", type='BEVEL')
+        mod.width = 0.02 * factor
+        return {"status": "success", "obj": target_obj.name, "modifier": "BEVEL", "width": mod.width}
+
+    return {"status": "noop"}
+
+
+def render_blender_multiview(scene, output_dir: str) -> dict:
+    """Sets up camera and renders 6 canonical camera views (Front, Back, Left, Right, Top, Perspective)."""
+    os.makedirs(output_dir, exist_ok=True)
+    # Ensure camera exists
+    cam_data = bpy.data.cameras.new("AI_Render_Cam")
+    cam_obj = bpy.data.objects.new("AI_Render_Cam", cam_data)
+    scene.collection.objects.link(cam_obj)
+    scene.camera = cam_obj
+
+    scene.render.resolution_x = 512
+    scene.render.resolution_y = 512
+    scene.render.image_settings.file_format = 'PNG'
+
+    # Camera placements around center (0, 0, 0.5)
+    views = {
+        "front": ((0, -2.5, 0.5), (math.radians(90), 0, 0)),
+        "back": ((0, 2.5, 0.5), (math.radians(90), 0, math.radians(180))),
+        "left": ((-2.5, 0, 0.5), (math.radians(90), 0, math.radians(-90))),
+        "right": ((2.5, 0, 0.5), (math.radians(90), 0, math.radians(90))),
+        "top": ((0, 0, 3.0), (0, 0, 0)),
+        "perspective": ((2.0, -2.0, 2.0), (math.radians(55), 0, math.radians(45)))
+    }
+
+    results = {}
+    for vname, (loc, rot) in views.items():
+        cam_obj.location = loc
+        cam_obj.rotation_euler = rot
+        out_file = os.path.join(output_dir, f"blender_view_{vname}.png")
+        scene.render.filepath = out_file
+        bpy.ops.render.render(write_still=True)
+        results[vname] = out_file
+
+    return results
 
 
 if __name__ == "__main__":
@@ -236,23 +337,41 @@ if __name__ == "__main__":
     out_glb_arg = None
     report_json_arg = None
     height_arg = None
+    multiview_arg = None
+    edit_comp_arg = None
+    edit_op_arg = None
+    edit_factor_arg = 1.2
+    edit_axis_arg = "Z"
 
     for i, a in enumerate(args):
-        if a == "--mesh" and i + 1 < len(args):
+        if a in ("--mesh", "--input") and i + 1 < len(args):
             mesh_arg = args[i + 1]
         elif a == "--hierarchy-json" and i + 1 < len(args):
             hierarchy_json_arg = args[i + 1]
-        elif a == "--out-blend" and i + 1 < len(args):
+        elif a in ("--out-blend", "--output-blend") and i + 1 < len(args):
             out_blend_arg = args[i + 1]
-        elif a == "--out-glb" and i + 1 < len(args):
+        elif a in ("--out-glb", "--output-glb") and i + 1 < len(args):
             out_glb_arg = args[i + 1]
         elif a == "--report-json" and i + 1 < len(args):
             report_json_arg = args[i + 1]
-        elif a == "--height" and i + 1 < len(args):
+        elif a in ("--height", "--target-height") and i + 1 < len(args):
             try:
                 height_arg = float(args[i + 1])
             except ValueError:
                 pass
+        elif a == "--render-multiview" and i + 1 < len(args):
+            multiview_arg = args[i + 1]
+        elif a == "--edit-comp" and i + 1 < len(args):
+            edit_comp_arg = args[i + 1]
+        elif a == "--edit-op" and i + 1 < len(args):
+            edit_op_arg = args[i + 1]
+        elif a == "--edit-factor" and i + 1 < len(args):
+            try:
+                edit_factor_arg = float(args[i + 1])
+            except ValueError:
+                pass
+        elif a == "--edit-axis" and i + 1 < len(args):
+            edit_axis_arg = args[i + 1]
 
     hierarchy_data = {}
     if hierarchy_json_arg and os.path.exists(hierarchy_json_arg):
@@ -264,7 +383,12 @@ if __name__ == "__main__":
         hierarchy_dict=hierarchy_data,
         out_blend_path=out_blend_arg,
         out_glb_path=out_glb_arg,
-        target_height_m=height_arg
+        target_height_m=height_arg,
+        edit_comp_id=edit_comp_arg,
+        edit_op=edit_op_arg,
+        edit_factor=edit_factor_arg,
+        edit_axis=edit_axis_arg,
+        render_multiview_dir=multiview_arg
     )
 
     if report_json_arg:

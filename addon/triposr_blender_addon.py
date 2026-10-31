@@ -353,6 +353,34 @@ class TripoSRProperties(bpy.types.PropertyGroup):
     )
     collection_name: StringProperty(name="Collection Name", default="AI_Generated_Assets")
 
+    # Phase 3: Component Hierarchy & Precision Editing
+    selected_component_edit_op: EnumProperty(
+        name="Edit Operation",
+        items=[
+            ("scale_axis", "Scale Axis (Height/Width)", "Scales active component along selected axis"),
+            ("subdivision", "Subdivision Surface", "Increases mesh density on active component"),
+            ("bevel", "Bevel Edges", "Adds chamfered/beveled edge modifier"),
+            ("solidify", "Solidify Shell", "Adds parametric thickness"),
+        ],
+        default="scale_axis"
+    )
+    edit_axis: EnumProperty(
+        name="Axis",
+        items=[
+            ("X", "X (Width)", "Scale along width"),
+            ("Y", "Y (Depth)", "Scale along depth"),
+            ("Z", "Z (Height)", "Scale along height"),
+        ],
+        default="Z"
+    )
+    edit_factor: FloatProperty(
+        name="Factor",
+        description="Scaling or strength factor",
+        default=1.2,
+        min=0.1,
+        max=5.0
+    )
+
     # State & Polling
     active_job_id: StringProperty(name="Active Job ID", default="")
     status_message: StringProperty(name="Status", default="Ready")
@@ -1030,6 +1058,121 @@ class TRIPOSR_PT_MainPanel(bpy.types.Panel):
 
         layout.operator("triposr.reset_defaults", icon='LOOP_BACK')
 
+
+# --- Phase 3: Component Hierarchy & Precision Editing Operators and UI ---
+
+class TRIPOSR_OT_ApplyComponentEdit(bpy.types.Operator):
+    bl_idname = "triposr.apply_component_edit"
+    bl_label = "Apply AI Component Edit"
+    bl_description = "Executes the selected geometric modification on the active component in the hierarchy"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.triposr_props
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'WARNING'}, "Please select a mesh component first!")
+            return {'CANCELLED'}
+
+        op = props.selected_component_edit_op
+        factor = props.edit_factor
+        axis = props.edit_axis
+
+        if op == "scale_axis":
+            if axis == "X":
+                obj.scale.x *= factor
+            elif axis == "Y":
+                obj.scale.y *= factor
+            elif axis == "Z":
+                obj.scale.z *= factor
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            self.report({'INFO'}, f"Scaled {obj.name} along {axis} by {factor}x")
+        elif op == "subdivision":
+            mod = obj.modifiers.new(name="AI_Subsurf", type='SUBSURF')
+            mod.levels = max(1, int(factor))
+            self.report({'INFO'}, f"Added Subsurf modifier (level {mod.levels}) to {obj.name}")
+        elif op == "bevel":
+            mod = obj.modifiers.new(name="AI_Bevel", type='BEVEL')
+            mod.width = 0.02 * factor
+            self.report({'INFO'}, f"Added Bevel modifier to {obj.name}")
+        elif op == "solidify":
+            mod = obj.modifiers.new(name="AI_Solidify", type='SOLIDIFY')
+            mod.thickness = 0.02 * factor
+            self.report({'INFO'}, f"Added Solidify modifier to {obj.name}")
+
+        return {'FINISHED'}
+
+
+class TRIPOSR_OT_GroundActiveComponent(bpy.types.Operator):
+    bl_idname = "triposr.ground_active_component"
+    bl_label = "Snap Component to Ground (Z=0)"
+    bl_description = "Translates active component so its lowest point rests precisely on Z=0"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        import mathutils
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'WARNING'}, "Please select a mesh component first!")
+            return {'CANCELLED'}
+
+        bbox = [obj.matrix_world @ mathutils.Vector(b) for b in obj.bound_box]
+        min_z = min(v.z for v in bbox)
+        obj.location.z -= min_z
+        self.report({'INFO'}, f"Grounded {obj.name} to Z=0.0")
+        return {'FINISHED'}
+
+
+class TRIPOSR_PT_ComponentHierarchyPanel(bpy.types.Panel):
+    bl_label = "AI Component Hierarchy & Precision Editing"
+    bl_idname = "TRIPOSR_PT_component_hierarchy_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "AI 3D Generator"
+    bl_parent_id = "TRIPOSR_PT_main_panel"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.triposr_props
+
+        col_hier = layout.box()
+        col_hier.label(text="Component Hierarchy Tree:", icon='OUTLINER_OB_MESH')
+
+        master_col = bpy.data.collections.get("AI_Asset_Hierarchy")
+        if master_col and master_col.objects:
+            for obj in master_col.objects:
+                row = col_hier.row(align=True)
+                is_active = (context.active_object == obj)
+                icon = 'RADIOBUT_ON' if is_active else 'RADIOBUT_OFF'
+                label_txt = f"{obj.name}"
+                sem = obj.get("ai_semantic_label")
+                if sem:
+                    label_txt += f" [{sem}]"
+                row.label(text=label_txt, icon=icon)
+        else:
+            col_hier.label(text="No AI_Asset_Hierarchy active.", icon='INFO')
+
+        if context.active_object and context.active_object.type == 'MESH':
+            obj = context.active_object
+            edit_box = layout.box()
+            edit_box.label(text=f"Active Target: {obj.name}", icon='EDITMODE_HLT')
+            dims = obj.dimensions
+            edit_box.label(text=f"Dimensions: {dims.x:.3f}m x {dims.y:.3f}m x {dims.z:.3f}m")
+
+            edit_box.prop(props, "selected_component_edit_op", text="Action")
+            if props.selected_component_edit_op == "scale_axis":
+                row_axis = edit_box.row()
+                row_axis.prop(props, "edit_axis", expand=True)
+                edit_box.prop(props, "edit_factor", text="Scale Factor")
+            elif props.selected_component_edit_op in ("bevel", "solidify"):
+                edit_box.prop(props, "edit_factor", text="Thickness/Width")
+            elif props.selected_component_edit_op == "subdivision":
+                edit_box.prop(props, "edit_factor", text="Levels")
+
+            row_btns = edit_box.row(align=True)
+            row_btns.operator("triposr.apply_component_edit", text="Apply Edit", icon='CHECKMARK')
+            row_btns.operator("triposr.ground_active_component", text="Ground (Z=0)", icon='SNAP_VERTEX')
+
 # --- Background Server Polling Timer ---
 def _periodic_server_check():
     """Lightweight background timer checking server status every 3.5 seconds."""
@@ -1068,7 +1211,10 @@ classes = (
     TRIPOSR_OT_ToggleWireframe,
     TRIPOSR_OT_SwitchViewport,
     TRIPOSR_OT_ResetDefaults,
-    TRIPOSR_PT_MainPanel
+    TRIPOSR_OT_ApplyComponentEdit,
+    TRIPOSR_OT_GroundActiveComponent,
+    TRIPOSR_PT_MainPanel,
+    TRIPOSR_PT_ComponentHierarchyPanel
 )
 
 def register():

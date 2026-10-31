@@ -85,6 +85,39 @@ class ComponentDecomposer:
     3D assets into modular, geometrically separable component hierarchies.
     """
 
+    @classmethod
+    def decompose_connected_components(cls, mesh_or_path: Any) -> ComponentHierarchy:
+        """Convenience method decomposing strictly via connected components."""
+        inst = cls()
+        return inst.decompose(mesh_or_path, method="connected")
+
+    @classmethod
+    def extract_submesh(cls, mesh: trimesh.Trimesh, node: ComponentNode) -> trimesh.Trimesh:
+        """
+        Extracts sub-mesh corresponding to a ComponentNode.
+        If node.submesh_path exists on disk, loads directly from file.
+        Otherwise crops faces whose vertices reside within the component's bounding box.
+        """
+        if node.submesh_path and os.path.exists(node.submesh_path):
+            return trimesh.load(node.submesh_path, force="mesh")
+
+        min_p = np.array(node.bounds.min_point) - 0.005
+        max_p = np.array(node.bounds.max_point) + 0.005
+
+        v = mesh.vertices
+        f = mesh.faces
+        face_centers = np.mean(v[f], axis=1)
+        mask = np.all((face_centers >= min_p) & (face_centers <= max_p), axis=1)
+        if np.any(mask):
+            try:
+                sub = mesh.submesh([mask], append=True)
+                if len(sub.faces) > 0:
+                    return sub
+            except Exception:
+                pass
+
+        return mesh.copy()
+
     def decompose(
         self,
         mesh_or_path: Any,
