@@ -202,6 +202,30 @@ flowchart TD
 
 ---
 
+## 🧠 Local AI Models & Hardware Compatibility
+
+Local Mesh AI is built on a **modular multi-model specialist architecture** that loads specialized neural models sequentially to guarantee zero Out-Of-Memory (OOM) crashes on consumer hardware. Only the model required for the active inference stage resides in GPU memory; VRAM is purged to 0.0 MB between stages.
+
+The system automatically detects your host GPU and system RAM to configure an optimal model stack. The primary tested baseline is the **NVIDIA GeForce RTX 3050 6GB Laptop GPU (with 16GB RAM and Windows 11)**.
+
+### Recommended Local Model Stack by Task
+
+| Task | Recommended Model | Alternative / Fallback | VRAM Req. | Execution Mode |
+| :--- | :--- | :--- | :--- | :--- |
+| **3D Part Segmentation** | **PartField (NVIDIA)** | **Geometric Feature Fields** | 0.0 – 4.5 GB | Isolated Worker / Native CPU |
+| **Semantic Part Labeling** | **Qwen3-VL-4B-Instruct GGUF** | **Qwen2.5-VL-3B-Instruct GGUF** | 2.8 – 3.8 GB | Sequential GPU (cuBLAS) |
+| **Technical-Artist Planner** | **Qwen 2.5 Coder 7B GGUF** | **Qwen 2.5 Coder 1.5B GGUF** | 4.0 – 4.5 GB | Sequential GPU (cuBLAS) |
+| **Text-to-Image Concept** | **SD-Turbo (1-Step)** | **None** | 3.2 – 3.5 GB | Sequential GPU (CUDA) |
+| **Image-to-3D Neural Mesh** | **TripoSR (Watertight NeRF)** | **Stable Fast 3D (8GB+)** | 3.0 – 3.2 GB | Sequential GPU (CUDA) |
+| **Procedural PBR Materials** | **Blender Cycles/EEVEE Engine** | **None (No AI Needed)** | 0.0 GB | Headless Blender (CPU/GPU) |
+| **Exact Dimension & Alignment**| **CPU Geometry Engine** | **None (No AI Needed)** | 0.0 GB | Deterministic NumPy / Trimesh |
+| **Geometry Construction & Editing**| **Blender BMesh API** | **Trimesh Parametric** | 0.0 GB | Headless Blender 5.2 |
+
+👉 **For exhaustive hardware tier configurations (4GB, 6GB, 8GB, 12GB, 16GB, 24GB+), exact download references, benchmark telemetry, and installation instructions, see the complete guide:**  
+[**📖 Local AI Model Selection & Hardware Orchestration Guide**](docs/LOCAL_AI_MODEL_SELECTION_GUIDE.md)
+
+---
+
 ## 🧪 Automated Testing & Verification
 
 The test suite covers API routing, multi-material shader synthesis, color calibration math, GPU concurrency leasing, geometry sanitization, and UI event binding:

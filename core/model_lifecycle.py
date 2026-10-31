@@ -29,6 +29,9 @@ class ModelSlot(str, Enum):
     MULTIVIEW_SYNTH = "multiview_synth"             # Zero123++ / Orthogonal Multi-View Generator
     NEURAL_RECONSTRUCTION = "neural_reconstruction" # TripoSR NeRF / Marching Cubes
     LLM_PLANNER = "llm_planner"                     # Qwen 2.5 Coder 7B (GGUF Quantized)
+    SEGMENTATION_3D = "segmentation_3d"             # PartField / 3D Part Decomposition
+    VISION_LANGUAGE = "vision_language"             # Qwen3-VL-4B Multimodal Semantic Interpreter
+    TEXTURE_SYNTHESIS = "texture_synthesis"         # PBR Texture Synthesizer
 
 class ModelLocation(str, Enum):
     UNLOADED = "unloaded"       # Resides purely on disk
