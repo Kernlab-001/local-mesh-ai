@@ -14,9 +14,15 @@ from pathlib import Path
 
 class EngineStatus(str, Enum):
     READY = "ready"
-    NEEDS_DOWNLOAD = "needs_download"
+    SOURCE_MISSING = "source_missing"
+    DEPENDENCIES_MISSING = "dependencies_missing"
+    WEIGHTS_MISSING = "weights_missing"
+    WEIGHTS_PARTIAL = "weights_partial"
+    WEIGHTS_INSTALLED = "weights_installed"
+    HARDWARE_INSUFFICIENT = "hardware_insufficient"
     UNSUPPORTED_HARDWARE = "unsupported_hardware"
     NOT_INSTALLED = "not_installed"
+    NEEDS_DOWNLOAD = "needs_download"
     RUNNING = "running"
     FAILED = "failed"
 

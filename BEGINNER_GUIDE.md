@@ -1,256 +1,226 @@
 # 🔰 Local Mesh AI — Complete Beginner Guide & Operations Manual
 
-Welcome to **Local Mesh AI**! This guide is designed for everyone—whether you are a 3D artist, game developer, hobbyist, or a complete beginner who has never run a Python script, touched an AI model, or opened Blender before.
+Welcome to **Local Mesh AI**! This guide is designed for everyone—whether you are a 3D technical artist, game developer, indie creator, or a complete beginner who has never run a Python script, touched an AI model, or opened Blender before.
 
 ---
 
-## 🧭 Quick Links
-- [1. What is Local Mesh AI?](#1-what-is-local-mesh-ai)
-- [2. Hardware & Software Requirements](#2-hardware--software-requirements)
-- [3. First-Time Installation & Startup](#3-first-time-installation--startup)
-- [4. Understanding the Two Creation Modes](#4-understanding-the-two-creation-modes)
-  - [Mode A: Text-to-3D](#mode-a-text-to-3d)
-  - [Mode B: Image-to-3D](#mode-b-image-to-3d)
-- [5. Step-by-Step Tutorial: Your First 3D Project](#5-step-by-step-tutorial-your-first-3d-project)
-- [6. The 3D Viewport & Inspection Tools](#6-the-3d-viewport--inspection-tools)
-- [7. Beginner's Guide to Modifiers & Settings](#7-beginners-guide-to-modifiers--settings)
-- [8. Exporting Assets & Opening in Blender, Unreal, and Unity](#8-exporting-assets--opening-in-blender-unreal-and-unity)
-- [9. Where Your Files Are Saved](#9-where-your-files-are-saved)
-- [10. Troubleshooting & Common Errors](#10-troubleshooting--common-errors)
-- [11. Frequently Asked Questions (FAQ)](#11-frequently-asked-questions-faq)
-- [12. Beginner 3D Graphics Glossary](#12-beginner-3d-graphics-glossary)
+## 🧭 Table of Contents
+- [1. Architectural Overview](#1-architectural-overview)
+- [2. Hardware & System Requirements](#2-hardware--system-requirements)
+- [3. The 7-Step Setup & Verification Workflow](#3-the-7-step-setup--verification-workflow)
+  - [Step 1: Environment & Hardware Detection](#step-1-environment--hardware-detection)
+  - [Step 2: Dedicated Git Branch & Codebase Integrity](#step-2-dedicated-git-branch--codebase-integrity)
+  - [Step 3: Dependency Installation & CUDA Acceleration](#step-3-dependency-installation--cuda-acceleration)
+  - [Step 4: Offline Model Provisioning](#step-4-offline-model-provisioning)
+  - [Step 5: Truthful Readiness & Offline Verification](#step-5-truthful-readiness--offline-verification)
+  - [Step 6: Executing 3D Reconstruction & Technical-Artist Planning](#step-6-executing-3d-reconstruction--technical-artist-planning)
+  - [Step 7: Automated Blender Sanitation & Scene Inspection](#step-7-automated-blender-sanitation--scene-inspection)
+- [4. Core Systems Explained](#4-core-systems-explained)
+  - [TripoSR Volumetric Engine](#triposr-volumetric-engine)
+  - [Qwen 2.5 Coder Technical-Artist Planner](#qwen-25-coder-technical-artist-planner)
+  - [Zero-VRAM GPU Lease Broker](#zero-vram-gpu-lease-broker)
+  - [Per-Job Isolated Workspaces](#per-job-isolated-workspaces)
+- [5. Beginner's Guide to Modifiers & Settings](#5-beginners-guide-to-modifiers--settings)
+- [6. Exporting Assets to Game Engines (Unreal / Unity / Godot)](#6-exporting-assets-to-game-engines-unreal--unity--godot)
+- [7. Troubleshooting & Diagnostics](#7-troubleshooting--diagnostics)
+- [8. 3D Graphics Glossary for Beginners](#8-3d-graphics-glossary-for-beginners)
 
 ---
 
-## 1. What is Local Mesh AI?
+## 1. Architectural Overview
 
-**Local Mesh AI** is an all-in-one local production tool that transforms text descriptions or 2D images into real, game-ready 3D models right on your desktop PC.
+Local Mesh AI is centered around **TripoSR** as its primary neural 3D reconstruction engine and **Qwen 2.5 Coder 7B** as its central Technical-Artist intelligence.
 
-Unlike cloud services that require subscriptions, upload tokens, and queue wait times:
-- **100% Local & Private:** All neural models run locally on your graphics card. No data leaves your machine.
-- **Game-Engine Ready:** Automatically cleans and converts dense neural meshes into quad-dominant low-poly geometry (5K–15K faces) with unwrapped UVs and baked normal + diffuse textures.
-- **Blender Integration:** Fully integrated with Blender for automated headless processing or interactive scene editing.
+```
+                    ┌────────────────────────────────────────┐
+                    │      Natural Language User Request     │
+                    └───────────────────┬────────────────────┘
+                                        │
+                                        ▼
+                    ┌────────────────────────────────────────┐
+                    │      Qwen 2.5 Coder 7B Planner         │
+                    │  - Component Identification & Hierarchy│
+                    │  - Proportions & Metric Dimensions     │
+                    │  - PBR Materials & Color Schemes       │
+                    │  - Topology Budget & Mesh Style        │
+                    │  - Deterministic Blender Commands      │
+                    └───────────────────┬────────────────────┘
+                                        │
+                                        ▼
+┌──────────────────────┐    ┌────────────────────────────────────────┐
+│  2D Concept Artwork  │───>│         TripoSR Neural Engine          │
+│  (PNG, JPG, WebP)    │    │  - Transparent Background Preparation  │
+└──────────────────────┘    │  - Volumetric NeRF / Marching Cubes    │
+                            │  - Real Peak VRAM Measurement (~3.1GB) │
+                            │  - Strict Isolated Job Folders         │
+                            └───────────────────┬────────────────────┘
+                                                │
+                                                ▼
+                            ┌────────────────────────────────────────┐
+                            │    Geometry Validation & Inspection    │
+                            │  - Vertices (>10K), Faces (>20K)       │
+                            │  - Watertightness & Finite Coordinates │
+                            │  - Extents & Vertex Colors Verified    │
+                            └───────────────────┬────────────────────┘
+                                                │
+                                                ▼
+                            ┌────────────────────────────────────────┐
+                            │       Blender 4.2 / 5.2 Bridge         │
+                            │  - Safe Command Execution              │
+                            │  - Real-world Scaling & PBR Materials  │
+                            │  - Final GLB & .blend Scene Export     │
+                            └────────────────────────────────────────┘
+```
 
 ---
 
-## 2. Hardware & Software Requirements
+## 2. Hardware & System Requirements
 
-| Component | Minimum Requirement | Recommended Specification |
+| Component | Minimum Requirement | Verified Test Platform |
 | :--- | :--- | :--- |
-| **Operating System** | Windows 10/11 (64-bit) or Linux (x86_64) | Windows 11 (64-bit) |
-| **Graphics Card (GPU)** | NVIDIA GPU with 6 GB GDDR6 VRAM | NVIDIA RTX 3060 / 4060 or higher (8GB–12GB VRAM) |
-| **System Memory (RAM)** | 16 GB DDR4/DDR5 | 32 GB DDR4/DDR5 |
-| **Storage Space** | 10 GB free space (SSD recommended) | 25 GB free SSD space |
-| **Blender (Optional)** | Blender 3.6 LTS | Blender 4.2 LTS or 5.2 |
+| **Operating System** | Windows 10/11 (64-bit) | Windows 11 (64-bit) |
+| **Processor (CPU)** | Intel Core i5 / AMD Ryzen 5 | Intel Core i5-13420H (8 Cores, 16 Threads) |
+| **Graphics Card (GPU)** | NVIDIA GPU with 6.0 GB VRAM (CUDA 12+) | NVIDIA GeForce RTX 3050 Laptop GPU (6.0 GB VRAM) |
+| **System Memory (RAM)**| 16 GB DDR4/DDR5 | 16 GB RAM |
+| **Storage (Persistent)**| 15 GB free space on SSD | High-speed SSD (`E:\LocalMeshAI-Data\models`) |
+| **Blender Version** | Blender 3.6 LTS | Blender 5.2 / 4.2 LTS (`C:\Program Files\Blender Foundation\Blender 5.2`) |
 
-> [!NOTE]
-> If your GPU has less than 6 GB of VRAM, the application automatically uses **Draft Mode** to reduce memory consumption. If no NVIDIA GPU is detected, the system falls back to host CPU inference.
+> [!IMPORTANT]
+> **Single-Occupancy GPU Budgeting:** On 6GB VRAM GPUs (such as RTX 3050), TripoSR requires ~3.1 GB and Qwen 2.5 Coder requires ~4.2 GB. They **must never run simultaneously** in VRAM. The system enforces an atomic cross-process lease broker (`core/gpu_broker.py`) to guarantee zero OOM collisions.
 
 ---
 
-## 3. First-Time Installation & Startup
+## 3. The 7-Step Setup & Verification Workflow
 
-Everything in Local Mesh AI is configured to launch with simple double-click batch launchers located in the `launchers/` directory:
-
-```
-launchers/
-├── 1_setup_environment.bat   <-- Run once on fresh installation
-├── 2_detect_hardware.bat     <-- Verify GPU, CUDA, and Blender
-├── 3_start_backend.bat       <-- Start FastAPI orchestrator (Port 8000)
-├── 4_run_tests.bat           <-- Run automated test suite
-└── 5_start_studio_ui.bat     <-- Open Blender-inspired 3D Studio (Port 7860)
+### Step 1: Environment & Hardware Detection
+Detect your GPU, available VRAM, CUDA runtime, and Blender installation:
+```powershell
+python -c "from core.hardware_detector import hardware_detector; print(hardware_detector.detect_gpu())"
 ```
 
-### Quick 3-Step Setup:
-1. **Double-click `launchers/1_setup_environment.bat`:** Automatically creates your local Python virtual environment (`.venv`) and installs PyTorch CUDA, Diffusers, Trimesh, Gradio, and required libraries.
-2. **Double-click `launchers/2_detect_hardware.bat`:** Scans your GPU and locates Blender on your system.
-3. **Double-click `launchers/5_start_studio_ui.bat`:** Launches the 3D Studio workstation. Your browser opens automatically at **`http://127.0.0.1:7860`**.
-
----
-
-## 4. Understanding the Two Creation Modes
-
-Local Mesh AI has two dedicated creation paths. Choose the one that matches your starting material:
-
-### Mode A: Text-to-3D
-* **When to use:** You have an idea in your head and want the AI to design the object for you.
-* **How it works:**
-  1. You type a descriptive text prompt (e.g., *"an ancient dwarven warhammer with carved runes and polished steel head"*).
-  2. The system executes a local diffusion model (SD-Turbo) to paint a clean concept art image on a neutral background.
-  3. The generated artwork is automatically fed into the 3D neural reconstruction engine.
-  4. The model is remeshed, unwrapped, and textured.
-
-### Mode B: Image-to-3D
-* **When to use:** You already have a drawing, concept art, game sprite, or photo that you want to turn into a 3D model.
-* **How it works:**
-  1. You drag-and-drop or upload your image file (PNG, JPG, or WEBP).
-  2. **Strict Diffusion Bypass:** The application skips the text diffusion stage completely.
-  3. The image is processed directly into 4 canonical multi-angle projections and reconstructed into 3D geometry.
-
----
-
-## 5. Step-by-Step Tutorial: Your First 3D Project
-
-Follow this 5-minute walkthrough to generate your very first 3D asset:
-
-### Step 1: Open the Application
-Launch `launchers/5_start_studio_ui.bat` and navigate to `http://127.0.0.1:7860`.
-
-### Step 2: Choose Creation Mode
-In the left **Generation Shelf**, make sure **Mode A: Text-to-3D** is selected.
-
-### Step 3: Enter a Beginner Prompt
-Click **`💡 Load Beginner Example (Treasure Chest)`** or copy and paste this prompt:
-```text
-an old medieval wooden treasure chest with iron hinges and carved padlock, centered, studio lighting
+### Step 2: Dedicated Git Branch & Codebase Integrity
+Confirm you are on the dedicated Phase 1 branch (`phase-1/triposr-foundation`):
+```powershell
+git status
+git branch
 ```
 
-### Step 4: Choose Settings
-- **Asset Preset:** Select `prop`.
-- **Reconstruction Quality:** Select `Balanced`.
-- **Target Height:** Leave at default `1.0m`.
-
-### Step 5: Execute Generation
-Click the prominent orange button: **`⚡ EXECUTE 3D PIPELINE`**.
-
-### Step 6: Watch the Progress Timeline
-At the bottom of the screen, watch the **10-Stage Pipeline Bar**:
-1. *Validation* ➔ Checks prompt and settings.
-2. *Concept Art* ➔ Paints reference image via SD-Turbo (~3s).
-3. *Multi-View* ➔ Synthesizes 4 canonical viewing angles (~1s).
-4. *3D Neural* ➔ Reconstructs volumetric geometry via TripoSR (~12s).
-5. *Color Transfer* ➔ Calibrates colors from concept art (~1s).
-6. *Quad Retopo* ➔ Decimates dense polygons to clean quads (~8s).
-7. *UV Unwrap* ➔ Generates seamless UV islands (~4s).
-8. *Texture Bake* ➔ Ray-casts normal map and diffuse map in Blender (~10s).
-9. *Blender Scene* ➔ Assembles final `.blend` project and exports `.glb`.
-10. *Completed* ➔ Asset is ready!
-
-### Step 7: Inspect and Export
-- Use your mouse in the central **3D Mesh Viewport** to orbit around your new model.
-- Check the **Mesh Info** tab in the right panel to see real vertex and face counts.
-- Click **Export GLB** or **Open in Blender** to inspect the file inside Blender!
-
----
-
-## 6. The 3D Viewport & Inspection Tools
-
-The central area is your interactive 3D inspection workspace:
-
-- **Orbit Camera:** Click and drag with the Left Mouse Button.
-- **Pan Camera:** Click and drag with the Right Mouse Button (or Shift + Left Click).
-- **Zoom:** Scroll the Mouse Wheel up or down.
-- **Reset Camera:** Click the `Reset Camera` button above the viewport to return to the default view.
-- **Toggle Solid / Wireframe:** Click `Toggle Solid / Wireframe` to inspect the clean quad wireframe topology.
-- **Inspection Tabs:**
-  - `3D Mesh Viewport`: The live WebGL 3D model.
-  - `360° Turntable`: Video turntable playback (if enabled).
-  - `Source Concept`: The exact 2D image used to build the model.
-  - `Multi-View Grid`: The 2x2 multi-angle projection sheet.
-
----
-
-## 7. Beginner's Guide to Modifiers & Settings
-
-Here is what every setting actually does and when you should change it:
-
-| Setting | Default Value | Plain-Language Description | When to Change It | Performance Impact |
-| :--- | :--- | :--- | :--- | :--- |
-| **Asset Preset** | `prop` | Helps the AI scale and align orientation properly. | Change to `weapon` for swords/guns, `character` for figurines, `furniture` for chairs/tables. | No performance impact. |
-| **Reconstruction Quality** | `Balanced` | Controls Marching Cubes grid resolution (Draft=128, Balanced=256, High=384). | Use `Draft` for rapid prototyping on 4GB–6GB GPUs. Use `High` for intricate, detailed hero assets. | Draft: ~15s, Balanced: ~35s, High: ~60s. |
-| **Target Height (Meters)** | `1.8m` | Sets true real-world dimensions in meters. | Adjust to match real life (e.g. 0.3m for a potion bottle, 2.5m for a monster). | No performance impact. |
-| **Isolate Foreground (rembg)** | `Checked` | Strips out messy backgrounds from concept images. | Keep checked unless your uploaded image already has a transparent alpha channel. | Adds ~1s to run. |
-| **Sanitize Geometry** | `Checked` | Automatically caps open holes and deletes floating debris triangles. | Leave checked for watertight game meshes. | Adds ~1s to run. |
-| **Adaptive Vertex Welding** | `Checked` | Merges microscopic gaps in the neural mesh surface. | Leave checked to prevent cracked edges. | Adds ~0.5s to run. |
-| **Reinhard Color Calibration** | `Checked` | Uses perceptual color math to match the 3D model's palette 1:1 with source artwork. | Keep checked to prevent muddy, desaturated colors. | Adds ~0.8s to run. |
-| **Target Quad Budget** | `8,000` | Target number of 4-sided faces for the retopologized game asset. | Increase to `15,000` for high-detail hero models; decrease to `3,000` for mobile games. | Higher budgets take slightly longer to bake. |
-| **Bake Texture Resolution** | `2048` | Resolution of the baked Tangent Normal and Diffuse maps. | Use `1024` for lightweight assets; `4096` for 4K hero textures. | 2048: ~10s bake, 4096: ~25s bake. |
-
----
-
-## 8. Exporting Assets & Opening in Blender, Unreal, and Unity
-
-When generation completes, you can export your asset into any industry-standard format:
-
-### Export Formats:
-- **GLB (Binary glTF):** Recommended for web, Godot, and quick inspection. Contains embedded textures and materials.
-- **FBX (Autodesk Filmbox):** Recommended for Unreal Engine 5, Unity, and Autodesk Maya.
-- **OBJ (Wavefront):** Universal format compatible with virtually all 3D software.
-- **Blender Project (.blend):** Complete source scene containing the raw high-poly mesh, retopologized low-poly mesh, Cycles baking nodes, and camera setup.
-
-### Opening in Blender:
-Click the **`Open in Blender`** button in the right Properties panel. Local Mesh AI will launch your local Blender installation and load the project file directly!
-
----
-
-## 9. Where Your Files Are Saved
-
-All generation outputs are organized cleanly on your local hard drive:
-
+### Step 3: Dependency Installation & CUDA Acceleration
+Activate your virtual environment and verify PyTorch CUDA and `llama-cpp-python`:
+```powershell
+.venv\Scripts\activate
+python -c "import torch; print('CUDA Available:', torch.cuda.is_available(), 'Device:', torch.cuda.get_device_name(0))"
+python -c "import llama_cpp; print('llama_cpp Version:', llama_cpp.__version__)"
 ```
-output/                         <-- Primary destination folder
-├── meshes/                     <-- Exported GLB, FBX, OBJ files
-└── project.blend               <-- Latest Blender project file
 
-jobs/                           <-- Detailed per-job workspaces
-└── <job_id>/
-    ├── input/                  <-- Original prompt & concept artwork
-    ├── multiview/              <-- 4-view canonical projections
-    ├── high_poly_reference/    <-- Raw neural geometry (immutable backup)
-    ├── low_poly_asset/         <-- Retopologized game-ready model
-    ├── textures/               <-- 16-bit Normal map & Diffuse map
-    └── reports/
-        └── manifest.json       <-- Machine-readable generation audit log
+### Step 4: Offline Model Provisioning
+Download model weights to persistent storage outside Git (`E:\LocalMeshAI-Data\models`):
+```powershell
+# Provision TripoSR and DINO ViT weights (~1.67 GB)
+python scripts/download_models.py --triposr
+
+# Provision Qwen 2.5 Coder 7B GGUF weights (~4.7 GB)
+python scripts/download_models.py --qwen
+```
+
+### Step 5: Truthful Readiness & Offline Verification
+Verify all model files and checksums offline without network requests:
+```powershell
+python scripts/download_models.py --check
+```
+*Output should report `TripoSR Status: fully_installed`, `Ready for Offline Inference: True`, and `Qwen Status: fully_installed`.*
+
+### Step 6: Executing 3D Reconstruction & Technical-Artist Planning
+Run the end-to-end acceptance test workflow:
+```powershell
+# 1. Run TripoSR Neural Reconstruction on reference chair
+python scripts/test_triposr_workflow.py
+
+# 2. Test Qwen Technical-Artist Planning
+python scripts/test_qwen_planner.py
+```
+
+### Step 7: Automated Blender Sanitation & Scene Inspection
+Generate a complete asset and open the project directly inside Blender:
+```powershell
+python run_master.py --image TripoSR/examples/chair.png --open-blender
 ```
 
 ---
 
-## 10. Troubleshooting & Common Errors
+## 4. Core Systems Explained
 
-### Error: "CUDA Out of Memory (OOM)"
-- **Cause:** Your GPU ran out of dedicated VRAM.
-- **Fix:** In the Generation Shelf, change **Reconstruction Quality** to `Draft` and reduce **Target Quad Budget** to `5000`. Ensure other heavy applications (like games or 3D viewports) are closed.
+### TripoSR Volumetric Engine
+- **Module:** `core/triposr_engine.py`
+- Converts a single 2D image into 3D volumetric representations using feedforward neural reconstruction.
+- Uses Marching Cubes with chunk size `8192` and resolution `256` calibrated for 6GB laptop GPUs.
+- Performs automatic background isolation, watertightness checking, coordinate finiteness checks, and vertex color inspection.
 
-### Error: "Blender executable not found"
-- **Cause:** Blender is installed in a non-standard directory or not installed.
-- **Fix:** Install Blender 4.2 LTS or 5.2 from [blender.org](https://www.blender.org/download/). If already installed in a custom location, add `BLENDER_PATH` to your Windows Environment Variables pointing to your `blender.exe`. *(Note: 3D generation still works without Blender; retopology and baking will simply be bypassed).*
+### Qwen 2.5 Coder Technical-Artist Planner
+- **Module:** `core/qwen_planner.py` & `core/command_schemas.py`
+- Operates as the lead technical artist:
+  1. Identifies components and structural hierarchy (e.g. blade, crossguard, grip, pommel).
+  2. Sets real-world metric dimensions (height, width, depth, symmetry).
+  3. Formulates PBR material specifications (preset, base color, roughness, metallic).
+  4. Prescribes topology budgets and geometry correction targets.
+  5. Translates requirements into an allowlist of deterministic Blender operations.
 
-### Error: "Concept prompt is required for Mode A"
-- **Cause:** You clicked execute in Text-to-3D mode without entering a prompt.
-- **Fix:** Type a description of what you want to create (at least 2 characters long).
+### Zero-VRAM GPU Lease Broker
+- **Module:** `core/gpu_broker.py`
+- Uses atomic OS file locks and thread synchronizers to prevent concurrent neural operations.
+- Automatically purges PyTorch CUDA cache and reclaims memory when releasing a lease.
 
-### Error: "2D concept image is required for Mode B"
-- **Cause:** You clicked execute in Image-to-3D mode without uploading an image.
-- **Fix:** Drag and drop an image file (PNG, JPG, or WEBP) into the upload box or click `💡 Load Sample Artwork (Teapot)`.
-
----
-
-## 11. Frequently Asked Questions (FAQ)
-
-**Q: Do I need to be connected to the internet to generate 3D models?**  
-A: No! Once the model weights are downloaded during your first run (~3.5 GB), Local Mesh AI runs 100% offline.
-
-**Q: Why does Image-to-3D not use a text prompt?**  
-A: Mode B is designed for artists who already have an image. It bypasses diffusion entirely so that your exact artwork is reconstructed into 3D without random AI changes.
-
-**Q: Can I use the generated models commercially in my game?**  
-A: Yes! The assets generated by TripoSR and SD-Turbo belong to you and can be exported for use in indie games, animations, and commercial projects.
-
-**Q: How do I edit my 3D model after it is generated?**  
-A: You can click `Open in Blender` to edit vertices, sculpt, or rig the model in Blender. You can also use the **AI Artist** tab in the right panel to type natural-language requests like *"Bevel edges by 2mm and set metallic material to gold"*.
+### Per-Job Isolated Workspaces
+- All generated meshes, textures, logs, and intermediary files are stored in unique timestamped folders (`output/triposr_<timestamp>_<uuid>/`).
+- Shared collision-prone folders (such as `output/meshes`) have been eliminated.
 
 ---
 
-## 12. Beginner 3D Graphics Glossary
+## 5. Beginner's Guide to Modifiers & Settings
 
-* **Mesh:** The 3D digital object itself, constructed from vertices, edges, and faces that form a geometric shape.
-* **Vertex (plural: Vertices):** A single point in 3D space with X, Y, and Z coordinates.
-* **Face (Polygon):** The flat surface enclosed by edges. Modern game engines prefer **quads** (4-sided faces) or **triangles** (3-sided faces).
-* **Topology:** The layout and organization of vertices and polygons across the surface of a 3D model. Clean topology consists of even, quad-dominant grid loops that bend and animate naturally without tearing.
-* **High-Poly vs. Low-Poly:** High-poly meshes have hundreds of thousands of triangles to capture microscopic detail (too heavy for games). Low-poly meshes have fewer polygons (5K–15K) to run at high frame rates in real-time games.
-* **Retopology:** The process of converting a messy, dense high-poly mesh into a clean, optimized low-poly mesh. Local Mesh AI does this automatically!
-* **UV Mapping:** Unfolding the 3D surface of an object onto a flat 2D plane (like peeling an orange) so that 2D pictures (textures) can be painted onto it.
-* **Normal Map:** A special purple-blue texture image that tricks the lighting engine into showing fine surface bumps, grooves, and micro-details without adding extra polygons.
-* **Diffuse Map (Albedo):** The base color texture map of the object without baked lighting or shadows.
-* **PBR (Physically Based Rendering):** A modern shading technique that simulates how light bounces off real-world materials like metal, wood, glass, and stone.
-* **Baking:** Calculating the micro-details and colors from the high-poly mesh and transferring them directly into Normal and Diffuse 2D texture maps.
+| Setting | Default Value | Plain-Language Description | When to Change It |
+| :--- | :--- | :--- | :--- |
+| **mc_resolution** | `256` | Marching Cubes voxel grid resolution. | Set to `128` for ultra-fast draft mode (~10s); `256` for standard (~30s). |
+| **chunk_size** | `8192` | Point evaluation batch size during meshing. | Lower to `4096` if VRAM is under 4GB to prevent OOM. |
+| **target_height_m**| `1.0m` | Desired real-world height in meters. | Adjust per asset (e.g., `0.3m` for a bottle, `1.2m` for a sword, `1.8m` for a character). |
+| **watertight** | `True` | Requires mesh to have 0 open boundary edges. | Always keep `True` for 3D printing and physics simulations. |
+| **decimate_ratio** | `0.5` | Target polygon triangle reduction ratio. | Use `0.3`–`0.5` for mobile games; leave empty for high-poly raw sculpt. |
+
+---
+
+## 6. Exporting Assets to Game Engines (Unreal / Unity / Godot)
+
+1. **Unreal Engine 5:**
+   - Drag and drop the generated `.glb` file into the Content Browser.
+   - UE5 will automatically import the geometry, hierarchy, and materials.
+2. **Unity:**
+   - Place the `.glb` into your `Assets/Models` folder.
+   - Use the Unity glTFast package or convert to FBX via Blender.
+3. **Godot 4:**
+   - Drag the `.glb` directly into the Godot FileSystem panel. Godot provides native glTF 2.0 support.
+
+---
+
+## 7. Troubleshooting & Diagnostics
+
+### Issue 1: "PermissionError: [WinError 5] Access is denied: 'output'"
+- **Cause:** Process running in a sandboxed shell attempting to write to external drive `E:\`.
+- **Solution:** Run with standard user execution privileges or allow script bypass permissions.
+
+### Issue 2: "llama.dll: The specified module could not be found (WinError 126)"
+- **Cause:** Windows DLL loader cannot find CUDA 12.4 runtime libraries (`cudart64_12.dll`, `cublas64_12.dll`).
+- **Solution:** The system includes automatic DLL pre-loading in `core/qwen_planner.py` pointing to `.venv/Lib/site-packages/torch/lib`. Ensure PyTorch CUDA 12.4 is installed in `.venv`.
+
+### Issue 3: "CUDA Out of Memory (OOM)"
+- **Cause:** Concurrent processes holding VRAM or unreleased cache.
+- **Solution:** Verify the lock file with `python -c "from core.gpu_broker import gpu_broker; gpu_broker.purge_vram()"` and ensure no other background tasks are holding the GPU.
+
+---
+
+## 8. 3D Graphics Glossary for Beginners
+
+* **GLB / glTF:** GL Transmission Format. The modern standard for 3D web and game engines, storing geometry, materials, and textures in a single binary file.
+* **Vertex / Face:** Vertices are the points in 3D space; faces are the polygons formed by connecting vertices.
+* **Watertight:** A mesh with no holes or self-intersecting boundaries—solid and manifold.
+* **Marching Cubes:** An algorithm that turns volumetric neural density fields into polygonal 3D surfaces.
+* **PBR (Physically Based Rendering):** Modern realistic shading based on physical light transport (Base Color, Metallic, Roughness, Normal).
