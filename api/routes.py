@@ -8,7 +8,17 @@ import shutil
 import subprocess
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
-from api.schemas import CreateJobRequest, JobResponse, EditJobRequest, ExportJobRequest
+from api.schemas import (
+    CreateJobRequest,
+    JobResponse,
+    EditJobRequest,
+    ExportJobRequest,
+    AnalyzeGeometryRequest,
+    DecomposeComponentsRequest,
+    AlignAndGroundRequest,
+    BoundedCorrectionRequest,
+    ExecuteToolRequest
+)
 from services.job_manager import job_manager
 from services.export_service import export_service
 from core.gpu_broker import gpu_broker
@@ -17,6 +27,11 @@ from core.hardware_detector import hardware_detector
 from core.engines.registry import engine_registry
 from core.model_manager import model_manager
 from core.geometry_validator import geometry_validator
+from core.geometry_analyzer import geometry_analyzer
+from core.component_decomposer import component_decomposer
+from core.precision_aligner import precision_aligner
+from core.tool_registry import tool_registry
+from core.bounded_correction_loop import bounded_correction_loop
 
 router = APIRouter()
 
@@ -227,3 +242,88 @@ def export_job_asset(job_id: str, req: ExportJobRequest):
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+# ==============================================================================
+# Phase 2 Geometry Analysis, Component Decomposition & Precision Alignment
+# ==============================================================================
+
+@router.post("/api/geometry/analyze")
+def analyze_mesh_geometry(req: AnalyzeGeometryRequest):
+    """Inspects mesh data and returns structured metrics and topology diagnostics."""
+    if not os.path.exists(req.mesh_path):
+        raise HTTPException(status_code=404, detail=f"Mesh file not found: {req.mesh_path}")
+    try:
+        report = geometry_analyzer.analyze_mesh(req.mesh_path)
+        return report.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Geometry analysis failed: {str(e)}")
+
+@router.post("/api/geometry/decompose")
+def decompose_mesh_components(req: DecomposeComponentsRequest):
+    """Decomposes mesh into candidate geometric components and constructs a hierarchy."""
+    if not os.path.exists(req.mesh_path):
+        raise HTTPException(status_code=404, detail=f"Mesh file not found: {req.mesh_path}")
+    try:
+        hierarchy = component_decomposer.decompose(
+            mesh_or_path=req.mesh_path,
+            asset_id=req.asset_id,
+            method=req.method,
+            min_face_threshold=req.min_faces,
+            output_dir=req.output_dir
+        )
+        return hierarchy.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Component decomposition failed: {str(e)}")
+
+@router.post("/api/geometry/align")
+def align_and_calibrate_mesh(req: AlignAndGroundRequest):
+    """Applies precision grounding, orientation normalization, and metric scale calibration."""
+    if not os.path.exists(req.mesh_path):
+        raise HTTPException(status_code=404, detail=f"Mesh file not found: {req.mesh_path}")
+    try:
+        mesh, result = precision_aligner.execute_alignment(
+            mesh_or_path=req.mesh_path,
+            output_path=req.output_path,
+            ground_z=req.ground_z,
+            center_xy=req.center_xy,
+            normalize_orientation=req.normalize_orientation,
+            target_height_m=req.target_height_m,
+            enforce_symmetry_plane=req.enforce_symmetry_plane
+        )
+        return result.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Precision alignment failed: {str(e)}")
+
+@router.post("/api/geometry/correct")
+def run_bounded_correction(req: BoundedCorrectionRequest):
+    """Executes bounded iterative feedback loop: Plan -> Validate -> Execute -> Measure -> Evaluate."""
+    if not os.path.exists(req.mesh_path):
+        raise HTTPException(status_code=404, detail=f"Mesh file not found: {req.mesh_path}")
+    try:
+        report = bounded_correction_loop.run_loop(
+            mesh_path=req.mesh_path,
+            target_height_m=req.target_height_m,
+            target_upright=req.target_upright,
+            target_grounded=req.target_grounded,
+            max_attempts=req.max_attempts
+        )
+        return report.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bounded correction failed: {str(e)}")
+
+@router.get("/api/tools")
+def list_allowlisted_tools():
+    """Returns all safe, allowlisted geometry tools."""
+    return [t.model_dump() for t in tool_registry.list_tools()]
+
+@router.post("/api/tools/execute")
+def execute_allowlisted_tool(req: ExecuteToolRequest):
+    """Executes a strictly allowlisted tool under schema validation."""
+    try:
+        res = tool_registry.execute_tool(req.tool_name, req.arguments)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool execution error: {str(e)}")
+

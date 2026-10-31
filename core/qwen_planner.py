@@ -12,9 +12,16 @@ import json
 import re
 import ctypes
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from core.gpu_broker import gpu_broker
-from core.command_schemas import CommandPlan, TechnicalArtistPlan
+from core.command_schemas import (
+    CommandPlan,
+    TechnicalArtistPlan,
+    ComponentSemanticProposal,
+    ComponentSemanticAssignment,
+    PrecisionCorrectionPlan,
+    PrecisionToolCall
+)
 
 logger = logging.getLogger("QwenPlanner")
 
@@ -141,6 +148,55 @@ Schema Fields Required in JSON:
       "priority": "medium" | "high" | "critical"
     }
   ]
+}
+"""
+
+
+SEMANTIC_INTERPRETATION_SYSTEM_PROMPT = """You are an expert AI 3D Technical Artist and Anatomical Segmenter.
+Given a 3D asset description and a list of geometrically detected candidate components (with bounding dimensions and relative vertical heights),
+you propose semantic labels (e.g. blade, crossguard, grip, pommel for a sword; or seat, backrest, legs for a chair).
+If an assignment cannot be determined with high certainty based on geometric evidence, set confidence < 0.70 and is_uncertain = true.
+
+Output strictly valid JSON matching this schema:
+{
+  "version": "2.0",
+  "asset_id": "asset_id",
+  "category": "weapon" | "furniture" | "prop" | "vehicle" | "architecture",
+  "assignments": [
+    {
+      "component_id": "comp_id",
+      "assigned_semantic_label": "label_name",
+      "confidence": 0.0-1.0,
+      "is_uncertain": true|false,
+      "parent_component_id": null or "parent_id",
+      "reasoning": "Geometric rationale based on relative position and aspect ratio"
+    }
+  ],
+  "overall_confidence": 0.85,
+  "has_uncertain_components": false,
+  "summary": "Brief summary of component breakdown"
+}
+"""
+
+PRECISION_CORRECTION_SYSTEM_PROMPT = """You are an expert AI 3D Technical Artist for Precision Alignment and Calibration.
+Given a user request, current geometry measurements, and target dimensional constraints,
+you emit a sequence of allowlisted tool calls to correct orientation, grounding, symmetry, and scale.
+Available Tools in 'tool_calls':
+- align_and_ground: {"tool_name": "align_and_ground", "arguments": {"mesh_path": "...", "normalize_orientation": true, "ground_z": true, "center_xy": true, "target_height_m": 1.2}}
+- calibrate_scale: {"tool_name": "calibrate_scale", "arguments": {"mesh_path": "...", "target_height_m": 1.2}}
+- enforce_symmetry: {"tool_name": "enforce_symmetry", "arguments": {"mesh_path": "...", "symmetry_plane": "yz_plane"|"xz_plane"}}
+- decimate_mesh: {"tool_name": "decimate_mesh", "arguments": {"mesh_path": "...", "ratio": 0.5}}
+
+Output strictly valid JSON matching:
+{
+  "version": "2.0",
+  "plan_id": "corr_plan_01",
+  "asset_name": "asset_name",
+  "target_height_m": 1.2,
+  "target_upright": true,
+  "target_grounded": true,
+  "tool_calls": [ ... ],
+  "rationale": "Engineering justification"
 }
 """
 
@@ -294,6 +350,130 @@ class QwenPlanner:
             raise ValueError(f"Malformed JSON from Qwen: {e}")
 
         return TechnicalArtistPlan.model_validate(data)
+
+    def generate_semantic_interpretation(
+        self,
+        user_prompt: str,
+        asset_id: str,
+        candidate_components: List[Dict[str, Any]],
+        timeout: float = 120.0
+    ) -> ComponentSemanticProposal:
+        """
+        Receives candidate geometric components and prompts Qwen to assign semantic labels,
+        parent-child hierarchies, and confidence ratings.
+        """
+        candidates_summary = [
+            {
+                "component_id": c.get("component_id"),
+                "relative_z_position": c.get("relative_z_position"),
+                "dimensions": c.get("dimensions"),
+                "volume_ratio": c.get("volume_ratio"),
+                "face_count": c.get("face_count")
+            }
+            for c in candidate_components
+        ]
+
+        prompt = (
+            f"<|im_start|>system\n{SEMANTIC_INTERPRETATION_SYSTEM_PROMPT}<|im_end|>\n"
+            f"<|im_start|>user\nAsset Request: \"{user_prompt}\"\nAsset ID: \"{asset_id}\"\n"
+            f"Detected Geometric Candidate Components:\n{json.dumps(candidates_summary, indent=2)}\n"
+            f"Output the JSON ComponentSemanticProposal:<|im_end|>\n<|im_start|>assistant\n"
+        )
+
+        raw_response = ""
+        with gpu_broker.lease("Qwen_Semantic_Interpreter", timeout=timeout):
+            try:
+                self._load_model()
+                output = self._llm(
+                    prompt,
+                    max_tokens=800,
+                    temperature=0.1,
+                    stop=["<|im_end|>", "<|endoftext|>"]
+                )
+                raw_response = output["choices"][0]["text"].strip()
+            finally:
+                self._unload_model()
+
+        return self.parse_and_validate_semantic_proposal(raw_response)
+
+    def parse_and_validate_semantic_proposal(self, text: str) -> ComponentSemanticProposal:
+        clean_text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+        clean_text = re.sub(r"```$", "", clean_text.strip(), flags=re.MULTILINE)
+
+        json_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+        if not json_match:
+            raise ValueError(f"Could not extract valid JSON from Qwen response: {text[:200]}")
+
+        json_str = json_match.group(0)
+        json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Malformed JSON from Qwen: {e}")
+
+        return ComponentSemanticProposal.model_validate(data)
+
+    def generate_precision_correction_plan(
+        self,
+        user_prompt: str,
+        asset_name: str,
+        geometry_report: Dict[str, Any],
+        target_height_m: Optional[float] = None,
+        timeout: float = 120.0
+    ) -> PrecisionCorrectionPlan:
+        """
+        Generates a sequence of allowlisted tool calls to correct geometry, orientation, and dimensions.
+        """
+        geom_summary = {
+            "dimensions": geometry_report.get("bounds", {}).get("dimensions"),
+            "is_upright": geometry_report.get("orientation", {}).get("is_upright"),
+            "estimated_up_axis": geometry_report.get("orientation", {}).get("estimated_up_axis"),
+            "is_watertight": geometry_report.get("topology", {}).get("is_watertight"),
+            "symmetry_plane": geometry_report.get("symmetry", {}).get("primary_plane"),
+            "symmetry_score": geometry_report.get("symmetry", {}).get("deviation_score")
+        }
+
+        prompt = (
+            f"<|im_start|>system\n{PRECISION_CORRECTION_SYSTEM_PROMPT}<|im_end|>\n"
+            f"<|im_start|>user\nAsset Request: \"{user_prompt}\"\nAsset Name: \"{asset_name}\"\n"
+            f"Target Height (m): {target_height_m}\n"
+            f"Measured Geometry Summary:\n{json.dumps(geom_summary, indent=2)}\n"
+            f"Output the JSON PrecisionCorrectionPlan:<|im_end|>\n<|im_start|>assistant\n"
+        )
+
+        raw_response = ""
+        with gpu_broker.lease("Qwen_Precision_Planner", timeout=timeout):
+            try:
+                self._load_model()
+                output = self._llm(
+                    prompt,
+                    max_tokens=650,
+                    temperature=0.1,
+                    stop=["<|im_end|>", "<|endoftext|>"]
+                )
+                raw_response = output["choices"][0]["text"].strip()
+            finally:
+                self._unload_model()
+
+        return self.parse_and_validate_correction_plan(raw_response)
+
+    def parse_and_validate_correction_plan(self, text: str) -> PrecisionCorrectionPlan:
+        clean_text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+        clean_text = re.sub(r"```$", "", clean_text.strip(), flags=re.MULTILINE)
+
+        json_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+        if not json_match:
+            raise ValueError(f"Could not extract valid JSON from Qwen response: {text[:200]}")
+
+        json_str = json_match.group(0)
+        json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Malformed JSON from Qwen: {e}")
+
+        return PrecisionCorrectionPlan.model_validate(data)
+
 
 
 # Global planner instance

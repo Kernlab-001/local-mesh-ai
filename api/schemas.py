@@ -65,3 +65,38 @@ class ExportJobRequest(BaseModel):
         pattern=r"^[a-zA-Z0-9_\-]+$",
         description="Safe filename identifier (alphanumeric, underscore, dash only)"
     )
+
+# ==============================================================================
+# Phase 2 Geometry & Component Analysis API Schemas
+# ==============================================================================
+
+class AnalyzeGeometryRequest(BaseModel):
+    mesh_path: str = Field(..., description="Path to mesh to analyze")
+
+class DecomposeComponentsRequest(BaseModel):
+    mesh_path: str = Field(...)
+    method: str = Field(default="auto", description="auto | connected | spatial | color")
+    asset_id: Optional[str] = Field(default=None)
+    min_faces: int = Field(default=100, ge=10, le=10000)
+    output_dir: Optional[str] = Field(default=None)
+
+class AlignAndGroundRequest(BaseModel):
+    mesh_path: str = Field(...)
+    output_path: Optional[str] = Field(default=None)
+    ground_z: bool = Field(default=True)
+    center_xy: bool = Field(default=True)
+    normalize_orientation: bool = Field(default=True)
+    target_height_m: Optional[float] = Field(default=None, ge=0.01, le=100.0)
+    enforce_symmetry_plane: Optional[str] = Field(default=None)
+
+class BoundedCorrectionRequest(BaseModel):
+    mesh_path: str = Field(...)
+    target_height_m: Optional[float] = Field(default=None, ge=0.01, le=100.0)
+    target_upright: bool = Field(default=True)
+    target_grounded: bool = Field(default=True)
+    max_attempts: int = Field(default=3, ge=1, le=5)
+
+class ExecuteToolRequest(BaseModel):
+    tool_name: str = Field(..., description="Allowlisted tool name")
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
