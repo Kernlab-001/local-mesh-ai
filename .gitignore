@@ -28,13 +28,21 @@ venv/
 ENV/
 env/
 
-# Large Model Weights (>100MB, cannot be pushed to GitHub)
+# Large Model Weights & Checkpoints (>100MB, cannot be pushed to GitHub)
+*.ckpt
 *.gguf
 *.bin
 *.pth
 *.pt
 *.safetensors
 *.onnx
+models/
+model_cache/
+downloaded_models/
+*.download
+*.part
+*.crdownload
+*.incomplete
 
 # Local Generated Job Artifacts & Inputs
 output/

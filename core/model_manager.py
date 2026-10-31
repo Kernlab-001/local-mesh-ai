@@ -158,30 +158,40 @@ class ModelManager:
         return catalog
 
     def is_model_installed(self, model: ModelMetadata) -> bool:
-        """Determines if the model weights are present locally."""
+        """Determines if the model weights are present and verified locally."""
+        from core.download_manager import download_manager
+
+        # TripoSR specific verification (requires config.yaml, model.ckpt, and dino config.json)
+        if model.model_id == "triposr":
+            stat = download_manager.verify_triposr_status()
+            return bool(stat.get("ready_for_offline_inference", False))
+
+        # Qwen LLM specific verification (checks GGUF file existence and non-zero size)
+        if model.model_id == "qwen2.5_coder":
+            q_stat = download_manager.verify_qwen_status()
+            return q_stat.get("state") == "fully_installed"
+
         # 1. Local path check
-        if model.local_path and Path(model.local_path).exists():
+        if model.local_path and Path(model.local_path).exists() and Path(model.local_path).stat().st_size > 1000:
             return True
 
-        # 2. Check models directory
+        # 2. Check models directory for non-empty model files
         local_dir = self.models_root / model.model_id
-        if local_dir.exists() and any(local_dir.iterdir()):
-            return True
+        if local_dir.exists():
+            files = [f for f in local_dir.rglob("*") if f.is_file() and f.stat().st_size > 100_000]
+            if files:
+                return True
 
-        # 3. Check Hugging Face hub cache
+        # 3. Check Hugging Face hub cache for actual non-empty snapshots
         if model.hf_repo_id and self._hf_cache_dir.exists():
             cache_folder_name = "models--" + model.hf_repo_id.replace("/", "--")
             hf_path = self._hf_cache_dir / cache_folder_name
             if hf_path.exists() and (hf_path / "snapshots").exists():
-                snapshots = list((hf_path / "snapshots").iterdir())
-                if snapshots and any(s.iterdir() for s in snapshots if s.is_dir()):
-                    return True
-
-        # 4. Check TripoSR specific directory
-        if model.model_id == "triposr":
-            triposr_dir = self.project_root / "TripoSR"
-            if triposr_dir.exists() and (triposr_dir / "pretrained_weights").exists():
-                return True
+                for s in (hf_path / "snapshots").iterdir():
+                    if s.is_dir():
+                        real_files = [f for f in s.rglob("*") if f.is_file() and f.stat().st_size > 100_000]
+                        if real_files:
+                            return True
 
         return False
 

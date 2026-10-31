@@ -1,66 +1,42 @@
 """
 TripoSR Inference Controller with Dynamic Hardware Tuning.
-Manages isolated execution, automatic parameter tuning,
+Wraps the hardened TripoSREngine to provide backward-compatible API
+with strict per-job output isolation, dynamic hardware tuning,
 and immediate memory evacuation.
 Supports both CUDA GPU and CPU fallback execution.
 """
 
 import os
 import sys
-import subprocess
 from pathlib import Path
-import torch
+from typing import Optional
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-def run_triposr_inference(image_path, output_dir=None, python_exe=None, device=None):
-    if not python_exe:
-        python_exe = sys.executable
+from core.triposr_engine import triposr_engine
 
-    out_dir = output_dir or str(ROOT_DIR / "output" / "meshes")
-    os.makedirs(out_dir, exist_ok=True)
-    triposr_dir = str(ROOT_DIR / "TripoSR")
-    run_script = os.path.join(triposr_dir, "run.py")
 
-    if not os.path.exists(run_script):
-        raise FileNotFoundError(f"TripoSR run script not found at {run_script}")
-
-    if not device:
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-    cmd = [
-        python_exe, run_script,
-        image_path,
-        "--output-dir", out_dir,
-        "--mc-resolution", "256",
-        "--chunk-size", "8192",
-        "--model-save-format", "glb",
-        "--device", device,
-        "--render"
-    ]
-
-    print(f"[TripoSR] Launching neural reconstruction on {device} (Image: {image_path})...")
-    try:
-        result = subprocess.run(cmd, cwd=triposr_dir, capture_output=True, text=True, timeout=180.0)
-    except subprocess.TimeoutExpired:
-        raise TimeoutError("TripoSR neural reconstruction timed out after 180 seconds.")
-
-    if result.returncode != 0:
-        print("[TripoSR Error Output]:", result.stderr)
-        raise RuntimeError(f"TripoSR generation failed: {result.stderr}")
-
-    expected_mesh = os.path.join(out_dir, "0", "mesh.glb")
-    if not os.path.exists(expected_mesh):
-        # Fallback check for any .glb in out_dir
-        for root, dirs, files in os.walk(out_dir):
-            for f in files:
-                if f.endswith(".glb"):
-                    found = os.path.join(root, f)
-                    if os.path.getsize(found) > 0:
-                        return found
-
-    if not os.path.exists(expected_mesh) or os.path.getsize(expected_mesh) == 0:
-        raise RuntimeError(f"TripoSR completed but mesh file was not found in {out_dir}")
-
-    print(f"[TripoSR] Successfully generated 3D mesh: {expected_mesh}")
-    return expected_mesh
+def run_triposr_inference(
+    image_path: str,
+    output_dir: Optional[str] = None,
+    python_exe: Optional[str] = None,
+    device: Optional[str] = None,
+    mc_resolution: int = 256,
+    chunk_size: int = 8192,
+    render: bool = False
+) -> str:
+    """
+    Executes neural 3D reconstruction using hardened TripoSREngine.
+    Enforces isolated job output directory and returns the absolute path to the generated GLB mesh.
+    """
+    res = triposr_engine.reconstruct(
+        image_path=image_path,
+        mc_resolution=mc_resolution,
+        chunk_size=chunk_size,
+        render_turntable=render,
+        device=device,
+        output_dir=output_dir
+    )
+    return res["mesh_path"]
