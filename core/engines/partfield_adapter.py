@@ -1,21 +1,23 @@
-"""
-Specialist 3D Part Decomposition Engine Adapter (PartField / Feature Field Segmentation).
-Implements the specialist 3D perception stage for Local Mesh AI.
+"""Specialist 3D Part Decomposition Engine Adapter (NVIDIA PartField / Feature Field Segmentation).
 
-Investigates and interfaces with NVIDIA's PartField:
-- Official repo: https://github.com/nv-tlabs/PartField
-- Checkpoint: Objaverse-trained continuous feature-field triplane network
-- Isolated environment support: Python 3.10 / PyTorch 2.4 sub-environment execution
-- High-fidelity native geometric feature-field clustering fallback for 100% offline CPU/GPU execution.
+Implements the specialist 3D perception stage for Local Mesh AI:
+- Interfaces with NVIDIA PartField continuous feature-field triplane network.
+- Uses upstream model_objaverse.ckpt weights trained on Objaverse.
+- Executes isolated neural worker in workers/partfield/run_segmentation.py.
+- Strictly distinguishes genuine 'partfield_neural' from deterministic 'geometric_feature_field' fallbacks.
 """
 
-import os
-import sys
+from __future__ import annotations
+
 import json
 import logging
+import os
 import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 import numpy as np
 
 try:
@@ -27,17 +29,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.engines.base import Base3DEngine, EngineStatus, StandardizedAsset
 from core.component_decomposer import ComponentHierarchy, ComponentNode, component_decomposer
+from core.engines.base import Base3DEngine, EngineStatus, StandardizedAsset
 from core.geometry_analyzer import BoundingBox3D, geometry_analyzer
 from core.hardware_detector import hardware_detector
+from core.model_paths import model_path_resolver
 
 logger = logging.getLogger("PartFieldAdapter")
 
 
 class GeometricFeatureFieldClusterer:
-    """
-    High-fidelity geometric feature-field decomposition engine.
+    """High-fidelity geometric feature-field decomposition engine.
+
     Calculates multi-scale continuous geometric feature fields:
     - Normal orientation variance
     - Principle curvature tensor eigenvalues
@@ -51,10 +54,10 @@ class GeometricFeatureFieldClusterer:
         cls,
         mesh: trimesh.Trimesh,
         k_clusters: int = 4,
-        min_face_ratio: float = 0.05
+        min_face_ratio: float = 0.05,
     ) -> List[Tuple[trimesh.Trimesh, str, float]]:
-        """
-        Segments a mesh into candidate components with confidence scores.
+        """Segments a mesh into candidate components with confidence scores.
+
         Returns List of (submesh, component_tag, confidence).
         """
         faces = np.asarray(mesh.faces)
@@ -69,28 +72,22 @@ class GeometricFeatureFieldClusterer:
             return [(p, f"part_cc_{i+1}", 0.85) for i, p in enumerate(valid_connected)]
 
         # Continuous Geometric Feature Field calculation per face
-        # 1. Face centroids
         centroids = np.mean(vertices[faces], axis=1)
-        # 2. Face normals
         normals = mesh.face_normals
-        # 3. Normalized elevation along Z and Y
         bounds = mesh.bounds
         extents = np.maximum(mesh.extents, 1e-6)
         norm_pos = (centroids - bounds[0]) / extents
 
-        # 4. Feature vector per face: [norm_pos_x, norm_pos_y, norm_pos_z, normal_x, normal_y, normal_z]
-        # Weight spatial elevation and normals to detect structural junctions
         features = np.column_stack([
             norm_pos[:, 0] * 1.5,
             norm_pos[:, 1] * 1.5,
-            norm_pos[:, 2] * 3.0,  # Z-elevation strongly distinguishes functional components (seat vs legs vs backrest)
+            norm_pos[:, 2] * 3.0,
             normals[:, 0] * 0.8,
             normals[:, 1] * 0.8,
             normals[:, 2] * 1.0,
         ])
 
         try:
-            # Pure NumPy K-Means clustering (dependency-free)
             actual_k = min(k_clusters, max(2, n_faces // min_faces))
             np.random.seed(42)
             indices = np.random.choice(n_faces, actual_k, replace=False)
@@ -98,7 +95,6 @@ class GeometricFeatureFieldClusterer:
 
             labels = np.zeros(n_faces, dtype=int)
             for _ in range(10):
-                # Distance to centers
                 dists = np.linalg.norm(features[:, None, :] - centers[None, :, :], axis=2)
                 new_labels = np.argmin(dists, axis=1)
                 if np.array_equal(labels, new_labels):
@@ -132,24 +128,31 @@ class GeometricFeatureFieldClusterer:
 
 
 class PartFieldAdapter(Base3DEngine):
-    """
-    Adapter for NVIDIA PartField 3D feature-field part decomposition.
-    Gracefully detects environment status, isolated worker availability,
-    and falls back to deterministic multi-scale geometric feature-field clustering.
+    """Adapter for NVIDIA PartField 3D neural part decomposition.
+
+    Manages checkpoint discovery, worker script execution, GPU lease release,
+    and structured component hierarchy generation with clear provenance.
     """
 
     def __init__(self, external_models_root: Optional[str] = None):
         super().__init__(
             engine_id="partfield",
             name="PartField 3D Part Decomposition Engine",
-            description="Specialist 3D continuous feature-field neural part decomposition by NVIDIA Research."
+            description="Specialist 3D continuous feature-field neural part decomposition by NVIDIA Research.",
         )
-        self.models_root = Path(
-            external_models_root or os.environ.get("LOCAL_MESH_MODELS_ROOT") or "E:\\LocalMeshAI-Data\\models"
-        )
-        self.partfield_dir = self.models_root / "partfield"
-        self.checkpoint_path = self.partfield_dir / "partfield_objaverse.pt"
-        self.isolated_python = os.environ.get("PARTFIELD_PYTHON_BIN")
+        self.worker_script = PROJECT_ROOT / "workers" / "partfield" / "run_segmentation.py"
+
+    def resolve_checkpoint(self) -> Optional[Path]:
+        """Resolves PartField checkpoint using central resolver."""
+        return model_path_resolver.resolve_partfield_checkpoint()
+
+    def resolve_python_bin(self) -> str:
+        """Resolves Python executable for PartField worker."""
+        return model_path_resolver.resolve_partfield_python()
+
+    def resolve_partfield_repo(self) -> Optional[Path]:
+        """Resolves upstream PartField source directory."""
+        return model_path_resolver.resolve_partfield_repo()
 
     @property
     def supported_modalities(self) -> List[str]:
@@ -163,42 +166,55 @@ class PartFieldAdapter(Base3DEngine):
             "hierarchical_parts": True,
             "watertight": True,
             "isolated_env_supported": True,
+            "neural_provenance_tagged": True,
         }
 
     @property
     def hardware_requirements(self) -> Dict[str, Any]:
         return {
-            "min_vram_gb": 4.0,
-            "recommended_vram_gb": 6.0,
+            "min_vram_gb": 2.0,
+            "recommended_vram_gb": 4.0,
             "requires_cuda": False,
             "supports_cpu": True,
-            "recommended_precision": "fp16",
+            "recommended_precision": "fp32",
         }
 
     def get_status(self) -> EngineStatus:
-        """Determines truthfully whether PartField is installed and ready."""
-        # 1. Check if checkpoint exists
-        if not self.checkpoint_path.exists():
+        """Determines truthfully whether PartField neural inference is ready."""
+        ckpt = self.resolve_checkpoint()
+        if not ckpt:
             return EngineStatus.WEIGHTS_MISSING
 
-        # 2. Check if isolated Python environment is configured
-        if self.isolated_python and Path(self.isolated_python).exists():
-            return EngineStatus.READY
+        if not self.worker_script.exists():
+            return EngineStatus.DEPENDENCIES_MISSING
 
-        return EngineStatus.DEPENDENCIES_MISSING
+        repo = self.resolve_partfield_repo()
+        if not repo:
+            return EngineStatus.DEPENDENCIES_MISSING
+
+        return EngineStatus.READY
 
     def get_status_details(self) -> Dict[str, Any]:
-        """Returns detailed explanation of PartField status."""
+        """Returns detailed explanation of PartField status and environment."""
         status = self.get_status()
+        ckpt = self.resolve_checkpoint()
+        repo = self.resolve_partfield_repo()
         return {
             "status": status.value,
             "engine_id": self.engine_id,
-            "checkpoint_path": str(self.checkpoint_path),
-            "checkpoint_exists": self.checkpoint_path.exists(),
-            "isolated_python_bin": self.isolated_python,
-            "isolated_python_configured": bool(self.isolated_python and Path(self.isolated_python).exists()),
-            "geometric_feature_field_fallback_ready": True,
-            "notes": "PartField neural feature-field requires Python 3.10 and PyTorch 2.4. Native geometric feature field clustering is ready for offline execution."
+            "checkpoint_path": str(ckpt) if ckpt else None,
+            "checkpoint_exists": bool(ckpt and ckpt.exists()),
+            "worker_script_path": str(self.worker_script),
+            "worker_script_exists": self.worker_script.exists(),
+            "partfield_repo_path": str(repo) if repo else None,
+            "partfield_repo_exists": bool(repo and repo.exists()),
+            "python_bin": self.resolve_python_bin(),
+            "license": "NVIDIA Proprietary / Non-Commercial Research License",
+            "notes": (
+                "Genuine NVIDIA PartField neural inference ready."
+                if status == EngineStatus.READY
+                else f"PartField unavailable ({status.value}). Deterministic geometric fallback available if requested."
+            ),
         }
 
     def validate_input(self, input_data: Any, modality: str) -> Tuple[bool, Optional[str]]:
@@ -210,9 +226,9 @@ class PartFieldAdapter(Base3DEngine):
         return True, None
 
     def estimate_vram_gb(self, modality: str, params: Optional[Dict[str, Any]] = None) -> float:
-        """Estimates VRAM required: 4.5 GB for isolated neural worker, 0.0 GB for CPU fallback."""
+        """Estimates VRAM required: ~1.2 GB peak for PartField neural inference, 0.0 GB for CPU fallback."""
         if self.get_status() == EngineStatus.READY:
-            return 4.5
+            return 1.5
         return 0.0
 
     def generate(
@@ -222,7 +238,7 @@ class PartFieldAdapter(Base3DEngine):
         modality: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None,
-        **kwargs
+        **kwargs,
     ) -> StandardizedAsset:
         """Executes segmentation and returns standardized representation."""
         if progress_callback:
@@ -230,7 +246,14 @@ class PartFieldAdapter(Base3DEngine):
 
         params = params or {}
         num_clusters = params.get("num_clusters", 4)
-        hierarchy = self.decompose_mesh(input_data, num_clusters=num_clusters, output_dir=output_dir)
+        allow_fallback = params.get("allow_fallback", True)
+
+        hierarchy = self.decompose_mesh(
+            input_data,
+            num_clusters=num_clusters,
+            output_dir=output_dir,
+            allow_fallback=allow_fallback,
+        )
 
         if progress_callback:
             progress_callback("Component decomposition complete.", 100)
@@ -243,34 +266,44 @@ class PartFieldAdapter(Base3DEngine):
             face_count=sum(c.face_count for c in hierarchy.components.values() if "root" not in c.component_id),
             engine_id=self.engine_id,
             engine_name=self.name,
-            diagnostics={"total_components": hierarchy.total_components, "methods_used": hierarchy.methods_used}
+            diagnostics={
+                "total_components": hierarchy.total_components,
+                "methods_used": hierarchy.methods_used,
+            },
         )
 
     def decompose_mesh(
         self,
         mesh_or_path: Any,
         num_clusters: int = 4,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
+        allow_fallback: bool = True,
+        device: str = "cuda",
     ) -> ComponentHierarchy:
-        """
-        Decomposes a mesh into candidate components using PartField or geometric feature fields.
-        Returns a complete, typed ComponentHierarchy.
+        """Decomposes a mesh into candidate components using PartField or geometric feature fields.
+
+        Returns a complete, typed ComponentHierarchy with honest provenance.
         """
         mesh, source_path = component_decomposer._resolve_mesh(mesh_or_path)
         status = self.get_status()
 
-        # If isolated PartField environment is fully ready, launch sub-process worker
+        # If neural PartField is ready, execute genuine neural worker
         if status == EngineStatus.READY:
             try:
-                return self._run_isolated_partfield(source_path, num_clusters, output_dir)
+                return self._run_partfield_worker(source_path, num_clusters, output_dir, device=device)
             except Exception as e:
-                logger.warning(f"PartField isolated worker failed: {e}. Falling back to Geometric Feature Fields.")
+                logger.warning(f"PartField neural worker failed: {e}")
+                if not allow_fallback:
+                    raise RuntimeError(f"PartField neural inference failed and allow_fallback=False: {e}")
+                logger.info("Proceeding with clearly labeled geometric feature-field fallback.")
+        elif not allow_fallback:
+            raise RuntimeError(f"PartField neural model not ready ({status.value}) and allow_fallback=False")
 
-        # High-fidelity Geometric Feature Field decomposition fallback
+        # Deterministic Geometric Feature Field decomposition fallback
         clustered_submeshes = GeometricFeatureFieldClusterer.segment(mesh, k_clusters=num_clusters)
 
-        # Assemble into ComponentHierarchy
-        asset_id = f"asset_partfield_{Path(source_path).stem}"
+        # Assemble into ComponentHierarchy labeled as geometric_feature_field
+        asset_id = f"asset_{Path(source_path).stem}"
         report = geometry_analyzer.analyze_mesh(mesh)
         asset_bounds = report.bounds
 
@@ -281,7 +314,7 @@ class PartFieldAdapter(Base3DEngine):
             os.makedirs(output_dir, exist_ok=True)
 
         for idx, (subm, tag, conf) in enumerate(clustered_submeshes):
-            cid = f"comp_{idx:02d}_{tag}"
+            cid = f"comp_{idx+1:03d}_{tag}"
             child_ids.append(cid)
             sub_bounds = geometry_analyzer.analyze_mesh(subm).bounds
             rel_z = float((sub_bounds.center[2] - asset_bounds.min_point[2]) / max(1e-6, asset_bounds.dimensions[2]))
@@ -305,7 +338,7 @@ class PartFieldAdapter(Base3DEngine):
                 face_count=len(subm.faces),
                 volume_ratio=float(sub_bounds.volume / max(1e-6, asset_bounds.volume)),
                 relative_z_position=min(1.0, max(0.0, rel_z)),
-                segmentation_method="spatial_slice" if "spatial" in tag else "connected_components",
+                segmentation_method="geometric_feature_field",
                 submesh_path=sub_path,
             )
 
@@ -339,28 +372,129 @@ class PartFieldAdapter(Base3DEngine):
             is_decomposed=len(clustered_submeshes) > 1,
         )
 
-    def _run_isolated_partfield(self, mesh_path: str, num_clusters: int, output_dir: Optional[str]) -> ComponentHierarchy:
-        """Executes PartField script inside dedicated Python 3.10 environment."""
-        script_path = self.partfield_dir / "run_segmentation.py"
-        cmd = [
-            self.isolated_python,
-            str(script_path),
-            "--input", mesh_path,
-            "--checkpoint", str(self.checkpoint_path),
-            "--clusters", str(num_clusters),
-        ]
+    def _run_partfield_worker(
+        self,
+        mesh_path: str,
+        num_clusters: int,
+        output_dir: Optional[str],
+        device: str = "cuda",
+    ) -> ComponentHierarchy:
+        """Executes PartField neural worker in separate process and converts output."""
+        ckpt = self.resolve_checkpoint()
+        repo = self.resolve_partfield_repo()
+        python_bin = self.resolve_python_bin()
+
         if output_dir:
-            cmd.extend(["--output-dir", output_dir])
+            work_dir = Path(output_dir)
+        else:
+            work_dir = Path(mesh_path).parent / "partfield_output"
+        work_dir.mkdir(parents=True, exist_ok=True)
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if res.returncode != 0:
-            raise RuntimeError(f"PartField worker error: {res.stderr}")
+        json_output = work_dir / "partfield_segmentation.json"
+        submeshes_dir = work_dir / "submeshes"
 
-        # Worker emits JSON manifest
-        manifest_path = Path(output_dir or self.partfield_dir) / "hierarchy.json"
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        cmd = [
+            python_bin,
+            str(self.worker_script),
+            "--mesh", str(Path(mesh_path).resolve()),
+            "--output", str(json_output.resolve()),
+            "--checkpoint", str(ckpt),
+            "--partfield-repo", str(repo),
+            "--device", device,
+            "--k-clusters", str(num_clusters),
+            "--export-submeshes", str(submeshes_dir.resolve()),
+        ]
+
+        logger.info(f"Launching PartField worker: {' '.join(cmd)}")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if proc.returncode != 0:
+            raise RuntimeError(f"PartField worker exited with code {proc.returncode}: {proc.stderr}")
+
+        if not json_output.exists():
+            raise RuntimeError(f"PartField worker completed but output JSON was not found at {json_output}")
+
+        with open(json_output, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return ComponentHierarchy(**data)
+
+        if data.get("status") != "SUCCESS":
+            raise RuntimeError(f"PartField worker reported failure: {data.get('error_message')}")
+
+        asset_id = f"asset_{Path(mesh_path).stem}"
+        raw_components = data.get("components", [])
+
+        mesh = trimesh.load(mesh_path, force="mesh", process=False)
+        report = geometry_analyzer.analyze_mesh(mesh)
+        asset_bounds = report.bounds
+
+        components_dict: Dict[str, ComponentNode] = {}
+        child_ids: List[str] = []
+
+        for c in raw_components:
+            cid = c["component_id"]
+            child_ids.append(cid)
+            b_min = c["bbox_min"]
+            b_max = c["bbox_max"]
+            dims = c["dimensions"]
+            center = c["centroid"]
+            sub_bounds = BoundingBox3D(
+                min_point=b_min,
+                max_point=b_max,
+                dimensions=dims,
+                center=center,
+                volume=float(dims[0] * dims[1] * dims[2]),
+            )
+            rel_z = float((center[2] - asset_bounds.min_point[2]) / max(1e-6, asset_bounds.dimensions[2]))
+
+            components_dict[cid] = ComponentNode(
+                component_id=cid,
+                semantic_label=f"part_{c['label_id']}",
+                confidence=float(c.get("confidence", 0.8)),
+                is_uncertain=float(c.get("confidence", 0.8)) < 0.7,
+                parent_id=f"{asset_id}_root",
+                children_ids=[],
+                bounds=sub_bounds,
+                centroid=tuple(center),
+                dimensions=tuple(dims),
+                vertex_count=int(c.get("vertex_count", 0)),
+                face_count=int(c.get("face_count", 0)),
+                volume_ratio=float(sub_bounds.volume / max(1e-6, asset_bounds.volume)),
+                relative_z_position=min(1.0, max(0.0, rel_z)),
+                segmentation_method="partfield_neural",
+                submesh_path=c.get("submesh_path"),
+            )
+
+        root_node = ComponentNode(
+            component_id=f"{asset_id}_root",
+            semantic_label="Root_Assembly",
+            confidence=1.0,
+            is_uncertain=False,
+            parent_id=None,
+            children_ids=child_ids,
+            bounds=asset_bounds,
+            centroid=tuple(asset_bounds.center),
+            dimensions=tuple(asset_bounds.dimensions),
+            vertex_count=len(mesh.vertices),
+            face_count=len(mesh.faces),
+            volume_ratio=1.0,
+            relative_z_position=0.5,
+            segmentation_method="atomic_single",
+            submesh_path=mesh_path,
+        )
+        components_dict[root_node.component_id] = root_node
+
+        return ComponentHierarchy(
+            root_asset_id=asset_id,
+            provenance_mesh_path=mesh_path,
+            total_components=len(components_dict),
+            root_component_ids=[root_node.component_id],
+            components=components_dict,
+            methods_used=["partfield_neural"],
+            hierarchy_depth=2,
+            is_decomposed=len(raw_components) > 1,
+        )
+
+
+    decompose_partfield_neural = decompose_mesh
 
 
 partfield_adapter = PartFieldAdapter()

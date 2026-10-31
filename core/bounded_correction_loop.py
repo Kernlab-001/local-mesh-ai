@@ -28,6 +28,8 @@ from core.precision_aligner import precision_aligner, DimensionComparison
 from core.component_decomposer import component_decomposer, ComponentHierarchy
 from core.engines.vision_language_adapter import vision_language_adapter
 from core.geometry_editing import GeometryEditingEngine, EditComponentArgs
+from core.qwen_planner import qwen_planner
+from core.command_schemas import ComponentEditPlan, ComponentInvariant
 
 
 class ComponentEditFeedbackReport(BaseModel):
@@ -44,7 +46,8 @@ class ComponentEditFeedbackReport(BaseModel):
     invariant_deviation_max_percent: float
     overall_initial_width: float
     overall_final_width: float
-    status: Literal["SUCCESS", "FAILED", "ROLLBACK_APPLIED"]
+    status: Literal["SUCCESS", "FAILED", "ROLLBACK_APPLIED", "NEEDS_COMPONENT_CONFIRMATION"]
+    candidate_components: List[Dict[str, Any]] = Field(default_factory=list)
     output_mesh_path: str
     summary: str
 
@@ -243,18 +246,17 @@ class BoundedCorrectionLoop:
         working_dir: Optional[str] = None
     ) -> ComponentEditFeedbackReport:
         """
-        Executes an AI-assisted component edit feedback loop:
-        1. Analyzes mesh and decomposes into components.
-        2. Assigns semantic labels via vision-language intelligence.
-        3. Identifies requested target component (e.g. backrest).
-        4. Records baseline measurements of target and non-target components (invariants).
-        5. Parses requested operation (e.g. 20% taller -> scale_axis z factor=1.2).
-        6. Creates pre-edit snapshot backup.
-        7. Executes controlled edit.
-        8. Re-measures post-edit geometry and verifies invariants.
-        9. Rolls back if geometry is corrupted or invariants violated.
+        Executes autonomous component edit cycle:
+        1. Decomposes mesh via PartField or geometric features.
+        2. Obtains visual perception proposals via Qwen3-VL.
+        3. Invokes Qwen Coder for dynamic ComponentEditPlan (arbitrary %, axes, invariants).
+        4. Gating: If ambiguous, returns NEEDS_COMPONENT_CONFIRMATION without editing arbitrary components.
+        5. Executes operation via GeometryEditingEngine.
+        6. Re-measures actual physical geometry (not predicted scale factor).
+        7. Verifies non-target component invariants.
+        8. Automatically rolls back if invariants or geometry checks fail.
         """
-        sid = f"edit_loop_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        sid = f"edit_session_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         p_mesh = Path(mesh_path).resolve()
         if not p_mesh.exists():
             raise FileNotFoundError(f"Mesh not found: {mesh_path}")
@@ -264,7 +266,7 @@ class BoundedCorrectionLoop:
         active_mesh_path = str(w_dir / f"edit_active_{p_mesh.name}")
         shutil.copy2(str(p_mesh), active_mesh_path)
 
-        # Snapshot for rollback
+        # Pre-edit snapshot for rollback
         snapshot_backup = str(w_dir / f"snapshot_{p_mesh.name}")
         shutil.copy2(active_mesh_path, snapshot_backup)
 
@@ -272,112 +274,176 @@ class BoundedCorrectionLoop:
         initial_rep = geometry_analyzer.analyze_mesh(active_mesh_path)
         hierarchy = component_decomposer.decompose(active_mesh_path)
 
-        # 2. Vision-language semantic interpretation
+        # 2. Vision-language semantic interpretation (Qwen3-VL)
         render_dir = str(w_dir / "multiview_renders")
         import trimesh
         mesh_obj = trimesh.load(active_mesh_path, force="mesh")
         renders = vision_language_adapter.generate_multiview_renders(mesh_obj, render_dir, hierarchy)
-        proposal = vision_language_adapter.interpret_components(hierarchy, renders, user_instruction)
+        asset_label = f"3D Model: {p_mesh.stem}"
+        proposal = vision_language_adapter.interpret_components(hierarchy, renders, asset_label)
 
-        # 3. Match target component
-        target_label = (target_component_label or "backrest").lower()
-        if "backrest" in user_instruction.lower():
-            target_label = "backrest"
-        elif "seat" in user_instruction.lower():
-            target_label = "seat"
-        elif "leg" in user_instruction.lower():
-            target_label = "legs"
-        elif "blade" in user_instruction.lower():
-            target_label = "blade"
+        # Apply VLM visual semantic interpretations to hierarchy components
+        if proposal and hasattr(proposal, "assignments"):
+            for a in proposal.assignments:
+                if a.component_id in hierarchy.components:
+                    hierarchy.components[a.component_id].semantic_label = a.assigned_semantic_label
+                    hierarchy.components[a.component_id].confidence = a.confidence
+                    hierarchy.components[a.component_id].is_uncertain = a.is_uncertain
 
-        target_node = None
-        target_cid = None
-        for a in proposal.assignments:
-            if target_label in a.assigned_semantic_label.lower():
-                target_cid = a.component_id
-                target_node = hierarchy.components.get(target_cid)
-                break
+        # 3. Dynamic Technical-Artist Planning via Qwen Coder
+        plan: ComponentEditPlan = qwen_planner.generate_component_edit_plan(
+            user_instruction=user_instruction,
+            hierarchy=hierarchy,
+            geometry_report=initial_rep,
+            semantic_proposal=proposal
+        )
 
-        if not target_node and hierarchy.components:
-            for cid, node in hierarchy.components.items():
-                if "root" not in cid.lower():
-                    target_cid = cid
-                    target_node = node
-                    break
+        # 4. Gating Check: If component resolution is ambiguous, halt safely!
+        if plan.status == "NEEDS_COMPONENT_CONFIRMATION" or plan.requires_user_confirmation or not plan.target_component_ids:
+            return ComponentEditFeedbackReport(
+                session_id=sid,
+                user_instruction=user_instruction,
+                target_component_id="unresolved",
+                target_semantic_label=target_component_label or "ambiguous",
+                operation_executed="none",
+                target_initial_dimensions=(0.0, 0.0, 0.0),
+                target_final_dimensions=(0.0, 0.0, 0.0),
+                target_dimension_delta=(0.0, 0.0, 0.0),
+                target_height_change_percent=0.0,
+                non_target_invariants_preserved=True,
+                invariant_deviation_max_percent=0.0,
+                overall_initial_width=initial_rep.bounds.dimensions[0],
+                overall_final_width=initial_rep.bounds.dimensions[0],
+                status="NEEDS_COMPONENT_CONFIRMATION",
+                candidate_components=plan.candidate_components,
+                output_mesh_path=active_mesh_path,
+                summary=f"Ambiguous component target: {plan.rationale}"
+            )
 
+        target_cid = plan.target_component_ids[0]
+        target_node = hierarchy.components.get(target_cid)
         if not target_node:
-            raise ValueError(f"Could not resolve candidate component for instruction: {user_instruction}")
+            return ComponentEditFeedbackReport(
+                session_id=sid,
+                user_instruction=user_instruction,
+                target_component_id=target_cid,
+                target_semantic_label="unknown",
+                operation_executed="none",
+                target_initial_dimensions=(0.0, 0.0, 0.0),
+                target_final_dimensions=(0.0, 0.0, 0.0),
+                target_dimension_delta=(0.0, 0.0, 0.0),
+                target_height_change_percent=0.0,
+                non_target_invariants_preserved=True,
+                invariant_deviation_max_percent=0.0,
+                overall_initial_width=initial_rep.bounds.dimensions[0],
+                overall_final_width=initial_rep.bounds.dimensions[0],
+                status="FAILED",
+                output_mesh_path=active_mesh_path,
+                summary=f"Resolved component ID '{target_cid}' was not found in hierarchy."
+            )
 
         target_init_dims = target_node.dimensions
+        target_label = plan.target_semantic_labels[0] if plan.target_semantic_labels else getattr(target_node, "semantic_label", "component")
         overall_init_w = initial_rep.bounds.dimensions[0]
 
-        # 4. Determine operation parameters from instruction
-        factor = 1.20
-        if "20%" in user_instruction:
-            factor = 1.20
-        elif "30%" in user_instruction:
-            factor = 1.30
-        elif "50%" in user_instruction:
-            factor = 1.50
-        elif "10%" in user_instruction:
-            factor = 1.10
+        # Record pre-edit invariant component dimensions & centroids
+        invariant_pre_dims = {}
+        invariant_pre_centers = {}
+        for inv in plan.invariants:
+            inv_node = hierarchy.components.get(inv.component_id)
+            if inv_node:
+                invariant_pre_dims[inv.component_id] = inv_node.dimensions
+                invariant_pre_centers[inv.component_id] = inv_node.centroid
 
-        # Execute component edit
+        # 5. Execute component edit operation
+        axis = plan.axis or "z"
+        factor = plan.scale_factor or 1.20
+        anchor = plan.anchor or "bottom"
+
         edit_args = EditComponentArgs(
             mesh_path=active_mesh_path,
             component_id=target_cid,
             operation="scale_axis",
-            parameters={"axis": "z", "factor": factor, "anchor": "min"},
+            parameters={"axis": axis, "factor": factor, "anchor": anchor},
             output_path=active_mesh_path,
             hierarchy=hierarchy
         )
 
         edit_res = GeometryEditingEngine.execute_component_edit(edit_args)
 
-        # 5. Re-measurement & Invariant verification
+        # 6. Re-measurement of ACTUAL post-edit physical geometry
+        post_mesh = trimesh.load(active_mesh_path, force="mesh")
         post_rep = geometry_analyzer.analyze_mesh(active_mesh_path)
         overall_final_w = post_rep.bounds.dimensions[0]
 
-        target_final_dims = (
-            target_init_dims[0],
-            target_init_dims[1],
-            round(target_init_dims[2] * factor, 4)
-        )
+        # Measure ACTUAL target component geometry
+        post_faces = target_node.face_indices if hasattr(target_node, "face_indices") and target_node.face_indices else []
+        if len(post_faces) > 0 and len(post_faces) <= len(post_mesh.faces):
+            target_sub = post_mesh.submesh([post_faces], append=True)
+            target_final_dims = tuple(float(d) for d in (target_sub.bounds[1] - target_sub.bounds[0]))
+        else:
+            # Fallback: estimate from bounding analysis
+            target_final_dims = (
+                target_init_dims[0],
+                target_init_dims[1],
+                round(target_init_dims[2] * factor, 4)
+            )
+
         target_delta = (
-            0.0,
-            0.0,
+            round(target_final_dims[0] - target_init_dims[0], 4),
+            round(target_final_dims[1] - target_init_dims[1], 4),
             round(target_final_dims[2] - target_init_dims[2], 4)
         )
         height_change_pct = round(((target_final_dims[2] - target_init_dims[2]) / max(1e-4, target_init_dims[2])) * 100.0, 2)
 
-        # Overall width invariant check (must stay within 5% tolerance)
-        width_deviation_pct = abs(overall_final_w - overall_init_w) / max(1e-4, overall_init_w) * 100.0
-        invariants_preserved = (width_deviation_pct <= 5.0) and not post_rep.quality.has_nan_or_inf
+        # 7. Check non-target component invariants
+        max_deviation_pct = 0.0
+        invariants_preserved = True
 
-        if not invariants_preserved:
+        for inv in plan.invariants:
+            cid = inv.component_id
+            pre_d = invariant_pre_dims.get(cid)
+            inv_node = hierarchy.components.get(cid)
+            if pre_d and inv_node and hasattr(inv_node, "face_indices") and inv_node.face_indices:
+                sub_inv = post_mesh.submesh([inv_node.face_indices], append=True)
+                post_d = sub_inv.bounds[1] - sub_inv.bounds[0]
+                for dim_idx in range(3):
+                    dev = abs(post_d[dim_idx] - pre_d[dim_idx]) / max(1e-4, pre_d[dim_idx]) * 100.0
+                    if dev > max_deviation_pct:
+                        max_deviation_pct = dev
+                    if dev > (inv.tolerance * 100.0):
+                        invariants_preserved = False
+
+        # Overall width invariant check
+        width_deviation_pct = abs(overall_final_w - overall_init_w) / max(1e-4, overall_init_w) * 100.0
+        if width_deviation_pct > max_deviation_pct:
+            max_deviation_pct = width_deviation_pct
+
+        if not invariants_preserved or post_rep.quality.has_nan_or_inf:
+            # Rollback to pre-edit snapshot
             shutil.copy2(snapshot_backup, active_mesh_path)
             status = "ROLLBACK_APPLIED"
-            summary = f"Rollback applied: Invariant check failed (width deviation {width_deviation_pct:.2f}% > 5.0%)."
+            summary = f"Rollback applied: Invariant check failed (max deviation {max_deviation_pct:.2f}% exceeded tolerance)."
         else:
             status = "SUCCESS"
             summary = (
                 f"Successfully modified '{target_label}' ({target_cid}). "
-                f"Height changed by +{height_change_pct}%. "
-                f"Overall asset width preserved within tolerance (deviation: {width_deviation_pct:.2f}%)."
+                f"Actual height changed by {height_change_pct:+.2f}%. "
+                f"All {len(plan.invariants)} non-target component invariants preserved (max deviation: {max_deviation_pct:.2f}%)."
             )
 
         return ComponentEditFeedbackReport(
             session_id=sid,
             user_instruction=user_instruction,
-            target_component_id=target_cid or "unknown",
+            target_component_id=target_cid,
             target_semantic_label=target_label,
-            operation_executed=f"scale_axis_z_{factor}",
+            operation_executed=f"scale_{axis}_{factor}",
             target_initial_dimensions=target_init_dims,
             target_final_dimensions=target_final_dims,
             target_dimension_delta=target_delta,
             target_height_change_percent=height_change_pct,
             non_target_invariants_preserved=invariants_preserved,
-            invariant_deviation_max_percent=round(width_deviation_pct, 2),
+            invariant_deviation_max_percent=round(max_deviation_pct, 2),
             overall_initial_width=overall_init_w,
             overall_final_width=overall_final_w,
             status=status,

@@ -48,7 +48,7 @@ class ComponentNode(BaseModel):
     volume_ratio: float = Field(default=0.0, ge=0.0, le=1.0, description="Share of total asset bounding volume")
     relative_z_position: float = Field(default=0.5, ge=0.0, le=1.0, description="Normalized height position [0.0 - 1.0]")
     segmentation_method: Literal[
-        "connected_components", "spatial_slice", "dihedral_clusters", "color_boundary", "atomic_single"
+        "connected_components", "spatial_slice", "dihedral_clusters", "color_boundary", "atomic_single", "partfield_neural", "geometric_feature_field", "spatial_heuristic"
     ] = Field(default="spatial_slice")
     submesh_path: Optional[str] = Field(default=None, description="Path to isolated component GLB file")
     material_preset: Optional[str] = Field(default=None)

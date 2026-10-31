@@ -141,18 +141,23 @@ class GeometryEditingEngine:
         For example: making a backrest 20% taller anchoring from bottom ('min').
         """
         m = mesh.copy()
-        axis_idx = {"x": 0, "y": 1, "z": 2}[axis.lower()]
-        bounds = m.bounds
-
-        if anchor == "min":
-            anchor_val = bounds[0][axis_idx]
-        elif anchor == "max":
-            anchor_val = bounds[1][axis_idx]
+        axis_clean = axis.lower()
+        if axis_clean in ("all", "xyz", "uniform"):
+            target_axes = [0, 1, 2]
         else:
-            anchor_val = (bounds[0][axis_idx] + bounds[1][axis_idx]) / 2.0
+            axis_map = {"x": 0, "y": 1, "z": 2}
+            target_axes = [axis_map.get(axis_clean, 2)]
 
+        bounds = m.bounds
         v = m.vertices.copy()
-        v[:, axis_idx] = anchor_val + (v[:, axis_idx] - anchor_val) * factor
+        for axis_idx in target_axes:
+            if anchor == "min":
+                anchor_val = bounds[0][axis_idx]
+            elif anchor == "max":
+                anchor_val = bounds[1][axis_idx]
+            else:
+                anchor_val = (bounds[0][axis_idx] + bounds[1][axis_idx]) / 2.0
+            v[:, axis_idx] = anchor_val + (v[:, axis_idx] - anchor_val) * factor
         m.vertices = v
         return m
 

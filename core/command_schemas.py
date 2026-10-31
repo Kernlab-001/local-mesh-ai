@@ -284,6 +284,7 @@ class TechnicalArtistPlan(BaseModel):
 class ComponentSemanticAssignment(BaseModel):
     component_id: str = Field(..., description="ID of the candidate component node")
     assigned_semantic_label: str = Field(..., description="Semantic label assigned (e.g. blade, seat, crossguard, leg)")
+    material_intent: Optional[str] = Field(default=None, description="Inferred PBR material intent (e.g. wood, metal, leather)")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score")
     is_uncertain: bool = Field(default=True, description="True if confidence < 0.70")
     parent_component_id: Optional[str] = Field(default=None, description="Inferred parent assembly ID")
@@ -294,6 +295,7 @@ class ComponentSemanticProposal(BaseModel):
     version: str = Field(default="2.0")
     asset_id: str = Field(..., description="Asset identifier")
     category: str = Field(default="prop")
+    inference_source: str = Field(default="heuristic", description="Provenance: qwen3_vl_multimodal vs heuristic_fallback")
     assignments: List[ComponentSemanticAssignment] = Field(default_factory=list)
     overall_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     has_uncertain_components: bool = Field(default=True)
@@ -324,3 +326,42 @@ class PrecisionCorrectionPlan(BaseModel):
     tool_calls: List[PrecisionToolCall] = Field(default_factory=list, description="Strictly allowlisted tool calls")
     rationale: str = Field(default="", description="Overall engineering strategy")
 
+
+
+# ==============================================================================
+# Phase 3.1 Dynamic Autonomous Technical-Artist Editing Schemas
+# ==============================================================================
+
+class ComponentInvariant(BaseModel):
+    component_id: str = Field(..., description="Component ID that must maintain physical dimensions/position")
+    preserve_dimensions: bool = Field(default=True, description="Dimensions must stay within tolerance")
+    preserve_position: bool = Field(default=True, description="Centroid must stay within tolerance")
+    tolerance: float = Field(default=0.05, ge=0.001, le=0.5, description="Allowed deviation ratio (default 5%)")
+
+
+class ComponentEditPlan(BaseModel):
+    version: str = Field(default="3.1")
+    plan_id: str = Field(default_factory=lambda: f"edit_plan_{uuid.uuid4().hex[:6]}")
+    asset_id: str = Field(..., description="Target asset identifier")
+    user_request: str = Field(default="", description="Original user prompt or edit request")
+    target_component_ids: List[str] = Field(default_factory=list, description="Candidate IDs to modify")
+    target_semantic_labels: List[str] = Field(default_factory=list, description="Target labels (e.g. backrest, blade, leg)")
+    operation_type: Literal[
+        "scale", "translate", "rotate", "mirror", "solidify", "subdivide",
+        "boolean_difference", "boolean_union", "extrude", "bevel"
+    ] = Field(default="scale", description="Allowlisted geometry operation")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="Operation-specific parameters")
+    axis: Optional[Literal["x", "y", "z", "all"]] = Field(default="z", description="Primary transformation axis")
+    scale_factor: Optional[float] = Field(default=1.0, ge=0.05, le=10.0, description="Target dimension scale multiplier")
+    anchor: Optional[Literal["bottom", "top", "center", "origin"]] = Field(default="bottom", description="Stationary anchor point")
+    translation_delta: Optional[List[float]] = Field(default=None, description="Translation vector [dx, dy, dz] in meters")
+    invariants: List[ComponentInvariant] = Field(default_factory=list, description="Invariants that must remain preserved")
+    risk_level: Literal["low", "medium", "high"] = Field(default="low")
+    requires_user_confirmation: bool = Field(default=False, description="True if target component resolution is ambiguous")
+    status: Literal["READY", "NEEDS_COMPONENT_CONFIRMATION", "REJECTED"] = Field(
+        default="READY", description="Execution gate status"
+    )
+    candidate_components: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Candidate options for user confirmation"
+    )
+    rationale: str = Field(default="", description="Technical-artist reasoning")

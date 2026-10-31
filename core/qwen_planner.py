@@ -15,6 +15,8 @@ import logging
 from typing import Dict, Any, Optional, List
 from core.gpu_broker import gpu_broker
 from core.command_schemas import (
+    ComponentEditPlan,
+    ComponentInvariant,
     CommandPlan,
     TechnicalArtistPlan,
     ComponentSemanticProposal,
@@ -207,27 +209,18 @@ class QwenPlanner:
         self._llm = None
 
     def resolve_model_path(self) -> str:
-        """Resolves local Qwen GGUF model path from explicit arg, config, or download manager."""
+        """Resolves local Qwen GGUF model path from central model_path_resolver."""
         if self._explicit_model_path and os.path.exists(self._explicit_model_path):
             return self._explicit_model_path
 
-        from core.download_manager import download_manager
-        stat = download_manager.verify_qwen_status()
-        if stat.get("state") == "fully_installed" and stat.get("model_path"):
-            return stat["model_path"]
-
-        # Default fallback candidate
-        default_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-        )
-        if os.path.exists(default_path):
-            return default_path
+        from core.model_paths import model_path_resolver
+        p = model_path_resolver.resolve_qwen_coder_path()
+        if p and p.exists():
+            return str(p)
 
         raise FileNotFoundError(
             "Qwen 2.5 Coder GGUF weights not found. "
-            "Please run: python scripts/download_models.py --qwen "
-            "or set 'qwen_model_path' in config.json."
+            "Please verify path in .local_models_config.json or QWEN_CODER_PATH."
         )
 
     def _load_model(self, n_gpu_layers: int = 20):
@@ -477,4 +470,270 @@ class QwenPlanner:
 
 
 # Global planner instance
+
+    def generate_component_edit_plan(
+        self,
+        user_instruction: str,
+        hierarchy: Any,
+        geometry_report: Optional[Any] = None,
+        semantic_proposal: Optional[Any] = None,
+        max_tokens: int = 512,
+    ) -> ComponentEditPlan:
+        """
+        Generates a structured ComponentEditPlan using Qwen Coder or dynamic regex fallback.
+        Supports arbitrary scale percentages (e.g. 23%, 12%), translation deltas,
+        and preservation of non-target component invariants.
+        If target component resolution is ambiguous, returns NEEDS_COMPONENT_CONFIRMATION.
+        """
+        candidate_nodes = {}
+        for cid, node in hierarchy.components.items():
+            if "root" not in cid.lower() and "assembly" not in cid.lower():
+                candidate_nodes[cid] = node
+
+        if not candidate_nodes:
+            return ComponentEditPlan(
+                asset_id=getattr(hierarchy, "root_asset_id", "asset_unknown"),
+                user_request=user_instruction,
+                status="REJECTED",
+                rationale="Hierarchy contains no non-root candidate components."
+            )
+
+        # Build candidate summaries
+        comp_summaries = []
+        label_to_cid = {}
+        if semantic_proposal and hasattr(semantic_proposal, "assignments"):
+            for a in semantic_proposal.assignments:
+                label_to_cid[a.assigned_semantic_label.lower()] = a.component_id
+
+        for cid, node in candidate_nodes.items():
+            assigned_label = getattr(node, "semantic_label", cid)
+            for lbl, c_match in label_to_cid.items():
+                if c_match == cid:
+                    assigned_label = lbl
+                    break
+            dims = getattr(node, "dimensions", (0, 0, 0))
+            comp_summaries.append(
+                f"- ID '{cid}': Label '{assigned_label}', Dimensions [W={dims[0]:.2f}, D={dims[1]:.2f}, H={dims[2]:.2f}], Rel_Z={getattr(node, 'relative_z_position', 0.5):.2f}"
+            )
+
+        # Prompt Qwen Coder if model path exists
+        from core.model_paths import model_path_resolver
+        coder_path = model_path_resolver.resolve_qwen_coder_path()
+
+        if coder_path and coder_path.exists():
+            prompt = (
+                f"<|im_start|>system\n"
+                f"You are an expert AI 3D Technical Artist.\n"
+                f"Analyze the user's natural language edit request and candidate components.\n"
+                f"Extract target component IDs, operation, scale factor, axis, and invariants to preserve.\n"
+                f"If the requested component cannot be identified with high confidence, set status='NEEDS_COMPONENT_CONFIRMATION'.\n"
+                f"Output strictly valid JSON conforming to ComponentEditPlan schema.\n"
+                f"<|im_end|>\n"
+                f"<|im_start|>user\n"
+                f"User Request: \"{user_instruction}\"\n"
+                f"Candidate Components:\n" + "\n".join(comp_summaries) + "\n"
+                f"Return JSON matching:\n"
+                f"{{\n"
+                f"  \"asset_id\": \"{getattr(hierarchy, 'root_asset_id', 'asset')}\",\n"
+                f"  \"user_request\": \"{user_instruction}\",\n"
+                f"  \"target_component_ids\": [\"...\"],\n"
+                f"  \"target_semantic_labels\": [\"...\"],\n"
+                f"  \"operation_type\": \"scale\",\n"
+                f"  \"axis\": \"z\",\n"
+                f"  \"scale_factor\": 1.2,\n"
+                f"  \"anchor\": \"bottom\",\n"
+                f"  \"invariants\": [{{\"component_id\": \"...\", \"preserve_dimensions\": true, \"preserve_position\": true}}],\n"
+                f"  \"status\": \"READY\",\n"
+                f"  \"rationale\": \"...\"\n"
+                f"}}\n"
+                f"<|im_end|>\n<|im_start|>assistant\n"
+            )
+
+            try:
+                self._load_model()
+                if self._llm:
+                    output = self._llm(
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=0.1,
+                        stop=["<|im_end|>", "<|endoftext|>"]
+                    )
+                    raw_text = output["choices"][0]["text"].strip()
+                    plan = self._parse_component_edit_plan(raw_text, hierarchy, user_instruction)
+                    if plan:
+                        return plan
+            except Exception as e:
+                logger.warning(f"Qwen Coder inference failed ({e}), using dynamic semantic planner fallback.")
+            finally:
+                self._unload_model()
+
+        # Dynamic semantic planner fallback (supports arbitrary percentages & fuzzy label matching)
+        return self._dynamic_rule_edit_plan(user_instruction, hierarchy, candidate_nodes, label_to_cid)
+
+    def _parse_component_edit_plan(self, text: str, hierarchy: Any, instruction: str) -> Optional[ComponentEditPlan]:
+        """Parses model JSON and validates component IDs exist in hierarchy."""
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(0))
+            # Validate target IDs exist
+            target_ids = data.get("target_component_ids", [])
+            valid_targets = [cid for cid in target_ids if cid in hierarchy.components]
+            
+            candidates_list = [
+                {"component_id": cid, "label": getattr(n, "semantic_label", cid), "dimensions": getattr(n, "dimensions", (0, 0, 0))}
+                for cid, n in hierarchy.components.items() if "root" not in cid.lower()
+            ]
+
+            if not valid_targets and data.get("status") != "NEEDS_COMPONENT_CONFIRMATION":
+                data["status"] = "NEEDS_COMPONENT_CONFIRMATION"
+                data["requires_user_confirmation"] = True
+                data["candidate_components"] = candidates_list
+            else:
+                data["target_component_ids"] = valid_targets
+
+            # Semantic match verification: ensure user-specified noun matches target label
+            inst_lower = instruction.lower()
+            known_nouns = [
+                "armrest", "headrest", "backrest", "back", "seat", "cushion", "leg", "legs",
+                "blade", "guard", "crossguard", "hilt", "pommel", "handle", "grip",
+                "wheel", "tire", "wing", "spoilers", "propeller", "door", "drawer", "shelf"
+            ]
+            mentioned = [w for w in known_nouns if w in inst_lower]
+            if mentioned and valid_targets and data.get("status") != "NEEDS_COMPONENT_CONFIRMATION":
+                target_matched = False
+                for tid in valid_targets:
+                    node = hierarchy.components.get(tid)
+                    lbl = getattr(node, "semantic_label", "").lower() if node else ""
+                    if any(w in lbl or lbl in w or w in tid.lower() for w in mentioned):
+                        target_matched = True
+                        break
+                if not target_matched:
+                    # User requested a specific component that doesn't match the selected component's label
+                    data["status"] = "NEEDS_COMPONENT_CONFIRMATION"
+                    data["requires_user_confirmation"] = True
+                    data["target_component_ids"] = []
+                    data["candidate_components"] = candidates_list
+                    data["rationale"] = (
+                        f"Requested component '{mentioned[0]}' does not match identified target components. "
+                        f"Available candidates: {[c['label'] for c in candidates_list]}."
+                    )
+
+            if data.get("status") == "NEEDS_COMPONENT_CONFIRMATION" and not data.get("candidate_components"):
+                data["candidate_components"] = candidates_list
+
+            return ComponentEditPlan.model_validate(data)
+        except Exception as e:
+            logger.warning(f"Failed to parse ComponentEditPlan: {e}")
+            return None
+
+    def _dynamic_rule_edit_plan(
+        self,
+        user_instruction: str,
+        hierarchy: Any,
+        candidate_nodes: Dict[str, Any],
+        label_to_cid: Dict[str, str]
+    ) -> ComponentEditPlan:
+        """Dynamic parser supporting arbitrary percentages (e.g. 23%, 12%), axes, and invariants."""
+        inst_lower = user_instruction.lower()
+
+        # 1. Parse arbitrary percentage: e.g. "23%", "12.5%", "50%"
+        pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", user_instruction)
+        scale_pct = float(pct_match.group(1)) if pct_match else 20.0
+
+        # Check direction: taller, increase, larger vs shorter, decrease, smaller
+        is_decrease = any(w in inst_lower for w in ("shorter", "decrease", "smaller", "reduce", "lower", "less"))
+        scale_factor = round(1.0 - (scale_pct / 100.0), 3) if is_decrease else round(1.0 + (scale_pct / 100.0), 3)
+
+        # 2. Parse axis
+        axis = "z"
+        if "width" in inst_lower or "wider" in inst_lower or "narrower" in inst_lower or "x-axis" in inst_lower:
+            axis = "x"
+        elif "depth" in inst_lower or "thicker" in inst_lower or "thinner" in inst_lower or "y-axis" in inst_lower:
+            axis = "y"
+        elif "all" in inst_lower or "overall" in inst_lower or "uniform" in inst_lower:
+            axis = "all"
+
+        # 3. Match target component
+        matched_cid = None
+        matched_label = None
+
+        # Check semantic labels from VLM
+        for lbl, cid in label_to_cid.items():
+            if lbl in inst_lower:
+                matched_cid = cid
+                matched_label = lbl
+                break
+
+        # Check candidate node labels
+        if not matched_cid:
+            for cid, node in candidate_nodes.items():
+                lbl = getattr(node, "semantic_label", "").lower()
+                if lbl and lbl in inst_lower:
+                    matched_cid = cid
+                    matched_label = lbl
+                    break
+
+        # Check common component keywords in instruction
+        if not matched_cid:
+            keywords = ["backrest", "back", "seat", "cushion", "leg", "legs", "blade", "grip", "handle", "crossguard", "pommel", "armrest", "frame"]
+            for kw in keywords:
+                if kw in inst_lower:
+                    # Look for candidate containing this keyword
+                    for cid, node in candidate_nodes.items():
+                        lbl = getattr(node, "semantic_label", "").lower()
+                        if kw in lbl or kw in cid.lower():
+                            matched_cid = cid
+                            matched_label = kw
+                            break
+                    if matched_cid:
+                        break
+
+        # CRITICAL SAFETY RULE: If target cannot be resolved, DO NOT guess or pick first component!
+        if not matched_cid:
+            candidates = [
+                {"component_id": cid, "label": getattr(n, "semantic_label", cid), "dimensions": getattr(n, "dimensions", (0, 0, 0))}
+                for cid, n in candidate_nodes.items()
+            ]
+            return ComponentEditPlan(
+                asset_id=getattr(hierarchy, "root_asset_id", "asset"),
+                user_request=user_instruction,
+                target_component_ids=[],
+                target_semantic_labels=[],
+                operation_type="scale",
+                status="NEEDS_COMPONENT_CONFIRMATION",
+                requires_user_confirmation=True,
+                candidate_components=candidates,
+                rationale=f"Cannot uniquely identify target component for instruction '{user_instruction}'. Awaiting user confirmation."
+            )
+
+        # 4. Invariants: All OTHER non-target candidate components must remain preserved!
+        invariants = []
+        for cid in candidate_nodes.keys():
+            if cid != matched_cid:
+                invariants.append(ComponentInvariant(
+                    component_id=cid,
+                    preserve_dimensions=True,
+                    preserve_position=True,
+                    tolerance=0.05
+                ))
+
+        return ComponentEditPlan(
+            asset_id=getattr(hierarchy, "root_asset_id", "asset"),
+            user_request=user_instruction,
+            target_component_ids=[matched_cid],
+            target_semantic_labels=[matched_label or "component"],
+            operation_type="scale",
+            parameters={"axis": axis, "factor": scale_factor, "anchor": "bottom"},
+            axis=axis,
+            scale_factor=scale_factor,
+            anchor="bottom",
+            invariants=invariants,
+            status="READY",
+            requires_user_confirmation=False,
+            rationale=f"Scale {matched_label} ({matched_cid}) along {axis}-axis by factor {scale_factor} ({scale_pct}%) while preserving {len(invariants)} non-target component invariants."
+        )
+
+
 qwen_planner = QwenPlanner()
