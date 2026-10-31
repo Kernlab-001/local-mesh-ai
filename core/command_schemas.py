@@ -6,9 +6,10 @@ Provides comprehensive schemas for structural analysis, component hierarchy,
 proportions, PBR materials, topology budgets, and Blender operations.
 """
 
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 import math
+import uuid
 
 
 class BaseCommand(BaseModel):
@@ -274,3 +275,52 @@ class TechnicalArtistPlan(BaseModel):
             description=f"Technical Artist Plan for {self.asset_name}: {self.description}",
             commands=cmds
         )
+
+
+# ==============================================================================
+# Phase 2 Semantic Interpretation & Precision Correction Plan Schemas
+# ==============================================================================
+
+class ComponentSemanticAssignment(BaseModel):
+    component_id: str = Field(..., description="ID of the candidate component node")
+    assigned_semantic_label: str = Field(..., description="Semantic label assigned (e.g. blade, seat, crossguard, leg)")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score")
+    is_uncertain: bool = Field(default=True, description="True if confidence < 0.70")
+    parent_component_id: Optional[str] = Field(default=None, description="Inferred parent assembly ID")
+    reasoning: str = Field(default="", description="Geometric rationale for assignment")
+
+
+class ComponentSemanticProposal(BaseModel):
+    version: str = Field(default="2.0")
+    asset_id: str = Field(..., description="Asset identifier")
+    category: str = Field(default="prop")
+    assignments: List[ComponentSemanticAssignment] = Field(default_factory=list)
+    overall_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    has_uncertain_components: bool = Field(default=True)
+    summary: str = Field(default="")
+
+
+class PrecisionToolCall(BaseModel):
+    tool_name: Literal[
+        "analyze_geometry",
+        "decompose_components",
+        "align_and_ground",
+        "calibrate_scale",
+        "enforce_symmetry",
+        "decimate_mesh",
+        "export_submeshes"
+    ] = Field(..., description="Allowlisted tool name")
+    arguments: Dict[str, Any] = Field(default_factory=dict, description="Typed arguments matching tool schema")
+    rationale: str = Field(default="", description="Why this tool call is needed")
+
+
+class PrecisionCorrectionPlan(BaseModel):
+    version: str = Field(default="2.0")
+    plan_id: str = Field(default_factory=lambda: f"corr_plan_{uuid.uuid4().hex[:6]}")
+    asset_name: str
+    target_height_m: Optional[float] = None
+    target_upright: bool = True
+    target_grounded: bool = True
+    tool_calls: List[PrecisionToolCall] = Field(default_factory=list, description="Strictly allowlisted tool calls")
+    rationale: str = Field(default="", description="Overall engineering strategy")
+
