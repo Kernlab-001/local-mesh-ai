@@ -108,10 +108,14 @@ class ModelVersionManager:
         model_id: str,
         model_name: str,
         adapter_path: Optional[str] = None,
+        fingerprint: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ):
         """Registers a newly trained adapter as a CANDIDATE."""
         with self._lock:
+            meta = dict(metadata or {})
+            if fingerprint:
+                meta["checkpoint_fingerprint"] = fingerprint
             rec = ModelVersionRecord(
                 version_id=f"v_{model_id}_{int(time.time())}",
                 model_id=model_id,
@@ -119,7 +123,7 @@ class ModelVersionManager:
                 lifecycle_state=LifecycleState.CANDIDATE,
                 approved_by_user=False,
                 adapter_path=adapter_path,
-                metadata=metadata or {}
+                metadata=meta
             )
             self._state["candidates"][model_id] = rec.model_dump()
             self._save_state_atomic(self._state)
@@ -142,9 +146,10 @@ class ModelVersionManager:
         """
         Promotes an evaluated candidate model to active status.
         Mandatory safety rules:
-        - Candidate must pass genuine evaluation.
+        - Candidate must pass genuine evaluation (score >= 80%).
         - Requires explicit user authorization (approved=True).
-        - Base model is immutable.
+        - Caller metadata score fallbacks are strictly rejected.
+        - Checkpoint file existence and SHA-256 fingerprint verified before activation.
         - Runtime model manager is updated with the active adapter.
         """
         with self._lock:
@@ -158,34 +163,60 @@ class ModelVersionManager:
             if not cand_data:
                 raise ValueError(f"Candidate model '{model_id}' not found in registry.")
 
-            # Check evaluation report
+            # Require authentic evaluation report - no metadata spoofing or fallbacks!
             from services.training_evaluator import training_evaluator
             eval_report = training_evaluator.get_evaluation_report(cand_data.get("model_name", model_id))
-            meta = cand_data.get("metadata", {})
 
-            has_passed_eval = (
-                (eval_report and eval_report.passed_evaluation) or
-                meta.get("passed_evaluation", False) or
-                meta.get("benchmark_score", 0.0) >= 80.0
-            )
-
-            if not has_passed_eval:
+            if not eval_report or not eval_report.passed_evaluation or eval_report.score_percent < 80.0:
+                score_str = f"{eval_report.score_percent:.1f}%" if eval_report else "None"
                 raise ValueError(
                     f"Candidate '{model_id}' cannot be promoted: must complete and pass "
-                    "genuine benchmark evaluation with score >= 80%."
+                    f"genuine benchmark evaluation with score >= 80% (got {score_str}). "
+                    "Metadata score bypasses are strictly prohibited."
                 )
+
+            # Check physical checkpoint on disk and verify SHA-256
+            cand_path = cand_data.get("adapter_path") or str(get_data_dir() / "models" / "candidates" / cand_data.get("model_name", model_id))
+            cand_dir = Path(cand_path)
+            if not cand_dir.exists():
+                raise FileNotFoundError(f"Candidate adapter directory '{cand_dir}' does not exist on disk.")
+
+            ckpt_files = list(cand_dir.glob("*.bin")) + list(cand_dir.glob("*.pt")) + list(cand_dir.glob("*.safetensors")) + list(cand_dir.glob("*.gguf"))
+            if not ckpt_files:
+                raise FileNotFoundError(f"Candidate '{model_id}' contains no checkpoint files on disk.")
+
+            primary_ckpt = ckpt_files[0]
+            if primary_ckpt.stat().st_size == 0:
+                raise ValueError(f"Candidate checkpoint '{primary_ckpt.name}' is empty (0 bytes).")
+
+            import hashlib
+            h = hashlib.sha256()
+            with open(primary_ckpt, "rb") as f:
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            computed_hash = h.hexdigest()
+
+            registered_hash = cand_data.get("metadata", {}).get("checkpoint_fingerprint")
+            if registered_hash and computed_hash != registered_hash:
+                raise ValueError(
+                    f"Checkpoint SHA-256 mismatch: file has {computed_hash[:12]} but registered as {registered_hash[:12]}."
+                )
+
+            if eval_report.adapter_hash and registered_hash and eval_report.adapter_hash != registered_hash:
+                raise ValueError("Evaluation report checkpoint hash does not match candidate registered hash.")
 
             cand_rec = ModelVersionRecord(**cand_data)
             cand_rec.lifecycle_state = LifecycleState.ACTIVE
             cand_rec.promoted_at = time.time()
             cand_rec.approved_by_user = True
+            cand_rec.benchmark_score = eval_report.score_percent
 
             # Archive previous active adapter
             prev_active_id = self._state.get("active_adapter_id")
-            for h in self._state["version_history"]:
-                if h.get("model_id") == prev_active_id and h.get("lifecycle_state") == "active":
-                    if not h.get("is_base_model", False):
-                        h["lifecycle_state"] = "archived"
+            for h_rec in self._state["version_history"]:
+                if h_rec.get("model_id") == prev_active_id and h_rec.get("lifecycle_state") == "active":
+                    if not h_rec.get("is_base_model", False):
+                        h_rec["lifecycle_state"] = "archived"
 
             # Base model remains active foundation, adapter is activated
             self._state["version_history"].append(cand_rec.model_dump())
@@ -194,8 +225,7 @@ class ModelVersionManager:
             self._save_state_atomic(self._state)
 
             # Update active runtime inference model
-            cand_path = cand_rec.adapter_path or str(get_data_dir() / "models" / "candidates" / cand_rec.model_name)
-            model_manager.load_adapter(adapter_id=model_id, adapter_path=cand_path)
+            model_manager.load_adapter(adapter_id=model_id, adapter_path=str(cand_dir))
 
             return cand_rec
 

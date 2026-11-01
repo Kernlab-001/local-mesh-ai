@@ -92,11 +92,11 @@ class RecoveryPolicyEngine:
                 owner = status.get("current_owner", "unknown")
                 heartbeat_age = status.get("heartbeat_age_seconds", 0.0)
 
-                # If process is actively running and heartbeat is fresh, do not purge!
-                if holder_pid and gpu_broker._is_pid_alive(holder_pid) and heartbeat_age < 600.0:
+                # If process is actively running, protect lease from being purged
+                if holder_pid and gpu_broker._is_pid_alive(holder_pid):
                     return False, (
-                        f"Cannot purge GPU lease: Process PID {holder_pid} ('{owner}') is alive "
-                        f"and heartbeating (heartbeat age: {int(heartbeat_age)}s)."
+                        f"Cannot purge GPU lease: Process PID {holder_pid} ('{owner}') is actively running "
+                        f"(heartbeat age: {int(heartbeat_age)}s)."
                     )
 
         return True, "Policy check passed."

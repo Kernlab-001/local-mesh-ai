@@ -64,7 +64,16 @@ class ModelRegistry:
 
         # 1. Base Qwen Model (Immutable)
         qwen_file = PROJECT_ROOT / "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-        if qwen_file.exists():
+        if not qwen_file.exists():
+            try:
+                from core.model_paths import model_path_resolver
+                resolved = model_path_resolver.resolve_qwen_coder_path()
+                if resolved and Path(resolved).exists():
+                    qwen_file = Path(resolved)
+            except Exception:
+                pass
+
+        if qwen_file and qwen_file.exists():
             size_mb = round(qwen_file.stat().st_size / (1024**2), 2)
             artifacts.append(
                 ModelArtifact(
@@ -120,6 +129,31 @@ class ModelRegistry:
                     )
 
         return artifacts
+
+    def register_checkpoint(
+        self,
+        model_id: str,
+        name: str,
+        model_type: str,
+        file_path: str,
+        sha256_hash: str,
+        file_size_mb: float = 0.0,
+        parameter_count_str: str = "LoRA Rank 16",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ModelArtifact:
+        """Registers a verified model or adapter checkpoint."""
+        return ModelArtifact(
+            model_id=model_id,
+            name=name,
+            model_type=model_type,
+            file_path=file_path,
+            sha256_hash=sha256_hash,
+            file_size_mb=file_size_mb,
+            parameter_count_str=parameter_count_str,
+            is_active=False,
+            is_immutable=False,
+            metadata=metadata or {},
+        )
 
 
 model_registry = ModelRegistry()

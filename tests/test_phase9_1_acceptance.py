@@ -492,16 +492,19 @@ def test_unit_training_evaluator_benchmark_validation():
 def test_unit_model_promotion_requires_eval_score_and_approval():
     """[UNIT] Verifies model promotion requires passing evaluation (score >= 80%) AND user approval."""
     candidate_id = f"eval_promo_{uuid.uuid4().hex[:6]}"
-    data_dir = get_data_dir()
-    ckpt_dir = data_dir / "learning" / "checkpoints" / candidate_id
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    (ckpt_dir / "adapter_model.bin").write_bytes(b"adapter_weights")
-
-    model_version_manager.register_candidate(
-        model_id=candidate_id,
-        model_name="Promotion Candidate",
-        metadata={"benchmark_score": 95.0, "passed_evaluation": True}
+    job = lora_training_manager.start_training(
+        target_model="local-technical-artist-lora",
+        adapter_name=candidate_id,
+        epochs=1,
+        force_cpu=True
     )
+    start = time.time()
+    while job.status == "running" and time.time() - start < 10.0:
+        time.sleep(0.1)
+    assert job.status == "completed"
+
+    eval_report = training_evaluator.evaluate_candidate(candidate_id)
+    assert eval_report.passed_evaluation is True
 
     # 1. Unapproved candidate cannot be promoted
     with pytest.raises(PermissionError):
@@ -517,16 +520,20 @@ def test_unit_model_promotion_requires_eval_score_and_approval():
 def test_unit_model_rollback_restores_inference_model():
     """[UNIT] Verifies rollback restores the active inference model in model_manager."""
     candidate_id = f"rb_cand_{uuid.uuid4().hex[:6]}"
-    data_dir = get_data_dir()
-    ckpt_dir = data_dir / "learning" / "checkpoints" / candidate_id
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    (ckpt_dir / "adapter_model.bin").write_bytes(b"adapter_weights")
-
-    model_version_manager.register_candidate(
-        model_id=candidate_id,
-        model_name="Rollback Candidate",
-        metadata={"benchmark_score": 92.0, "passed_evaluation": True}
+    job = lora_training_manager.start_training(
+        target_model="local-technical-artist-lora",
+        adapter_name=candidate_id,
+        epochs=1,
+        force_cpu=True
     )
+    start = time.time()
+    while job.status == "running" and time.time() - start < 10.0:
+        time.sleep(0.1)
+    assert job.status == "completed"
+
+    eval_report = training_evaluator.evaluate_candidate(candidate_id)
+    assert eval_report.passed_evaluation is True
+
     model_version_manager.promote_candidate_to_active(model_id=candidate_id, approved=True)
     assert model_manager.get_active_adapter() == candidate_id
 

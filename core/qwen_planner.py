@@ -239,6 +239,10 @@ class QwenPlanner:
             verbose=False
         )
 
+    def set_active_adapter(self, adapter_path: Optional[str] = None):
+        """Sets active adapter path for inference."""
+        self._active_adapter_path = adapter_path
+
     def _unload_model(self):
         """Releases Qwen model references and frees memory."""
         self._llm = None
