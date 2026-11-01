@@ -6,9 +6,15 @@ Hardened with input validation, path safety, and secure error boundaries.
 import os
 import shutil
 import subprocess
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
+import uuid
+import time
+from pathlib import Path
 from api.schemas import (
+    StageImageResponse,
+    SceneSyncRequest,
+    SceneSyncResponse,
     GenerateTextRequest,
     GenerateImageRequest,
     JobProgressResponse,
@@ -426,3 +432,96 @@ def get_asset_record(asset_id: str):
     if not record:
         raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found.")
     return record
+
+
+# ==============================================================================
+# Phase 5 Blender Studio Integration Endpoints
+# ==============================================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STAGING_DIR = PROJECT_ROOT / "output" / "staging"
+STAGING_DIR.mkdir(parents=True, exist_ok=True)
+
+_latest_blender_scene_state = {
+    "status": "idle",
+    "timestamp": None,
+    "scene_id": "default_scene",
+    "active_object": None,
+    "selected_objects": [],
+    "scene_objects_summary": [],
+    "camera_info": None
+}
+
+@router.post("/api/v1/stage-image", response_model=StageImageResponse)
+async def stage_image(file: UploadFile = File(...)):
+    """Safely accepts, validates, and stages an uploaded 2D concept or reference image from Blender."""
+    filename = file.filename or "uploaded_image.png"
+    ext = Path(filename).suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(status_code=400, detail=f"Unsupported image extension '{ext}'. Expected .png, .jpg, .jpeg, or .webp.")
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty (0 bytes).")
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Uploaded image exceeds 25 MB size limit.")
+
+    safe_name = f"{uuid.uuid4().hex[:12]}_{Path(filename).name}"
+    staged_path = STAGING_DIR / safe_name
+    with open(staged_path, "wb") as f:
+        f.write(content)
+
+    try:
+        from PIL import Image
+        with Image.open(staged_path) as img:
+            w, h = img.size
+            img_format = img.format or ext.replace(".", "").upper()
+    except Exception as img_err:
+        if staged_path.exists():
+            staged_path.unlink()
+        raise HTTPException(status_code=400, detail=f"Corrupt or invalid image file: {img_err}")
+
+    return {
+        "staged_path": str(staged_path),
+        "filename": safe_name,
+        "width": w,
+        "height": h,
+        "format": img_format,
+        "file_size_bytes": len(content)
+    }
+
+@router.post("/api/v1/blender/sync-scene", response_model=SceneSyncResponse)
+def sync_blender_scene(req: SceneSyncRequest):
+    """Receives live scene state, active object, and selected meshes from Blender."""
+    global _latest_blender_scene_state
+    name = req.scene_name or req.scene_id or "default_scene"
+    objs = req.objects or req.selected_objects or req.scene_objects_summary or []
+    count = len(objs)
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    cur_ver = (_latest_blender_scene_state.get("scene_version", 0) if isinstance(_latest_blender_scene_state, dict) else 0) + 1
+    _latest_blender_scene_state = {
+        "status": "synchronized",
+        "timestamp": now_str,
+        "last_sync": now_str,
+        "scene_name": name,
+        "scene_id": name,
+        "scene_version": cur_ver,
+        "object_count": count,
+        "objects": objs,
+        "units": req.units or "METRIC",
+        "blender_version": req.blender_version or "4.2.0"
+    }
+    return {
+        "status": "synchronized",
+        "timestamp": now_str,
+        "scene_name": name,
+        "synced_objects": count,
+        "objects_synced_count": count,
+        "scene_version": cur_ver,
+        "message": f"Successfully synchronized {count} scene object(s) with Local Mesh AI backend."
+    }
+
+@router.get("/api/v1/blender/scene-status")
+def get_blender_scene_status():
+    """Returns the most recent synchronized scene metadata from Blender."""
+    return _latest_blender_scene_state

@@ -108,6 +108,8 @@ class ExecuteToolRequest(BaseModel):
 
 class GenerateTextRequest(BaseModel):
     prompt: str = Field(..., min_length=2, max_length=1000, description="Text description of the 3D asset to generate")
+    route: Optional[str] = Field(default=None, description="Optional route override: text_to_3d_hybrid | text_to_3d_direct")
+    strategy: Optional[str] = Field(default="hybrid_concept_art", description="Text-to-3D strategy: hybrid_concept_art | direct_text_to_3d")
     hardware_profile: str = Field(default="balanced", description="low_memory | balanced | quality")
     preset: str = Field(default="prop", description="prop | character | weapon | furniture")
     target_height: Optional[float] = Field(default=None, ge=0.05, le=50.0)
@@ -154,3 +156,47 @@ class AssetResponse(BaseModel):
     preview_path: Optional[str] = None
     file_size_bytes: int = 0
     timings: Dict[str, float] = Field(default_factory=dict)
+
+
+# ==============================================================================
+# Phase 5 Blender Studio Integration Schemas
+# ==============================================================================
+
+class StageImageResponse(BaseModel):
+    staged_path: str
+    filename: str
+    width: int
+    height: int
+    format: str
+    file_size_bytes: int
+
+class SceneObjectMetadata(BaseModel):
+    name: str
+    type: str = "MESH"
+    vertex_count: int = 0
+    face_count: int = 0
+    dimensions_m: List[float] = Field(default_factory=list)
+    bounding_box: Dict[str, Any] = Field(default_factory=dict)
+    material_slots: List[str] = Field(default_factory=list)
+    local_mesh_ai_asset_id: Optional[str] = None
+    local_mesh_ai_job_id: Optional[str] = None
+
+class SceneSyncRequest(BaseModel):
+    scene_id: Optional[str] = "default_scene"
+    scene_name: Optional[str] = None
+    blender_version: Optional[str] = "4.2.0"
+    units: Optional[str] = "METRIC"
+    objects: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    active_object: Optional[Dict[str, Any]] = None
+    selected_objects: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    scene_objects_summary: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    camera_info: Optional[Dict[str, Any]] = None
+
+class SceneSyncResponse(BaseModel):
+    status: str = "synchronized"
+    timestamp: str
+    scene_name: str = "default_scene"
+    synced_objects: int = 0
+    objects_synced_count: int = 0
+    scene_version: int = 1
+    message: str = "Scene synchronized" 

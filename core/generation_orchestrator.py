@@ -116,24 +116,56 @@ class GenerationOrchestrator:
         self._lock = __import__("threading").Lock()
         self._cached_shape_status: Optional[str] = None
 
-    def get_hardware_profiles(self) -> Dict[str, Dict[str, Any]]:
-        """Returns hardware profiles annotated with current system compatibility."""
+    def get_hardware_profiles(self) -> Dict[str, Any]:
+        """Returns hardware profiles annotated with current system compatibility and live telemetry."""
         hw = engine_registry.get_hardware_telemetry()
         avail_vram = hw.get("available_vram_gb", 0.0)
         total_vram = hw.get("total_vram_gb", 0.0)
+        has_cuda = hw.get("has_cuda", False)
+
+        # Determine recommended profile dynamically based on available VRAM
+        if not has_cuda or total_vram < 3.5 or avail_vram < 2.5:
+            recommended_profile = HardwareProfile.LOW_MEMORY.value
+        elif avail_vram >= 5.0 and total_vram >= 6.0:
+            recommended_profile = HardwareProfile.QUALITY.value
+        else:
+            recommended_profile = HardwareProfile.BALANCED.value
 
         profiles = {}
         for k, p in HARDWARE_PROFILES.items():
             p_copy = dict(p)
             req = p_copy["min_vram_gb"]
-            compatible = (total_vram >= req) or (not hw.get("has_cuda", False))
-            p_copy["compatible"] = compatible
-            if not compatible:
-                p_copy["warning"] = f"Requires at least {req} GB VRAM (system has {total_vram} GB total)."
-            else:
-                p_copy["warning"] = None
+            est_task_vram = p_copy.get("estimated_vram_gb", req)
+            p_copy["estimated_task_requirements_gb"] = est_task_vram
+
+            # Nominal hardware capability
+            nominal_compatible = (total_vram >= req) or (not has_cuda)
+            p_copy["compatible"] = nominal_compatible
+
+            # Live memory pressure check
+            memory_pressure = False
+            warning = None
+            if has_cuda:
+                if not nominal_compatible:
+                    warning = f"Requires at least {req} GB total VRAM (device has {total_vram} GB total)."
+                elif avail_vram < req:
+                    memory_pressure = True
+                    warning = f"Memory pressure warning: Available VRAM ({avail_vram} GB) is below nominal requirement ({req} GB). Close other GPU tasks or use '{HardwareProfile.LOW_MEMORY.value}'."
+
+            p_copy["memory_pressure"] = memory_pressure
+            p_copy["is_safe_now"] = nominal_compatible and not memory_pressure
+            p_copy["warning"] = warning
             profiles[k] = p_copy
 
+        any_pressure = any(p.get("memory_pressure", False) for p in profiles.values() if isinstance(p, dict))
+        profiles["_telemetry"] = {
+            "total_vram_gb": total_vram,
+            "available_vram_gb": avail_vram,
+            "device_name": hw.get("device_name", "Unknown"),
+            "has_cuda": has_cuda,
+            "memory_pressure": any_pressure,
+            "recommended_profile": recommended_profile
+        }
         return profiles
 
     def discover_routes(self) -> List[Dict[str, Any]]:
@@ -160,14 +192,8 @@ class GenerationOrchestrator:
         })
 
         # Route 2: Text-to-3D Hybrid (SD-Turbo Concept Art + TripoSR)
-        jm_mod = sys.modules.get("services.job_manager")
-        active_pe = getattr(jm_mod, "prompt_engine", prompt_engine) if jm_mod else prompt_engine
-        is_pe_mocked = (
-            getattr(active_pe.generate, "__name__", "") != "generate" or
-            "mock" in type(active_pe.generate).__name__.lower()
-        )
         sd_status = model_path_resolver.get_status("sd_turbo")
-        sd_ready = (sd_status in (ModelStatus.RUNTIME_READY, ModelStatus.INFERENCE_VERIFIED, ModelStatus.VERIFIED_ON_HARDWARE)) or is_pe_mocked
+        sd_ready = sd_status in (ModelStatus.RUNTIME_READY, ModelStatus.INFERENCE_VERIFIED, ModelStatus.VERIFIED_ON_HARDWARE)
         hybrid_ready = triposr_ready and sd_ready
         routes.append({
             "route_id": "text_to_3d_hybrid",
@@ -428,45 +454,87 @@ class GenerationOrchestrator:
             # -----------------------------------------------------------------
             # STAGE 6 & 7: 3D Volumetric Reconstruction
             # -----------------------------------------------------------------
-            job.status = PipelineStage.WAITING_FOR_GPU.value
-            job.set_stage("Acquiring GPU Lease for Neural 3D Reconstruction", 45)
+            if route_id == "text_to_3d_direct":
+                job.status = PipelineStage.WAITING_FOR_GPU.value
+                job.set_stage("Acquiring GPU Lease for Direct Text-to-3D (Shap-E)", 45)
 
-            if getattr(job, "_cancel_requested", False):
-                job.status = PipelineStage.CANCELLED.value
-                return {"status": "cancelled"}
+                if getattr(job, "_cancel_requested", False):
+                    job.status = PipelineStage.CANCELLED.value
+                    return {"status": "cancelled"}
 
-            job.status = PipelineStage.RUNNING_RECONSTRUCTION.value
-            job.set_stage(f"Executing Volumetric Reconstruction ({profile_cfg['label']})", 50)
+                job.status = PipelineStage.RUNNING_RECONSTRUCTION.value
+                job.set_stage("Synthesizing Implicit 3D Geometry directly from Text Prompt (Shap-E)", 50)
 
-            t_recon_start = time.time()
-            jm_mod = sys.modules.get("services.job_manager")
-            active_tripo = getattr(jm_mod, "triposr_engine", triposr_engine) if jm_mod else triposr_engine
-            recon_res = active_tripo.reconstruct(
-                image_path=staged_image_path,
-                quality=profile_name,
-                mc_resolution=profile_cfg["mc_resolution"],
-                chunk_size=profile_cfg["chunk_size"],
-                render_turntable=job.params.get("render_turntable", False),
-                job_id=job.job_id,
-                output_dir=str(high_poly_dir)
-            )
-            timings["reconstruction_seconds"] = recon_res.get("elapsed_seconds", round(time.time() - t_recon_start, 2))
-            raw_mesh_path = recon_res.get("mesh_path")
+                t_recon_start = time.time()
+                shape_eng = engine_registry.get_engine("shap_e")
+                if not shape_eng:
+                    raise RuntimeError("Shap-E engine adapter is not registered.")
 
-            if not raw_mesh_path or not os.path.exists(raw_mesh_path) or os.path.getsize(raw_mesh_path) == 0:
-                raise RuntimeError("TripoSR completed but raw output mesh file is missing or empty.")
+                engine_params = dict(job.params)
+                engine_params["prompt"] = job.params.get("prompt", "")
+                engine_params["output_dir"] = str(high_poly_dir)
 
-            high_poly_mesh = high_poly_dir / "mesh.glb"
-            if raw_mesh_path != str(high_poly_mesh):
-                shutil.copy2(raw_mesh_path, high_poly_mesh)
+                asset = shape_eng.generate(
+                    params=engine_params,
+                    progress_callback=lambda p, s: job.set_stage(s, int(50 + p * 20))
+                )
+                timings["reconstruction_seconds"] = asset.generation_time_seconds or round(time.time() - t_recon_start, 2)
+                raw_mesh_path = asset.mesh_path
 
-            job.high_poly_mesh = str(high_poly_mesh)
-            job.output_mesh = str(high_poly_mesh)
-            execution_provenance = "triposr_neural" if route_id == "image_to_3d_triposr" else "hybrid_sd_triposr"
-            job.log(f"[Orchestrator] Neural reconstruction completed in {timings['reconstruction_seconds']}s.")
+                if not raw_mesh_path or not os.path.exists(raw_mesh_path) or os.path.getsize(raw_mesh_path) == 0:
+                    raise RuntimeError("Shap-E generation completed but output mesh file is missing or empty.")
 
-            model_lifecycle.offload_active_model()
-            gpu_broker.purge_vram()
+                high_poly_mesh = high_poly_dir / "mesh.glb"
+                if raw_mesh_path != str(high_poly_mesh):
+                    shutil.copy2(raw_mesh_path, high_poly_mesh)
+
+                job.high_poly_mesh = str(high_poly_mesh)
+                job.output_mesh = str(high_poly_mesh)
+                execution_provenance = "shape_implicit_direct"
+                job.log(f"[Orchestrator] Direct Shap-E text-to-3D generation completed in {timings['reconstruction_seconds']}s.")
+
+                model_lifecycle.offload_active_model()
+                gpu_broker.purge_vram()
+            else:
+                job.status = PipelineStage.WAITING_FOR_GPU.value
+                job.set_stage("Acquiring GPU Lease for Neural 3D Reconstruction", 45)
+
+                if getattr(job, "_cancel_requested", False):
+                    job.status = PipelineStage.CANCELLED.value
+                    return {"status": "cancelled"}
+
+                job.status = PipelineStage.RUNNING_RECONSTRUCTION.value
+                job.set_stage(f"Executing Volumetric Reconstruction ({profile_cfg['label']})", 50)
+
+                t_recon_start = time.time()
+                jm_mod = sys.modules.get("services.job_manager")
+                active_tripo = getattr(jm_mod, "triposr_engine", triposr_engine) if jm_mod else triposr_engine
+                recon_res = active_tripo.reconstruct(
+                    image_path=staged_image_path,
+                    quality=profile_name,
+                    mc_resolution=profile_cfg["mc_resolution"],
+                    chunk_size=profile_cfg["chunk_size"],
+                    render_turntable=job.params.get("render_turntable", False),
+                    job_id=job.job_id,
+                    output_dir=str(high_poly_dir)
+                )
+                timings["reconstruction_seconds"] = recon_res.get("elapsed_seconds", round(time.time() - t_recon_start, 2))
+                raw_mesh_path = recon_res.get("mesh_path")
+
+                if not raw_mesh_path or not os.path.exists(raw_mesh_path) or os.path.getsize(raw_mesh_path) == 0:
+                    raise RuntimeError("TripoSR completed but raw output mesh file is missing or empty.")
+
+                high_poly_mesh = high_poly_dir / "mesh.glb"
+                if raw_mesh_path != str(high_poly_mesh):
+                    shutil.copy2(raw_mesh_path, high_poly_mesh)
+
+                job.high_poly_mesh = str(high_poly_mesh)
+                job.output_mesh = str(high_poly_mesh)
+                execution_provenance = "triposr_neural" if route_id == "image_to_3d_triposr" else "hybrid_sd_triposr"
+                job.log(f"[Orchestrator] Neural reconstruction completed in {timings['reconstruction_seconds']}s.")
+
+                model_lifecycle.offload_active_model()
+                gpu_broker.purge_vram()
 
             if getattr(job, "_cancel_requested", False):
                 job.status = PipelineStage.CANCELLED.value

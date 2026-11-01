@@ -74,7 +74,9 @@ def synthesize_and_apply_materials(
     material_slots = []
     mat_to_index = {}
 
-    textures_dir = textures_dir or os.path.join(os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ".", "textures")
+    import tempfile
+    fallback_dir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else tempfile.gettempdir()
+    textures_dir = textures_dir or os.path.join(fallback_dir, "textures")
     os.makedirs(textures_dir, exist_ok=True)
 
     for idx, mat_cfg in enumerate(profile.materials):

@@ -12,7 +12,7 @@
 ---
 
 ### 🧭 Navigation & Deliverables
-[**🚀 Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
+[**🚀 Phase 5 Blender Studio Report**](docs/PHASE_5_BLENDER_STUDIO_REPORT.md) • [**Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
@@ -232,6 +232,28 @@ The system automatically detects your host GPU and system RAM to configure an op
 
 👉 **For exhaustive hardware tier configurations (4GB, 6GB, 8GB, 12GB, 16GB, 24GB+), exact download references, benchmark telemetry, and installation instructions, see the complete guide:**  
 [**📖 Local AI Model Selection & Hardware Orchestration Guide**](docs/LOCAL_AI_MODEL_SELECTION_GUIDE.md)
+
+---
+
+---
+
+## 🎨 Phase 5: Blender Studio Integration & Interactive 3D Workspace
+
+Phase 5 delivers an interactive, native Blender workspace extension connecting Local Mesh AI's generation pipeline directly to professional artists:
+
+### 1. Dedicated `LOCAL MESH AI` Sidebar Tab
+Located in the 3D Viewport Sidebar (`N-Panel` > `LOCAL MESH AI`), organized into 7 structured panels:
+1. **Connection & Health (`LOCALMESH_PT_Connection`):** Real-time server health ping, latency tracking, GPU telemetry, VRAM utilization, one-click backend console launcher, and API dashboard launcher.
+2. **Generate AI 3D Asset (`LOCALMESH_PT_Generate`):** Dual-mode inputs (Text-to-3D prompt & Image-to-3D reference upload with image staging), dynamic route selection (`text_to_3d_pipeline`, `text_to_3d_direct`, `image_to_3d_triposr`), hardware profiles (`low_memory`, `balanced`, `quality`), architectural presets (weapons, props, characters, furniture, vehicles), and material toggles.
+3. **Job Monitor (`LOCALMESH_PT_JobMonitor`):** Thread-safe background polling via `bpy.app.timers`. Displays live progress percentages, stages, elapsed seconds, job cancellation control, and automatic main-thread mesh import into `AI_Generated_Assets`.
+4. **Generated Assets Catalogue (`LOCALMESH_PT_Assets`):** Local and backend asset browser, file size telemetry, one-click scene import, and output folder launcher.
+5. **Scene Information (`LOCALMESH_PT_SceneInfo`):** Live scene asset metrics (total objects, lights, cameras) and active mesh geometry inspection (vertices, polygon count, real-world metric dimensions X/Y/Z, material slots).
+6. **Two-Way Scene Synchronization (`LOCALMESH_PT_SceneSync`):** Pushes active and scene mesh hierarchies to `/api/v1/blender/sync-scene`, pulls backend registered scene status, and tracks synchronization timestamps.
+7. **Interactive Mesh Controls (`LOCALMESH_PT_MeshControls`):** One-click geometric transforms (snap to ground Z=0, center pivot to origin, uniform scale to target height), normal recalculation, degenerate geometry cleanup, and retained Phase 3 component precision editing.
+
+### 2. Standard Installation Guide
+* **Method A (ZIP Package):** In Blender, open `Edit` > `Preferences` > `Add-ons` > `Install...`, select `dist/local_mesh_ai_blender_addon.zip`, and enable the checkbox.
+* **Method B (Direct Script):** Place `addon/triposr_blender_addon.py` into your Blender scripts folder (`%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\`).
 
 ---
 

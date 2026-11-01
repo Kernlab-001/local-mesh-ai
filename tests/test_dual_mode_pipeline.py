@@ -111,6 +111,8 @@ def test_mode_a_text_to_3d_invokes_diffusion(tmp_path, monkeypatch):
         img.save(output_path)
         return output_path
 
+    from core.model_paths import ModelStatus
+    monkeypatch.setattr("core.model_paths.model_path_resolver.get_status", lambda name: ModelStatus.RUNTIME_READY if name in ("sd_turbo", "triposr") else ModelStatus.MISSING)
     monkeypatch.setattr("services.job_manager.prompt_engine.generate", mock_diffusion_generate)
 
     def mock_reconstruct(*args, **kwargs):
