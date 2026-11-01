@@ -25,6 +25,7 @@ import core.mesh_finishing as mf
 from core.geometry_editing import GeometryEditingEngine, EditComponentArgs
 from services.editing_session_manager import editing_session_manager
 from core.command_schemas import ComponentEditPlan, ComponentInvariant
+from core.path_security import get_staging_dir, validate_safe_path
 
 client = TestClient(app)
 
@@ -36,7 +37,7 @@ client = TestClient(app)
 @pytest.fixture(scope="module")
 def sample_test_assets():
     """Creates temporary clean and defective test meshes for finishing validation."""
-    tmp_dir = tempfile.mkdtemp(prefix="phase7_test_")
+    tmp_dir = tempfile.mkdtemp(prefix="phase7_test_", dir=str(get_staging_dir()))
 
     # 1. Clean multi-component chair (High-Poly Source)
     box_seat = trimesh.creation.box(extents=[0.5, 0.5, 0.08])

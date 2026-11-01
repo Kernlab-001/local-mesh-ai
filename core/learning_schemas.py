@@ -47,6 +47,8 @@ class DatasetSplit(BaseModel):
     test_ids: List[str] = Field(default_factory=list)
     asset_families_train: List[str] = Field(default_factory=list)
     asset_families_test: List[str] = Field(default_factory=list)
+    insufficient_families: bool = False
+    message: str = "Split completed successfully without data leakage."
 
 
 class DatasetManifest(BaseModel):

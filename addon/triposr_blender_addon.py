@@ -992,6 +992,29 @@ class LOCALMESH_OT_RefreshConnection(bpy.types.Operator):
         props.server_latency_ms = latency
         if online and isinstance(data, dict):
             props.status_message = f"Connected ({latency:.1f}ms)"
+            try:
+                c_req = urllib.request.Request(f"{props.server_url}/api/v1/learning/consent")
+                with urllib.request.urlopen(c_req, timeout=3.0) as c_resp:
+                    c_data = json.loads(c_resp.read().decode("utf-8"))
+                    props.learning_consent_opted_in = bool(c_data.get("opted_in", False))
+            except Exception:
+                pass
+            try:
+                m_req = urllib.request.Request(f"{props.server_url}/api/v1/learning/models")
+                with urllib.request.urlopen(m_req, timeout=3.0) as m_resp:
+                    m_data = json.loads(m_resp.read().decode("utf-8"))
+                    props.active_model_name = m_data.get("active_model_id", "base")
+                    props.candidate_model_name = m_data.get("candidate_model_id") or "None"
+            except Exception:
+                pass
+            try:
+                p_req = urllib.request.Request(f"{props.server_url}/api/v1/learning/preflight")
+                with urllib.request.urlopen(p_req, timeout=3.0) as p_resp:
+                    p_data = json.loads(p_resp.read().decode("utf-8"))
+                    props.preflight_free_vram = float(p_data.get("free_vram_mb", 0.0))
+                    props.preflight_feasibility = str(p_data.get("hardware_feasibility", "unknown"))
+            except Exception:
+                pass
             gpu = data.get("gpu", {})
             if isinstance(gpu, dict):
                 props.server_gpu_info = gpu.get("device_name", "GPU Active")
@@ -2950,10 +2973,45 @@ class LOCALMESH_OT_RunSystemDiagnostics(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class LOCALMESH_OT_AutoSelfHeal(bpy.types.Operator):
-    bl_idname = "localmesh.auto_self_heal"
-    bl_label = "Auto-Remediate Issues"
-    bl_description = "Executes authorized recovery actions for active system issues"
+class LOCALMESH_OT_PreviewRecovery(bpy.types.Operator):
+    bl_idname = "localmesh.preview_recovery"
+    bl_label = "1. Preview Recovery (Dry Run)"
+    bl_description = "Performs safe dry run of recovery action to inspect affected files without deleting"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/health/recover",
+                data=json.dumps({
+                    "action_type": "clean_staging_dir",
+                    "approved": False
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            affected = data.get("affected_files", [])
+            props.recovery_preview_ready = True
+            props.recovery_preview_text = f"Dry Run: {len(affected)} files identified for cleanup"
+            self.report({'INFO'}, f"Recovery Preview: {len(affected)} files identified")
+
+        def _error(err):
+            props.recovery_preview_ready = False
+            self.report({'ERROR'}, f"Preview recovery error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ExecuteApprovedRecovery(bpy.types.Operator):
+    bl_idname = "localmesh.execute_approved_recovery"
+    bl_label = "2. Execute Approved Recovery"
+    bl_description = "Executes explicit user-approved remediation on verified staging files"
 
     def execute(self, context):
         props = context.scene.local_mesh_props
@@ -2972,13 +3030,89 @@ class LOCALMESH_OT_AutoSelfHeal(bpy.types.Operator):
                 return json.loads(resp.read().decode("utf-8"))
 
         def _success(data):
-            msg = data.get("message", "Remediation executed")
+            msg = data.get("message", "Remediation executed successfully")
+            props.recovery_preview_ready = False
+            props.recovery_preview_text = ""
             props.health_status_text = "Healthy"
             props.health_issue_count = 0
             self.report({'INFO'}, msg)
 
         def _error(err):
-            self.report({'ERROR'}, f"Self-heal error: {err}")
+            self.report({'ERROR'}, f"Approved recovery error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_AutoSelfHeal(bpy.types.Operator):
+    bl_idname = "localmesh.auto_self_heal"
+    bl_label = "Safe Recovery Preview"
+    bl_description = "Previews safe remediation actions"
+
+    def execute(self, context):
+        return bpy.ops.localmesh.preview_recovery()
+
+
+class LOCALMESH_OT_ClearLearningData(bpy.types.Operator):
+    bl_idname = "localmesh.clear_learning_data"
+    bl_label = "Purge All Learning Data"
+    bl_description = "Permanently removes all locally collected feedback, training pairs, and telemetry"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/learning/clear",
+                data=json.dumps({}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            purged = data.get("purged_count", 0)
+            self.report({'INFO'}, f"Purged {purged} learning samples.")
+
+        def _error(err):
+            self.report({'ERROR'}, f"Clear learning data error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_EvaluateCandidateModel(bpy.types.Operator):
+    bl_idname = "localmesh.evaluate_candidate_model"
+    bl_label = "Evaluate Candidate Model"
+    bl_description = "Executes genuine benchmark validation on the active candidate adapter checkpoint"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+        cid = props.candidate_model_name
+        if not cid or cid.lower() in ("none", "null", ""):
+            self.report({'WARNING'}, "No candidate model adapter available to evaluate.")
+            return {'CANCELLED'}
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/learning/evaluate",
+                data=json.dumps({"model_id": cid}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            score = float(data.get("overall_score", 0.0))
+            passed = data.get("passed", False)
+            props.model_eval_score = score
+            st = "PASSED" if passed else "FAILED"
+            self.report({'INFO'}, f"Candidate Evaluation {st}: Score {score:.1f}%")
+
+        def _error(err):
+            self.report({'ERROR'}, f"Candidate evaluation error: {err}")
 
         run_in_background(_task, _success, _error)
         return {'FINISHED'}
@@ -3064,7 +3198,14 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         row.label(text=f"Status: {props.health_status_text}", icon='INFO')
         if props.health_issue_count > 0:
             row.label(text=f"Issues: {props.health_issue_count}", icon='ERROR')
-            col.operator("localmesh.auto_self_heal", icon='AUTO')
+        
+        # Two-stage remediation
+        col.separator()
+        col.operator("localmesh.preview_recovery", icon='FILE_REFRESH', text="1. Preview Safe Recovery (Dry Run)")
+        if props.recovery_preview_ready:
+            prev_box = col.box()
+            prev_box.label(text=props.recovery_preview_text, icon='INFO')
+            prev_box.operator("localmesh.execute_approved_recovery", icon='CHECKMARK', text="2. Execute Approved Recovery")
 
         # Section 2: Privacy & Local Learning
         box_learn = layout.box()
@@ -3072,6 +3213,13 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         col = box_learn.column(align=True)
         col.prop(props, "learning_consent_opted_in", text="Allow Local Data Collection")
         col.operator("localmesh.toggle_learning_consent", icon='FILE_REFRESH')
+        col.operator("localmesh.clear_learning_data", icon='TRASH', text="Purge All Learning Data")
+        
+        # Preflight Hardware Feasibility
+        col.separator()
+        box_pref = col.box()
+        box_pref.label(text=f"Free VRAM: {props.preflight_free_vram:.0f} MB", icon='PREFERENCES')
+        box_pref.label(text=f"Training Feasibility: {props.preflight_feasibility}", icon='INFO')
 
         # Section 3: Model Version & Rollback
         box_model = layout.box()
@@ -3079,6 +3227,9 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         col = box_model.column(align=True)
         col.label(text=f"Active: {props.active_model_name}")
         col.label(text=f"Candidate: {props.candidate_model_name}")
+        col.operator("localmesh.evaluate_candidate_model", icon='CHECKMARK')
+        if props.model_eval_score > 0.0:
+            col.label(text=f"Eval Score: {props.model_eval_score:.1f}%", icon='SOLO_ON')
         col.operator("localmesh.rollback_model_lifecycle", icon='RECOVER_LAST')
 
 classes = (
@@ -3135,7 +3286,11 @@ classes = (
     LOCALMESH_OT_ExportFinishedAsset,
     LOCALMESH_PT_FinishingStudio,
     LOCALMESH_OT_RunSystemDiagnostics,
+    LOCALMESH_OT_PreviewRecovery,
+    LOCALMESH_OT_ExecuteApprovedRecovery,
     LOCALMESH_OT_AutoSelfHeal,
+    LOCALMESH_OT_ClearLearningData,
+    LOCALMESH_OT_EvaluateCandidateModel,
     LOCALMESH_OT_ToggleLearningConsent,
     LOCALMESH_OT_RollbackModelLifecycle,
     LOCALMESH_PT_SystemHealthLearning,

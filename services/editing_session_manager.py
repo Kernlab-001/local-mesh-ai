@@ -490,10 +490,18 @@ class EditingSessionManager:
             target_label = plan.target_semantic_labels[0] if plan.target_semantic_labels else "component"
 
             invariant_pre_dims = {}
+            invariant_pre_centroids = {}
             for inv in plan.invariants:
                 inv_node = session.hierarchy.components.get(inv.component_id)
                 if inv_node:
                     invariant_pre_dims[inv.component_id] = inv_node.dimensions
+                    if hasattr(inv_node, "face_indices") and inv_node.face_indices:
+                        if max(inv_node.face_indices) < len(mesh_pre.faces):
+                            try:
+                                sub_pre = mesh_pre.submesh([inv_node.face_indices], append=True)
+                                invariant_pre_centroids[inv.component_id] = sub_pre.centroid
+                            except Exception:
+                                pass
 
             # 3. Execute Deterministic Component Edit
             op_name = plan.operation_type if plan.operation_type != "scale" else "scale_axis"
@@ -579,6 +587,18 @@ class EditingSessionManager:
                             if dev > max_deviation_pct:
                                 max_deviation_pct = dev
                             if dev > (tol * 100.0):
+                                invariants_preserved = False
+
+                        # Centroid invariant validation
+                        pre_c = invariant_pre_centroids.get(cid)
+                        if pre_c is not None:
+                            post_c = sub_inv.centroid
+                            c_dist = float(np.linalg.norm(post_c - pre_c))
+                            ref_rad = max(0.01, float(np.linalg.norm(pre_d)))
+                            c_pct = (c_dist / ref_rad) * 100.0
+                            if c_pct > max_deviation_pct:
+                                max_deviation_pct = c_pct
+                            if c_pct > (tol * 100.0):
                                 invariants_preserved = False
 
             if not invariants_preserved or geo_post.quality.has_nan_or_inf:

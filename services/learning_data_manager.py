@@ -1,11 +1,13 @@
 """
 Learning Data Manager for Local Mesh AI.
-Controls the storage, categorization, deduplication, review, and dataset export
-of user-approved interaction samples with strict local data privacy.
+Controls the storage, categorization, deduplication, review, dataset export,
+retention enforcement, anonymization, and safe purging of user-approved interaction samples.
+Operates strictly locally with zero external network connectivity.
 """
 
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -39,13 +41,46 @@ class LearningDataManager:
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
+    def enforce_retention_policy(self, max_days: Optional[int] = None) -> int:
+        """
+        Enforces user-specified retention window.
+        Purges samples older than retention_days. Returns count of purged samples.
+        """
+        consent = data_consent_manager.get_consent_state()
+        days = max_days if max_days is not None else consent.retention_days
+        cutoff_seconds = time.time() - (days * 86400.0)
+
+        purged = 0
+        for d in [self.inbox_dir, self.approved_dir, self.rejected_dir]:
+            for p in d.glob("*.json"):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    ts = data.get("timestamp", 0.0)
+                    if ts < cutoff_seconds:
+                        p.unlink()
+                        purged += 1
+                except Exception:
+                    pass
+        return purged
+
     def record_interaction(self, sample: LearningSample) -> Optional[str]:
         """
         Records an interaction sample into the local inbox.
         Strictly a NO-OP if user has not explicitly consented to learning collection.
+        Enforces mesh-name anonymization and retention window.
         """
         if not data_consent_manager.is_opted_in():
             return None
+
+        # Auto-enforce retention policy on recording
+        self.enforce_retention_policy()
+
+        consent = data_consent_manager.get_consent_state()
+        if consent.anonymize_mesh_names:
+            sample.anonymized = True
+            # Strip file path details from prompt if present
+            sample.prompt = sample.prompt.replace("\\", "/").split("/")[-1]
 
         valid, reason = dataset_validator.validate_sample(sample)
         if not valid:
@@ -72,7 +107,6 @@ class LearningDataManager:
         """Reviews a sample, moving it from inbox to approved or rejected."""
         sample_file = self.inbox_dir / f"{sample_id}.json"
         if not sample_file.exists():
-            # Check if already in approved or rejected
             sample_file = self.approved_dir / f"{sample_id}.json"
             if not sample_file.exists():
                 sample_file = self.rejected_dir / f"{sample_id}.json"
@@ -90,7 +124,6 @@ class LearningDataManager:
         target_dir = self.approved_dir if approved else self.rejected_dir
         target_file = target_dir / f"{sample_id}.json"
 
-        # Remove from previous location if different
         if sample_file != target_file and sample_file.exists():
             sample_file.unlink()
 
@@ -98,6 +131,18 @@ class LearningDataManager:
             json.dump(sample.model_dump(), f, indent=2)
 
         return sample
+
+    def delete_sample(self, sample_id: str) -> bool:
+        """Deletes an individual sample by ID across all review directories."""
+        for d in [self.inbox_dir, self.approved_dir, self.rejected_dir]:
+            f = d / f"{sample_id}.json"
+            if f.exists():
+                try:
+                    f.unlink()
+                    return True
+                except OSError:
+                    pass
+        return False
 
     def get_sample_by_id(self, sample_id: str) -> Optional[LearningSample]:
         for d in [self.inbox_dir, self.approved_dir, self.rejected_dir]:
@@ -136,9 +181,13 @@ class LearningDataManager:
 
     def build_dataset(self, dataset_name: str, train_ratio: float = 0.8) -> DatasetManifest:
         """
-        Builds an instruction-tuning dataset from approved samples,
-        partitioned by asset family to guarantee zero test leakage.
+        Builds an instruction-tuning dataset from approved samples.
+        Enforces export_allowed user consent permission and asset-family partitioning.
         """
+        consent = data_consent_manager.get_consent_state()
+        if not consent.export_allowed:
+            raise PermissionError("Dataset export is not authorized under current user privacy consent settings.")
+
         approved_samples = self.get_samples(status=SampleReviewStatus.APPROVED)
         splits = dataset_validator.partition_train_test_by_family(approved_samples, train_ratio=train_ratio)
 
@@ -183,8 +232,15 @@ class LearningDataManager:
         return manifest
 
     def clear_all_learning_data(self):
-        """Purges all collected learning data in compliance with user privacy."""
-        for d in [self.inbox_dir, self.approved_dir, self.rejected_dir, self.datasets_dir, self.manifests_dir]:
+        """Purges all collected learning data, including evaluation reports, respecting user privacy."""
+        for d in [
+            self.inbox_dir,
+            self.approved_dir,
+            self.rejected_dir,
+            self.datasets_dir,
+            self.manifests_dir,
+            self.evaluation_dir,
+        ]:
             if d.exists():
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True, exist_ok=True)
