@@ -192,8 +192,29 @@ def test_unit_recovery_cannot_delete_active_staging_files():
     editing_session_manager._sessions[session_id] = sess
 
     try:
-        req = RecoveryActionRequest(action_type=ActionType.CLEAN_STAGING_DIR, approved=True, dry_run=False)
-        res = self_healing_manager.execute_action(req)
+        # Calling execute without a preview ID must raise ValueError
+        with pytest.raises(ValueError, match="requires a valid, server-generated preview_id"):
+            self_healing_manager.execute_action(
+                RecoveryActionRequest(action_type=ActionType.CLEAN_STAGING_DIR, approved=True, dry_run=False)
+            )
+
+        # Preview must exclude fresh files and active sessions
+        preview = self_healing_manager.preview_action(
+            RecoveryActionRequest(action_type=ActionType.CLEAN_STAGING_DIR, dry_run=True)
+        )
+        assert str(fresh_file.resolve()) not in preview.affected_files
+        assert str(active_mesh.resolve()) not in preview.affected_files
+
+        # Even if executed with preview, fresh files and active meshes are preserved
+        if preview.preview_id:
+            self_healing_manager.execute_action(
+                RecoveryActionRequest(
+                    action_type=ActionType.CLEAN_STAGING_DIR,
+                    approved=True,
+                    dry_run=False,
+                    preview_id=preview.preview_id
+                )
+            )
 
         assert fresh_file.exists(), "Fresh staging file (<1 hr old) must not be deleted"
         assert active_mesh.exists(), "Active session working mesh must be protected from deletion"

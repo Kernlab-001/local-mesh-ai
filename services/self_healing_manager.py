@@ -236,23 +236,28 @@ class SelfHealingManager:
         except (ValueError, TypeError):
             min_age_seconds = 3600.0
         now = time.time()
+        staging_resolved = staging.resolve()
 
-        # --- A. Dry-Run Preview Mode: Generates bound preview_id ---
+        # --- A. Dry-Run Preview Mode: Generates cryptographically bound, single-use preview_id ---
         if req.dry_run:
             candidate_files: List[Path] = []
             file_hashes: Dict[str, str] = {}
             for p in staging.rglob("*"):
-                if p.is_file():
-                    abs_p = str(p.resolve())
-                    if abs_p in protected_paths:
+                try:
+                    if not p.is_file() or p.is_symlink():
                         continue
-                    try:
-                        mtime = p.stat().st_mtime
-                        if now - mtime >= min_age_seconds:
-                            candidate_files.append(p)
-                            file_hashes[abs_p] = self._compute_file_sha256(p)
-                    except OSError:
-                        pass
+                    resolved_p = p.resolve()
+                    # Strict canonical path containment check
+                    if not resolved_p.is_relative_to(staging_resolved):
+                        continue
+                    if str(resolved_p) in protected_paths:
+                        continue
+                    mtime = p.stat().st_mtime
+                    if now - mtime >= min_age_seconds:
+                        candidate_files.append(p)
+                        file_hashes[str(resolved_p)] = self._compute_file_sha256(p)
+                except OSError:
+                    pass
 
             total_size = sum(p.stat().st_size for p in candidate_files)
             size_mb = round(total_size / (1024**2), 2)
@@ -285,66 +290,73 @@ class SelfHealingManager:
                 expires_at=expires_at,
             )
 
-        # --- B. Approved Execution Mode ---
+        # --- B. Approved Execution Mode: MANDATORY Two-Stage Execution ---
+        # Destructive staging cleanup strictly requires a valid server-generated preview ID.
+        # Fallback to unreviewed deletion is completely eliminated.
         preview_id = req.preview_id or req.parameters.get("preview_id")
+        if not preview_id:
+            raise ValueError(
+                "Execution rejected: Destructive cleanup requires a valid, server-generated preview_id from a prior preview call."
+            )
+
+        # Atomic single-use token consumption
+        with self._preview_lock:
+            preview = self._active_previews.pop(preview_id, None)
+
+        if not preview:
+            raise ValueError(
+                f"Execution rejected: Preview ID '{preview_id}' is invalid, has expired, or was already consumed."
+            )
+
+        if now > preview.expires_at:
+            raise ValueError(
+                f"Execution rejected: Preview ID '{preview_id}' expired at {time.ctime(preview.expires_at)}."
+            )
+
+        # Action-type binding verification
+        if preview.action_type != req.action_type:
+            raise ValueError(
+                f"Execution rejected: Preview ID '{preview_id}' was generated for action '{preview.action_type}', cannot execute for '{req.action_type}'."
+            )
+
+        # Re-check live protections immediately before deletion
+        current_protected = self._get_protected_file_paths()
         target_files_to_delete: List[Path] = []
-        staging_canonical = str(staging.resolve())
 
-        if preview_id:
-            with self._preview_lock:
-                preview = self._active_previews.get(preview_id)
+        # Optional parameter: filter down to a subset of previewed candidate files if user selected specific ones
+        approved_filter = req.parameters.get("approved_files")
+        approved_set = {str(Path(f).resolve()) for f in approved_filter} if approved_filter is not None else None
 
-            if not preview:
-                raise ValueError(f"Execution rejected: Preview ID '{preview_id}' is invalid or has expired.")
-
-            if now > preview.expires_at:
-                with self._preview_lock:
-                    self._active_previews.pop(preview_id, None)
-                raise ValueError(f"Execution rejected: Preview ID '{preview_id}' expired at {time.ctime(preview.expires_at)}.")
-
-            for path_str in preview.canonical_paths:
-                p = Path(path_str)
-                resolved_p = str(p.resolve())
-                # Revalidate within staging directory
-                if not resolved_p.startswith(staging_canonical):
+        for path_str in preview.canonical_paths:
+            p = Path(path_str)
+            try:
+                resolved_p = p.resolve()
+                # 1. Strict canonical path containment (protect against path traversal & symlink hopping)
+                if not resolved_p.is_relative_to(staging_resolved):
                     continue
-                if resolved_p in protected_paths:
+                # 2. Strict symlink rejection
+                if p.is_symlink() or resolved_p.is_symlink():
                     continue
+                # 3. Re-verify active session and job protections
+                if str(resolved_p) in current_protected:
+                    continue
+                # 4. Re-verify file existence and type
                 if not p.exists() or not p.is_file():
                     continue
-                # Verify file hash has not changed
-                try:
-                    curr_hash = self._compute_file_sha256(p)
-                    if curr_hash != preview.file_hashes.get(resolved_p):
-                        continue  # File was modified or replaced after preview
-                    target_files_to_delete.append(p)
-                except OSError:
-                    pass
+                # 5. Re-verify enforced minimum age
+                if (now - p.stat().st_mtime) < preview.enforced_min_age_seconds:
+                    continue
+                # 6. Re-verify file SHA-256 hash has not changed
+                curr_hash = self._compute_file_sha256(p)
+                if curr_hash != preview.file_hashes.get(str(resolved_p)):
+                    continue  # File was modified or replaced after preview
+                # 7. Check user-approved subset filter if provided
+                if approved_set is not None and str(resolved_p) not in approved_set:
+                    continue
 
-            with self._preview_lock:
-                self._active_previews.pop(preview_id, None)
-
-        else:
-            # Fallback for backwards-compatible test calls with explicit approved_files parameter
-            approved_targets = req.parameters.get("approved_files")
-            candidate_files = []
-            for p in staging.rglob("*"):
-                if p.is_file():
-                    abs_p = str(p.resolve())
-                    if abs_p in protected_paths:
-                        continue
-                    try:
-                        mtime = p.stat().st_mtime
-                        if now - mtime >= min_age_seconds:
-                            candidate_files.append(p)
-                    except OSError:
-                        pass
-
-            if approved_targets is not None:
-                approved_set = {str(Path(f).resolve()) for f in approved_targets}
-                target_files_to_delete = [p for p in candidate_files if str(p.resolve()) in approved_set]
-            else:
-                target_files_to_delete = candidate_files
+                target_files_to_delete.append(p)
+            except OSError:
+                pass
 
         deleted_count = 0
         deleted_paths = []

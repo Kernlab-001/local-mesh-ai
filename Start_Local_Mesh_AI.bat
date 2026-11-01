@@ -36,10 +36,10 @@ echo ===========================================================================
 echo                      LOCAL MESH AI - MAIN MENU
 echo ==============================================================================
 echo.
-echo   [1] Start Full Studio (Backend Server + Studio Workspace UI) [Recommended]
-echo   [2] Start Backend Orchestration Server Only (Port 8000)
-echo   [3] Start Studio Workspace UI Only (Port 7860)
-echo   [4] Launch Blender with Local Mesh AI Studio Addon
+echo   [1] Start Full Studio (Backend Server + Blender Studio) [Recommended]
+echo   [2] Launch Blender Studio (with Local Mesh AI Addon)
+echo   [3] Start Backend Server Only (FastAPI Orchestrator on Port 8000)
+echo   [4] Start Standalone Studio UI (Gradio Dashboard on Port 7860)
 echo   [5] Run Hardware Diagnostics and Preflight Check
 echo   [6] Run Comprehensive Test Suite
 echo   [7] Setup / Repair Python Virtual Environment
@@ -49,9 +49,9 @@ echo ===========================================================================
 set /p CHOICE="Enter your choice (1-8): "
 
 if "%CHOICE%"=="1" goto :START_ALL
-if "%CHOICE%"=="2" goto :START_BACKEND
-if "%CHOICE%"=="3" goto :START_UI
-if "%CHOICE%"=="4" goto :START_BLENDER
+if "%CHOICE%"=="2" goto :START_BLENDER
+if "%CHOICE%"=="3" goto :START_BACKEND
+if "%CHOICE%"=="4" goto :START_UI
 if "%CHOICE%"=="5" goto :DIAGNOSTICS
 if "%CHOICE%"=="6" goto :RUN_TESTS
 if "%CHOICE%"=="7" goto :SETUP_ENV
@@ -63,39 +63,38 @@ goto :MENU
 
 :START_ALL
 echo.
-echo [1/2] Launching Local Mesh AI Backend Server (Port 8000)...
-start "Local Mesh AI - Backend Server" cmd /k ".venv\Scripts\python.exe run_server.py"
-echo Waiting for backend server initialization...
-timeout /t 3 >nul
-echo [2/2] Launching Local Mesh AI Studio UI (Port 7860)...
-start "Local Mesh AI - Studio UI" cmd /k ".venv\Scripts\python.exe ui\dashboard.py"
-echo.
-echo Both services launched in dedicated console windows.
-echo Studio URL: http://127.0.0.1:7860
-echo API Docs:   http://127.0.0.1:8000/docs
-echo.
-pause
-goto :MENU
+echo ==============================================================================
+echo [1/2] Checking Backend Server Status...
+.venv\Scripts\python.exe -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=0.8).getcode()==200 else 1)" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Backend server is already running and healthy on Port 8000.
+) else (
+    echo Launching Local Mesh AI Backend Server (Port 8000)...
+    start "Local Mesh AI - Backend Server" cmd /k ""%~dp0.venv\Scripts\python.exe" run_server.py"
+    echo Waiting for backend health verification...
+    set /a ATTEMPTS=0
+    :WAIT_BACKEND_ALL
+    timeout /t 1 >nul
+    .venv\Scripts\python.exe -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=0.8).getcode()==200 else 1)" >nul 2>&1
+    if not errorlevel 1 (
+        echo [SUCCESS] Backend server responded healthy on Port 8000!
+        goto :LAUNCH_BLENDER_STAGE
+    )
+    set /a ATTEMPTS+=1
+    if !ATTEMPTS! lss 12 goto :WAIT_BACKEND_ALL
+    echo [WARNING] Backend did not respond within 12 seconds. Proceeding to launch Blender...
+)
 
-:START_BACKEND
+:LAUNCH_BLENDER_STAGE
 echo.
-echo Launching Local Mesh AI Backend Server on Port 8000...
-start "Local Mesh AI - Backend Server" cmd /k ".venv\Scripts\python.exe run_server.py"
-echo Server started in new console. API Docs: http://127.0.0.1:8000/docs
-pause
-goto :MENU
-
-:START_UI
-echo.
-echo Launching Local Mesh AI Studio UI on Port 7860...
-start "Local Mesh AI - Studio UI" cmd /k ".venv\Scripts\python.exe ui\dashboard.py"
-echo UI started in new console. URL: http://127.0.0.1:7860
-pause
-goto :MENU
+echo [2/2] Launching Blender Studio...
+goto :DO_LAUNCH_BLENDER
 
 :START_BLENDER
 echo.
-echo Looking for Blender installation...
+echo ==============================================================================
+echo Launching Blender Studio...
+:DO_LAUNCH_BLENDER
 set "BLENDER_EXE="
 if exist "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" set "BLENDER_EXE=C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
 if not defined BLENDER_EXE if exist "C:\Program Files\Blender Foundation\Blender 4.3\blender.exe" set "BLENDER_EXE=C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
@@ -113,32 +112,78 @@ if not defined BLENDER_EXE (
 )
 
 echo Found Blender at: "!BLENDER_EXE!"
-echo Launching Blender...
-start "" "!BLENDER_EXE!" --addons-path "%CD%\addon"
+echo Starting Blender with Local Mesh AI Addon path...
+start "" "!BLENDER_EXE!" --addons-path "%~dp0addon"
+pause
+goto :MENU
+
+:START_BACKEND
+echo.
+echo ==============================================================================
+echo Checking if Backend Server is already running on Port 8000...
+.venv\Scripts\python.exe -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=0.8).getcode()==200 else 1)" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Backend server is already running and healthy on Port 8000!
+    echo API Documentation: http://127.0.0.1:8000/docs
+    pause
+    goto :MENU
+)
+
+echo Launching Local Mesh AI Backend Server on Port 8000...
+start "Local Mesh AI - Backend Server" cmd /k ""%~dp0.venv\Scripts\python.exe" run_server.py"
+echo Waiting for backend health confirmation...
+set /a ATTEMPTS=0
+:WAIT_BACKEND_ONLY
+timeout /t 1 >nul
+.venv\Scripts\python.exe -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=0.8).getcode()==200 else 1)" >nul 2>&1
+if not errorlevel 1 (
+    echo [SUCCESS] Backend server is online and healthy!
+    echo API Docs: http://127.0.0.1:8000/docs
+    pause
+    goto :MENU
+)
+set /a ATTEMPTS+=1
+if !ATTEMPTS! lss 12 goto :WAIT_BACKEND_ONLY
+echo [WARNING] Backend did not respond within 12 seconds. Check the backend console window.
+pause
+goto :MENU
+
+:START_UI
+echo.
+echo ==============================================================================
+echo Launching Local Mesh AI Standalone Studio UI on Port 7860...
+start "Local Mesh AI - Studio UI" cmd /k ""%~dp0.venv\Scripts\python.exe" ui\dashboard.py"
+echo UI launched in dedicated console window. URL: http://127.0.0.1:7860
 pause
 goto :MENU
 
 :DIAGNOSTICS
 echo.
-echo Running Hardware Preflight and GPU Broker Diagnostics...
-.venv\Scripts\python.exe launchers\2_detect_hardware.bat >nul 2>&1
-.venv\Scripts\python.exe -c "from core.gpu_broker import gpu_broker; from services.training_preflight import training_preflight; p = training_preflight.evaluate('local-technical-artist-lora'); print(f'GPU Available: {p.gpu_available} | Device: {p.device_name} | VRAM: {p.free_vram_mb:.0f} MB | Feasibility: {p.hardware_feasibility}')"
+echo ==============================================================================
+echo Running Hardware Preflight and GPU Diagnostics...
+echo ==============================================================================
+call "%~dp0launchers\2_detect_hardware.bat"
 echo.
 pause
 goto :MENU
 
 :RUN_TESTS
 echo.
-echo Running Test Suite (Phase 9 and 9.1 Acceptance + Integration)...
-.venv\Scripts\python.exe -m pytest tests\test_phase9_1_integration.py tests\test_phase9_1_acceptance.py tests\test_phase9_acceptance.py -v
+echo ==============================================================================
+echo Running Automated Test Suites (Pytest)...
+echo ==============================================================================
+set PYTHONPATH=%~dp0
+"%~dp0.venv\Scripts\python.exe" -m pytest tests\test_recovery_security.py tests\test_phase9_1_integration.py tests\test_phase9_1_acceptance.py tests\test_phase9_acceptance.py -v
 echo.
 pause
 goto :MENU
 
 :SETUP_ENV
 echo.
+echo ==============================================================================
 echo Running Environment Setup / Dependency Synchronization...
-call launchers\1_setup_environment.bat
+echo ==============================================================================
+call "%~dp0launchers\1_setup_environment.bat"
 pause
 goto :MENU
 

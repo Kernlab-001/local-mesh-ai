@@ -25,24 +25,42 @@ GOLDEN_EVALUATION_TASKS = [
         "expected_component": "backrest",
         "expected_tool": "scale_component",
         "expected_params": {"axis": "z", "min_factor": 1.15, "max_factor": 1.25},
+        "is_held_out": False,
     },
     {
         "prompt": "Increase the thickness of the four legs.",
         "expected_component": "legs",
         "expected_tool": "scale_component",
-        "expected_params": {"min_factor": 1.1, "max_factor": 1.5},
+        "expected_params": {"axis": "all", "min_factor": 1.1, "max_factor": 1.5},
+        "is_held_out": False,
     },
     {
         "prompt": "Make the handle slightly longer.",
         "expected_component": "handle",
         "expected_tool": "scale_component",
-        "expected_params": {"min_factor": 1.05, "max_factor": 1.3},
+        "expected_params": {"axis": "y", "min_factor": 1.05, "max_factor": 1.3},
+        "is_held_out": False,
     },
     {
         "prompt": "Separate the wheels into individual objects.",
         "expected_component": "wheels",
         "expected_tool": "separate_components",
-        "expected_params": {},
+        "expected_params": {"axis": "all"},
+        "is_held_out": False,
+    },
+    {
+        "prompt": "Make the backrest taller.",
+        "expected_component": "backrest",
+        "expected_tool": "scale_component",
+        "expected_params": {"axis": "z", "min_factor": 1.10, "max_factor": 1.30},
+        "is_held_out": True,
+    },
+    {
+        "prompt": "Separate the wheels.",
+        "expected_component": "wheels",
+        "expected_tool": "separate_components",
+        "expected_params": {"axis": "all"},
+        "is_held_out": True,
     },
 ]
 
@@ -67,11 +85,15 @@ class EvaluationReport(BaseModel):
     total_tasks: int
     passed_tasks: int
     score_percent: float
+    baseline_score_percent: float = 0.0
+    improvement_over_baseline: float = 0.0
     syntax_accuracy: float
     tool_accuracy: float = 100.0
     component_accuracy: float
     safety_accuracy: float
     passed_evaluation: bool
+    generalization_provenance: str = "in_distribution_demonstration"
+    dataset_type: str = "demonstration_preset"
     task_results: List[EvaluationTaskResult] = Field(default_factory=list)
     report_file_path: Optional[str] = None
 
@@ -121,7 +143,7 @@ class TrainingEvaluator:
             missing_reqs = required_keys.difference(state_dict.keys())
             if missing_reqs:
                 raise ValueError(f"Checkpoint architecture mismatch: missing required keys {missing_reqs}")
-            model.load_state_dict(state_dict, strict=False)
+            model.load_state_dict(state_dict, strict=True)
             model_load_ok = True
         except Exception as e:
             load_error = f"Checkpoint deserialization failed: {str(e)}"
@@ -166,15 +188,14 @@ class TrainingEvaluator:
                     plan_obj = ComponentEditPlan(**prediction_data)
                     json_valid = True
 
-                    # 1. Tool verification
+                    # 1. Strict tool verification (zero permissive fallback)
                     pred_tool = plan_obj.parameters.get("tool")
-                    pred_op = plan_obj.operation_type
-                    if pred_tool == exp_tool or (exp_tool == "scale_component" and pred_op == "scale") or (exp_tool == "separate_components" and "separate" in pred_op):
+                    if pred_tool == exp_tool:
                         tool_match = True
                     else:
                         details_list.append(f"Tool mismatch: expected '{exp_tool}', got '{pred_tool}'.")
 
-                    # 2. Component verification
+                    # 2. Strict component verification
                     labels_str = " ".join(plan_obj.target_semantic_labels).lower()
                     ids_str = " ".join(plan_obj.target_component_ids).lower()
                     if exp_comp in labels_str or exp_comp in ids_str:
@@ -182,22 +203,53 @@ class TrainingEvaluator:
                     else:
                         details_list.append(f"Component mismatch: expected '{exp_comp}', got '{labels_str}'.")
 
-                    # 3. Numeric parameter bounds & accuracy
+                    # 3. Exact axis verification
+                    exp_axis = exp_params.get("axis")
+                    axis_match = True
+                    if exp_axis is not None:
+                        if plan_obj.axis != exp_axis:
+                            axis_match = False
+                            details_list.append(f"Axis mismatch: expected '{exp_axis}', got '{plan_obj.axis}'.")
+
+                    # 4. Complete scale vector validation
                     min_factor = exp_params.get("min_factor")
                     max_factor = exp_params.get("max_factor")
                     scale_params = plan_obj.parameters.get("scale", [1.0, 1.0, 1.0])
                     scale_factor = plan_obj.scale_factor
 
                     if min_factor is not None and max_factor is not None:
-                        matches_range = (min_factor <= scale_factor <= max_factor) or any(min_factor <= s <= max_factor for s in scale_params)
-                        if matches_range:
-                            params_accurate = True
+                        # Check target axis scale and ensure non-target axes did not diverge
+                        target_axis = exp_axis or "z"
+                        if target_axis == "z" and len(scale_params) >= 3:
+                            val_target = scale_params[2]
+                            non_target = [scale_params[0], scale_params[1]]
+                            matches_target = (min_factor <= val_target <= max_factor)
+                            non_target_safe = all(0.90 <= s <= 1.10 for s in non_target)
+                            if matches_target and non_target_safe:
+                                params_accurate = True
+                            else:
+                                details_list.append(f"Vector mismatch: expected z in [{min_factor}, {max_factor}] with neutral x/y, got scale={scale_params}.")
+                        elif target_axis == "y" and len(scale_params) >= 2:
+                            val_target = scale_params[1]
+                            non_target = [scale_params[0], scale_params[2] if len(scale_params) > 2 else 1.0]
+                            matches_target = (min_factor <= val_target <= max_factor)
+                            non_target_safe = all(0.90 <= s <= 1.10 for s in non_target)
+                            if matches_target and non_target_safe:
+                                params_accurate = True
+                            else:
+                                details_list.append(f"Vector mismatch: expected y in [{min_factor}, {max_factor}] with neutral x/z, got scale={scale_params}.")
+                        elif target_axis == "all":
+                            matches_target = (min_factor <= scale_factor <= max_factor) or all(min_factor <= s <= max_factor for s in scale_params[:2])
+                            if matches_target:
+                                params_accurate = True
+                            else:
+                                details_list.append(f"Vector mismatch: expected all in [{min_factor}, {max_factor}], got scale={scale_params}.")
                         else:
-                            details_list.append(f"Parameter mismatch: expected factor in [{min_factor}, {max_factor}], got scale={scale_params}, factor={scale_factor}.")
+                            params_accurate = (min_factor <= scale_factor <= max_factor)
                     else:
                         params_accurate = True
 
-                    # 4. Global bounds safety
+                    # 5. Global bounds safety
                     if all(0.2 <= s <= 3.0 for s in scale_params) and (0.2 <= scale_factor <= 3.0):
                         bounds_safe = True
                     else:
@@ -206,7 +258,7 @@ class TrainingEvaluator:
                 except Exception as eval_err:
                     details_list.append(f"Inference/schema validation failed: {eval_err}")
 
-                task_passed = json_valid and tool_match and component_match and params_accurate and bounds_safe
+                task_passed = json_valid and tool_match and component_match and axis_match and params_accurate and bounds_safe
                 results.append(
                     EvaluationTaskResult(
                         prompt=prompt,
@@ -232,17 +284,36 @@ class TrainingEvaluator:
         passed_eval = (score >= 80.0) and model_load_ok
 
         report_file = self.eval_dir / f"{candidate_name}_evaluation.json"
+        # Baseline comparison: Evaluate untrained prior
+        baseline_score = 0.0
+        try:
+            baseline_model = AuxiliaryTechnicalArtistClassifier()
+            base_passed = 0
+            for bt in GOLDEN_EVALUATION_TASKS:
+                b_pred = baseline_model.generate_plan(bt["prompt"], device=torch.device("cpu"))
+                if b_pred.get("parameters", {}).get("tool") == bt["expected_tool"] and bt["expected_component"] in " ".join(b_pred.get("target_semantic_labels", [])):
+                    base_passed += 1
+            baseline_score = round((base_passed / len(GOLDEN_EVALUATION_TASKS)) * 100.0, 1)
+        except Exception:
+            baseline_score = 0.0
+
+        improvement = round(max(0.0, score - baseline_score), 1)
+
         report = EvaluationReport(
             model_name=candidate_name,
             adapter_hash=adapter_hash,
             total_tasks=total,
             passed_tasks=passed,
             score_percent=score,
+            baseline_score_percent=baseline_score,
+            improvement_over_baseline=improvement,
             syntax_accuracy=syntax,
             tool_accuracy=tools,
             component_accuracy=comp,
             safety_accuracy=safety,
             passed_evaluation=passed_eval,
+            generalization_provenance="in_distribution_demonstration",
+            dataset_type="demonstration_preset",
             task_results=results,
             report_file_path=str(report_file),
         )

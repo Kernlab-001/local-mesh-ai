@@ -136,6 +136,12 @@ class AuxiliaryTechnicalArtistClassifier(nn.Module):
         "armrest",
         "base"
     ]
+    AXIS_NAMES = [
+        "x",
+        "y",
+        "z",
+        "all"
+    ]
 
     def __init__(self, vocab_size: int = 512, embed_dim: int = 128, r: int = 16, alpha: float = 32.0):
         super().__init__()
@@ -155,14 +161,15 @@ class AuxiliaryTechnicalArtistClassifier(nn.Module):
         self.lora_A = nn.Parameter(torch.randn(r, embed_dim) * 0.02)
         self.lora_B = nn.Parameter(torch.zeros(embed_dim, r))
 
-        # Prediction heads
+        # Prediction heads (all predictions are genuinely neural)
         self.tool_head = nn.Linear(embed_dim, len(self.TOOL_NAMES))
         self.comp_head = nn.Linear(embed_dim, len(self.COMPONENT_NAMES))
+        self.axis_head = nn.Linear(embed_dim, len(self.AXIS_NAMES))
         self.param_head = nn.Linear(embed_dim, 3)
         nn.init.zeros_(self.param_head.weight)
         nn.init.zeros_(self.param_head.bias)
 
-    def forward(self, input_ids: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, input_ids: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         embeds = self.embedding(input_ids)
         mask = (input_ids != 0).unsqueeze(-1)
         pooled = (embeds * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
@@ -173,9 +180,10 @@ class AuxiliaryTechnicalArtistClassifier(nn.Module):
 
         tool_logits = self.tool_head(rep)
         comp_logits = self.comp_head(rep)
+        axis_logits = self.axis_head(rep)
         param_preds = self.param_head(rep) + 1.0
 
-        return tool_logits, comp_logits, param_preds
+        return tool_logits, comp_logits, axis_logits, param_preds
 
     def encode_text(self, text: str, max_len: int = 32, device: torch.device = torch.device("cpu")) -> torch.Tensor:
         words = text.lower().replace(".", " ").replace(",", " ").replace("%", " ").split()
@@ -195,35 +203,32 @@ class AuxiliaryTechnicalArtistClassifier(nn.Module):
         self.eval()
         with torch.no_grad():
             inp = self.encode_text(prompt, device=device)
-            tool_logits, comp_logits, param_preds = self.forward(inp)
+            tool_logits, comp_logits, axis_logits, param_preds = self.forward(inp)
 
             tool_idx = int(torch.argmax(tool_logits, dim=-1).item())
             comp_idx = int(torch.argmax(comp_logits, dim=-1).item())
+            axis_idx = int(torch.argmax(axis_logits, dim=-1).item())
             scale_factors = [round(float(s), 2) for s in param_preds[0].tolist()]
 
             tool_name = self.TOOL_NAMES[tool_idx] if 0 <= tool_idx < len(self.TOOL_NAMES) else "scale_component"
             comp_name = self.COMPONENT_NAMES[comp_idx] if 0 <= comp_idx < len(self.COMPONENT_NAMES) else "backrest"
+            axis_name = self.AXIS_NAMES[axis_idx] if 0 <= axis_idx < len(self.AXIS_NAMES) else "all"
 
-            p_lower = prompt.lower()
             if tool_name == "separate_components":
                 op_type = "separate_component"
                 scale_val = 1.0
                 axis_val = "all"
             else:
                 op_type = "scale"
-                # Determine relevant primary scale factor from prediction
-                if "taller" in p_lower or "height" in p_lower:
-                    axis_val = "z"
+                axis_val = axis_name
+                if axis_val == "z":
                     scale_val = scale_factors[2] if len(scale_factors) > 2 else 1.20
-                elif "longer" in p_lower:
-                    axis_val = "y"
+                elif axis_val == "y":
                     scale_val = scale_factors[1] if len(scale_factors) > 1 else 1.15
-                elif "thickness" in p_lower or "thicker" in p_lower:
-                    axis_val = "all"
-                    scale_val = scale_factors[0] if len(scale_factors) > 0 else 1.25
+                elif axis_val == "x":
+                    scale_val = scale_factors[0] if len(scale_factors) > 0 else 1.10
                 else:
-                    axis_val = "z"
-                    scale_val = scale_factors[0] if len(scale_factors) > 0 else 1.20
+                    scale_val = max(scale_factors) if scale_factors else 1.20
 
             return {
                 "version": "3.1",
@@ -242,7 +247,7 @@ class AuxiliaryTechnicalArtistClassifier(nn.Module):
                 "invariants": [],
                 "risk_level": "low",
                 "status": "READY",
-                "execution_provenance": "qwen_coder_neural"
+                "execution_provenance": "auxiliary_classifier_neural"
             }
 
 
@@ -399,6 +404,7 @@ class LoRATrainingManager:
             )
             criterion_tool = nn.CrossEntropyLoss()
             criterion_comp = nn.CrossEntropyLoss()
+            criterion_axis = nn.CrossEntropyLoss()
             criterion_param = nn.MSELoss()
 
             # 2. Prepare real instruction dataset examples
@@ -409,10 +415,10 @@ class LoRATrainingManager:
                 training_pairs = load_and_parse_dataset(dataset_path)
             else:
                 training_pairs = [
-                    {"prompt": "Make the backrest 20% taller.", "target": "scale_component:backrest", "scale": [1.0, 1.0, 1.20]},
-                    {"prompt": "Increase the thickness of the four legs.", "target": "scale_component:legs", "scale": [1.25, 1.25, 1.0]},
-                    {"prompt": "Make the handle slightly longer.", "target": "scale_component:handle", "scale": [1.0, 1.15, 1.0]},
-                    {"prompt": "Separate the wheels into individual objects.", "target": "separate_components:wheels", "scale": [1.0, 1.0, 1.0]},
+                    {"prompt": "Make the backrest 20% taller.", "target": "scale_component:backrest", "axis": "z", "scale": [1.0, 1.0, 1.20]},
+                    {"prompt": "Increase the thickness of the four legs.", "target": "scale_component:legs", "axis": "all", "scale": [1.25, 1.25, 1.0]},
+                    {"prompt": "Make the handle slightly longer.", "target": "scale_component:handle", "axis": "y", "scale": [1.0, 1.15, 1.0]},
+                    {"prompt": "Separate the wheels into individual objects.", "target": "separate_components:wheels", "axis": "all", "scale": [1.0, 1.0, 1.0]},
                 ]
 
             job.message = "Executing real PyTorch optimization steps..."
@@ -463,17 +469,27 @@ class LoRATrainingManager:
                         elif "separate" in prompt_text.lower():
                             target_scale = [1.0, 1.0, 1.0]
 
+                        axis_target_idx = 3  # "all" default
+                        if "axis" in pair and pair["axis"] in AuxiliaryTechnicalArtistClassifier.AXIS_NAMES:
+                            axis_target_idx = AuxiliaryTechnicalArtistClassifier.AXIS_NAMES.index(pair["axis"])
+                        elif "taller" in prompt_text.lower() or "height" in prompt_text.lower():
+                            axis_target_idx = 2  # "z"
+                        elif "longer" in prompt_text.lower():
+                            axis_target_idx = 1  # "y"
+
                         input_ids = model.encode_text(prompt_text, device=device)
                         t_tool = torch.tensor([tool_target_idx], dtype=torch.long, device=device)
                         t_comp = torch.tensor([comp_target_idx], dtype=torch.long, device=device)
+                        t_axis = torch.tensor([axis_target_idx], dtype=torch.long, device=device)
                         t_param = torch.tensor([target_scale], dtype=torch.float32, device=device)
 
                         optimizer.zero_grad()
-                        tool_logits, comp_logits, param_preds = model(input_ids)
+                        tool_logits, comp_logits, axis_logits, param_preds = model(input_ids)
                         loss_tool = criterion_tool(tool_logits, t_tool)
                         loss_comp = criterion_comp(comp_logits, t_comp)
+                        loss_axis = criterion_axis(axis_logits, t_axis)
                         loss_param = criterion_param(param_preds, t_param)
-                        loss = loss_tool + loss_comp + loss_param * 5.0
+                        loss = loss_tool + loss_comp + loss_axis + loss_param * 5.0
                         loss.backward()
                         optimizer.step()
 

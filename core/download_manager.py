@@ -26,10 +26,17 @@ DEFAULT_MODELS_DIR = Path("E:/LocalMeshAI-Data/models") if Path("E:/").exists() 
 
 
 def get_configured_models_dir() -> Path:
-    """Resolves model cache directory from config.json, env var, or default external path."""
-    env_dir = os.environ.get("LOCAL_MESH_AI_MODELS_DIR")
-    if env_dir:
-        p = Path(env_dir)
+    """Resolves model cache directory from env var, config.json, or default external path."""
+    env_models = os.environ.get("LOCAL_MESH_AI_MODELS_DIR")
+    if env_models:
+        p = Path(env_models)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    data_dir = os.environ.get("LOCAL_MESH_AI_DATA_DIR") or os.environ.get("LOCAL_MESH_DATA_DIR")
+    if data_dir:
+        candidate = Path(data_dir) / "models"
+        p = candidate if candidate.exists() else Path(data_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -197,12 +204,18 @@ class DownloadManager:
             except Exception:
                 pass
 
-        # 2. Check known alternative locations on E: or in models_dir
+        # 2. Check known locations in models_dir and configured external paths
         candidate_paths = [
+            self.models_dir / "qwen_coder" / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen_coder" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            self.models_dir / "qwen" / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            self.models_dir / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            Path("E:/LocalMeshAI-Data/models/qwen_coder/qwen2.5-coder-7b-instruct-q4_0.gguf"),
             Path("E:/Game/Models/qwen2.5-coder-7b-instruct-q5_k_m.gguf"),
             Path("E:/Game/Models/Spark-X2.6-4B-Q8_0.gguf"),
-            PROJECT_ROOT / "Spark-X2.6-4B-Q8_0.gguf",
-            self.models_dir / "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+            PROJECT_ROOT / "Spark-X2.6-4B-Q8_0.gguf"
         ]
         for cp in candidate_paths:
             if cp.exists() and cp.stat().st_size > 100_000_000:

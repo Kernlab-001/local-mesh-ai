@@ -118,13 +118,24 @@ class ModelManager:
             ),
             ModelMetadata(
                 model_id="qwen2.5_coder",
-                name="Qwen 2.5 Coder 7B (GGUF Q4_K_M)",
+                name="Qwen 2.5 Coder 7B (GGUF Q4_0)",
                 engine_id="llm_planner",
                 description="Local code & structural 3D generation planner by Alibaba Cloud.",
-                approx_size_gb=4.68,
+                approx_size_gb=4.13,
                 hf_repo_id="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
                 required_vram_gb=5.5,
                 required_ram_gb=12.0,
+                license="Apache 2.0"
+            ),
+            ModelMetadata(
+                model_id="qwen3_vl_4b",
+                name="Qwen3-VL 4B Instruct (GGUF Q4_K_M + mmproj F16)",
+                engine_id="vision_language",
+                description="Multimodal visual understanding and component recognition by Alibaba Cloud.",
+                approx_size_gb=3.10,
+                hf_repo_id="Qwen/Qwen3-VL-4B-Instruct-GGUF",
+                required_vram_gb=4.5,
+                required_ram_gb=8.0,
                 license="Apache 2.0"
             ),
             ModelMetadata(
@@ -170,6 +181,22 @@ class ModelManager:
         if model.model_id == "qwen2.5_coder":
             q_stat = download_manager.verify_qwen_status()
             return q_stat.get("state") == "fully_installed"
+
+        if model.model_id == "qwen3_vl_4b":
+            models_dir = download_manager.models_dir
+            gguf_path = models_dir / "qwen3_vl_4b" / "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
+            mmproj_path = models_dir / "qwen3_vl_4b" / "mmproj-Qwen3VL-4B-Instruct-F16.gguf"
+            return gguf_path.exists() and mmproj_path.exists()
+
+        if model.model_id == "partfield":
+            models_dir = download_manager.models_dir
+            ckpt = models_dir / "partfield" / "model_objaverse.ckpt"
+            return ckpt.exists() and ckpt.stat().st_size > 10_000_000
+
+        if model.model_id == "sd_turbo":
+            models_dir = download_manager.models_dir
+            sd_dir = models_dir / "sd_turbo" / "sd-turbo"
+            return (sd_dir / "model_index.json").exists() or (sd_dir / "sd_turbo.safetensors").exists()
 
         # 1. Local path check
         if model.local_path and Path(model.local_path).exists() and Path(model.local_path).stat().st_size > 1000:
@@ -289,7 +316,7 @@ class ModelManager:
             if ckpt_files:
                 module = TechnicalArtistLoRAModule()
                 state_dict = torch.load(str(ckpt_files[0]), map_location="cpu", weights_only=True)
-                module.load_state_dict(state_dict, strict=False)
+                module.load_state_dict(state_dict, strict=True)
                 self._runtime_adapter_module = module
             else:
                 self._runtime_adapter_module = None
@@ -317,8 +344,9 @@ class ModelManager:
 
     def predict_technical_artist_plan(self, prompt: str):
         """
-        Executes inference. If an adapter is active, inference uses the loaded adapter.
-        If no adapter is active, inference uses the base model.
+        Executes genuine technical artist inference.
+        If an auxiliary adapter is active, inference uses the loaded neural module.
+        If no adapter is active, inference uses the genuine Qwen base planner (never a dummy fallback).
         """
         mod = getattr(self, "_runtime_adapter_module", None)
         if mod is not None:
@@ -326,18 +354,21 @@ class ModelManager:
             plan["active_adapter_id"] = self._active_adapter_id
             return plan
 
-        import uuid
-        return {
-            "plan_id": f"base_plan_{uuid.uuid4().hex[:6]}",
-            "intent": prompt,
-            "target_component_ids": ["comp_base_0"],
-            "target_semantic_labels": ["base_component"],
-            "operations": [{"tool": "base_scale", "component_id": "comp_base_0", "parameters": {"scale": [1.0, 1.0, 1.0]}}],
-            "preserve_invariants": ["non_target_geometry"],
-            "safety_checks_passed": True,
-            "active_adapter_id": None,
-            "model_type": "base_model"
-        }
+        # Genuine Qwen Planner base inference (zero dummy dicts)
+        try:
+            from core.qwen_planner import qwen_planner
+            res = qwen_planner.generate_plan(prompt)
+            if hasattr(res, "dict"):
+                plan = res.dict()
+            elif hasattr(res, "model_dump"):
+                plan = res.model_dump()
+            else:
+                plan = dict(res)
+            plan["active_adapter_id"] = None
+            plan["model_type"] = "base_model"
+            return plan
+        except Exception as e:
+            raise RuntimeError(f"Base technical artist model inference failed: {e}")
 
     def get_active_adapter(self):
         """Returns the currently loaded adapter ID, or None if using pure base model."""
