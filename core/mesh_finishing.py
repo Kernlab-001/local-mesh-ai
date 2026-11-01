@@ -193,6 +193,7 @@ class TextureBakeResult(BaseModel):
     elapsed_seconds: float = 0.0
     error_message: Optional[str] = None
     summary: Optional[str] = None
+    ao_status: Optional[str] = "unconnected_texture_map"
 
 
 class LODLevelInfo(BaseModel):
@@ -353,6 +354,8 @@ def measure_self_intersections(mesh: trimesh.Trimesh, max_check_faces: int = 500
             if total_checked > max_checks or total_intersections >= 50:
                 break
 
+    if total_checked >= max_checks:
+        notes.append(f"Self-intersection pair broadphase capped at {max_checks} candidate pairs; coverage incomplete.")
     prov = f"aabb_sweep_prune_moller (evaluated {total_checked} non-adjacent pairs across {len(comps)} components)"
     return total_intersections, prov, notes
 
@@ -390,7 +393,15 @@ def _tri_tri_intersect_moller(tri1: np.ndarray, tri2: np.ndarray, eps: float = 1
     D = np.cross(n1, n2)
     normD = np.linalg.norm(D)
     if normD < eps:
-        return False
+        # Triangles in parallel/coplanar planes
+        if abs(float(np.dot(n1, tri2[0]) + d1)) > 1e-4:
+            return False  # Parallel distinct planes
+        # Coplanar: project onto 2D plane by dropping the dominant normal axis
+        axis = int(np.argmax(np.abs(n1)))
+        coords = [c for c in [0, 1, 2] if c != axis]
+        t1_2d = tri1[:, coords]
+        t2_2d = tri2[:, coords]
+        return _tri2d_sat_overlap(t1_2d, t2_2d)
     D = D / normD
 
     pv = [float(np.dot(D, tri1[i])) for i in range(3)]
@@ -543,7 +554,8 @@ def _measure_uv_overlaps(uv_faces: np.ndarray, uv_areas: np.ndarray) -> Tuple[in
         if checks > max_checks or overlaps >= 50:
             break
 
-    return overlaps, stacked
+    is_capped = bool(checks >= max_checks)
+    return overlaps, stacked, is_capped
 
 
 def _tri2d_sat_overlap(t1: np.ndarray, t2: np.ndarray) -> bool:
@@ -678,11 +690,27 @@ def analyze_mesh_health(mesh_input: Union[str, trimesh.Trimesh]) -> MeshHealthRe
         issues.append("Inconsistent face normal winding direction detected")
         penalties["inconsistent_normals"] = 15.0
 
-    # 8. UV Availability
+    # 8. UV Availability & Overlaps
     has_uvs = bool(hasattr(mesh.visual, "uv") and mesh.visual.uv is not None and len(mesh.visual.uv) > 0)
+    uv_overlaps = 0
     if not has_uvs:
         issues.append("Missing texture UV coordinates")
         penalties["missing_uvs"] = 20.0
+    else:
+        try:
+            uv_f = mesh.visual.uv[mesh.faces]
+            uv_a = 0.5 * np.abs(
+                (uv_f[:, 1, 0] - uv_f[:, 0, 0]) * (uv_f[:, 2, 1] - uv_f[:, 0, 1]) -
+                (uv_f[:, 2, 0] - uv_f[:, 0, 0]) * (uv_f[:, 1, 1] - uv_f[:, 0, 1])
+            )
+            uv_overlaps, uv_stacked, uv_capped = _measure_uv_overlaps(uv_f, uv_a)
+            if uv_overlaps > 0:
+                issues.append(f"{uv_overlaps} accidental overlapping UV face pairs detected")
+                penalties["uv_overlap"] = min(25.0, uv_overlaps * 1.5)
+            if uv_capped:
+                issues.append("UV collision scan was capped at maximum check budget; scan incomplete.")
+        except Exception:
+            pass
 
     # 9. Materials
     mat_count = 1 if hasattr(mesh.visual, "material") and mesh.visual.material else 0
@@ -711,6 +739,7 @@ def analyze_mesh_health(mesh_input: Union[str, trimesh.Trimesh]) -> MeshHealthRe
     is_game_ready = (
         health_score >= 80.0 and
         has_uvs and
+        uv_overlaps == 0 and
         non_manifold_edges == 0 and
         zero_area_faces == 0 and
         not has_non_finite and
@@ -1088,7 +1117,7 @@ def analyze_uv_quality(mesh: trimesh.Trimesh) -> UVQualityReport:
     utilization_pct = min(100.0, round(total_uv_area * 100.0, 2))
 
     island_count = _count_uv_islands(mesh, uvs)
-    overlaps, stacked_islands = _measure_uv_overlaps(uv_faces, uv_areas)
+    overlaps, stacked_islands, _ = _measure_uv_overlaps(uv_faces, uv_areas)
 
     is_valid = (out_of_range == 0 and zero_area_uvs < (f_count * 0.05))
 

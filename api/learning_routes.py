@@ -1,6 +1,7 @@
 """
 FastAPI Routes for Controlled Local Learning, Dataset Management, and Model Lifecycle.
-Enforces strictly local consent boundaries, preflight safety gating, and non-destructive version promotion.
+Enforces strictly local consent boundaries, preflight safety gating,
+evaluation verification, and non-destructive version promotion.
 """
 
 from typing import List, Optional, Dict, Any
@@ -44,17 +45,22 @@ class BuildDatasetRequest(BaseModel):
 
 
 class PreflightRequest(BaseModel):
-    model_name: str = "qwen2.5-coder-7b"
+    model_name: str = "local-technical-artist-lora"
     force_cpu: bool = False
 
 
 class StartTrainingRequest(BaseModel):
-    target_model: str = "qwen2.5-coder-7b"
+    target_model: str = "local-technical-artist-lora"
     adapter_name: Optional[str] = None
     dataset_path: Optional[str] = None
     epochs: int = 3
     force_cpu: bool = False
     dry_run: bool = False
+
+
+class EvaluateCandidateRequest(BaseModel):
+    candidate_name: str
+    adapter_path: Optional[str] = None
 
 
 class PromoteModelRequest(BaseModel):
@@ -104,6 +110,22 @@ def review_sample_endpoint(req: SampleReviewRequest):
     return sample
 
 
+@router.delete("/samples/{sample_id}")
+def delete_sample_endpoint(sample_id: str):
+    """Deletes an individual learning interaction sample."""
+    success = learning_data_manager.delete_sample(sample_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Sample '{sample_id}' not found.")
+    return {"status": "deleted", "sample_id": sample_id}
+
+
+@router.post("/clear")
+def clear_all_learning_data_endpoint():
+    """Purges all stored interaction samples, manifests, and evaluation artifacts."""
+    learning_data_manager.clear_all_learning_data()
+    return {"status": "cleared", "message": "All learning data and evaluation artifacts deleted."}
+
+
 @router.post("/dataset/build", response_model=DatasetManifest)
 def build_dataset_endpoint(req: BuildDatasetRequest):
     """Partitions approved samples by asset family and exports instruction dataset."""
@@ -112,6 +134,8 @@ def build_dataset_endpoint(req: BuildDatasetRequest):
             dataset_name=req.dataset_name,
             train_ratio=req.train_ratio,
         )
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build dataset: {str(e)}")
 
@@ -119,7 +143,7 @@ def build_dataset_endpoint(req: BuildDatasetRequest):
 # --- 3. Preflight & Training ---
 @router.post("/preflight", response_model=PreflightReport)
 def check_preflight_endpoint(req: PreflightRequest):
-    """Evaluates target model requirements against 6 GB VRAM physical constraints."""
+    """Evaluates target model requirements against measured free VRAM physical constraints."""
     return training_preflight.evaluate(model_name=req.model_name, force_cpu=req.force_cpu)
 
 
@@ -152,7 +176,32 @@ def cancel_training_endpoint(job_id: str):
     return {"status": "cancelled", "job_id": job_id}
 
 
-# --- 4. Model Registry & Version Management ---
+# --- 4. Genuine Evaluation ---
+@router.post("/evaluate", response_model=EvaluationReport)
+def evaluate_candidate_endpoint(req: EvaluateCandidateRequest):
+    """Runs genuine benchmark evaluation over candidate checkpoint."""
+    try:
+        return training_evaluator.evaluate_candidate(
+            candidate_name=req.candidate_name,
+            adapter_path=req.adapter_path,
+        )
+    except FileNotFoundError as fnf:
+        raise HTTPException(status_code=404, detail=str(fnf))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+
+
+@router.get("/evaluation/{candidate_name}", response_model=EvaluationReport)
+def get_candidate_evaluation(candidate_name: str):
+    report = training_evaluator.get_evaluation_report(candidate_name)
+    if not report:
+        raise HTTPException(status_code=404, detail=f"No evaluation report found for '{candidate_name}'.")
+    return report
+
+
+# --- 5. Model Registry & Version Management ---
 @router.get("/models", response_model=List[ModelArtifact])
 def list_models():
     """Lists foundational models and trained candidate/active adapters."""
@@ -167,7 +216,7 @@ def get_model_history():
 
 @router.post("/models/promote", response_model=ModelVersionRecord)
 def promote_model_endpoint(req: PromoteModelRequest):
-    """Promotes candidate model to active status. Gated behind explicit approval."""
+    """Promotes candidate model to active status. Gated behind evaluation and explicit approval."""
     try:
         return model_version_manager.promote_candidate_to_active(
             model_id=req.model_id,

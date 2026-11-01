@@ -47,27 +47,8 @@ class HealthMonitor:
         }
 
     def inspect_gpu_status(self) -> Dict[str, Any]:
-        """Queries GPU Broker and Torch CUDA status."""
-        status = gpu_broker.get_status()
-        vram_allocated_mb = 0.0
-        vram_reserved_mb = 0.0
-        try:
-            import torch
-            if torch.cuda.is_available():
-                vram_allocated_mb = round(torch.cuda.memory_allocated() / (1024**2), 2)
-                vram_reserved_mb = round(torch.cuda.memory_reserved() / (1024**2), 2)
-        except Exception:
-            pass
-
-        return {
-            "lease_active": status.get("lease_active", False),
-            "current_owner": status.get("current_owner"),
-            "lease_age_seconds": status.get("lease_age_seconds", 0.0),
-            "vram_allocated_mb": vram_allocated_mb,
-            "vram_reserved_mb": vram_reserved_mb,
-            "gpu_name": status.get("device_name", "NVIDIA GeForce RTX 3050 Laptop GPU"),
-            "total_vram_mb": status.get("total_vram_mb", 6144),
-        }
+        """Queries GPU Broker status using unified physical measurements without mock defaults."""
+        return gpu_broker.get_status()
 
     def inspect_blender(self) -> Dict[str, Any]:
         """Inspects local Blender installation and executable status."""
@@ -139,20 +120,51 @@ class HealthMonitor:
                 )
             )
 
-        # 2. Stale GPU Lease Check
+        # 2. GPU Lease and Hardware Check
         gpu_info = self.inspect_gpu_status()
-        if gpu_info["lease_active"] and gpu_info["lease_age_seconds"] > 300.0:
+        if not gpu_info.get("cuda_available"):
             issues.append(
                 DiagnosticIssue(
                     severity=SeverityLevel.WARNING,
                     subsystem="gpu",
-                    title="Stale GPU Lease Detected",
-                    description=f"GPU lease held by '{gpu_info['current_owner']}' for {int(gpu_info['lease_age_seconds'])}s exceeds 300s timeout.",
-                    recommended_action=ActionType.PURGE_STALE_GPU_LEASE,
-                    requires_approval=True,
-                    parameters={"owner": gpu_info["current_owner"]},
+                    title="CUDA Hardware Unavailable",
+                    description=f"GPU status is '{gpu_info.get('hardware_status')}'. Compute will run on host CPU.",
+                    recommended_action=ActionType.VERIFY_MODEL_WEIGHTS,
+                    requires_approval=False,
                 )
             )
+
+        if gpu_info.get("lease_active"):
+            holder = gpu_info.get("holder") or {}
+            holder_pid = holder.get("pid")
+            heartbeat_age = gpu_info.get("heartbeat_age_seconds", 0.0)
+            pid_alive = gpu_broker._is_pid_alive(holder_pid) if holder_pid else False
+
+            # Verify actual process state before treating it as stale
+            if not pid_alive:
+                issues.append(
+                    DiagnosticIssue(
+                        severity=SeverityLevel.ERROR,
+                        subsystem="gpu",
+                        title="Orphaned GPU Lease Detected",
+                        description=f"GPU lease held by PID {holder_pid} ('{gpu_info.get('lease_owner')}') whose process has terminated.",
+                        recommended_action=ActionType.PURGE_STALE_GPU_LEASE,
+                        requires_approval=True,
+                        parameters={"owner": gpu_info.get("lease_owner"), "pid": holder_pid},
+                    )
+                )
+            elif heartbeat_age > 900.0:
+                issues.append(
+                    DiagnosticIssue(
+                        severity=SeverityLevel.WARNING,
+                        subsystem="gpu",
+                        title="Unresponsive GPU Lease",
+                        description=f"GPU lease held by '{gpu_info.get('lease_owner')}' (PID {holder_pid}) has not sent heartbeat in {int(heartbeat_age)}s.",
+                        recommended_action=ActionType.PURGE_STALE_GPU_LEASE,
+                        requires_approval=True,
+                        parameters={"owner": gpu_info.get("lease_owner"), "heartbeat_age": heartbeat_age},
+                    )
+                )
 
         # 3. Staging Storage Bloat Check
         staging_info = self.inspect_staging_storage()
@@ -190,7 +202,7 @@ class HealthMonitor:
                     subsystem="storage",
                     title="Low Free Disk Space",
                     description=f"Available disk space is only {res_info['disk_free_gb']} GB on the project drive.",
-                    recommended_action=ActionType.CLEAN_TEMP_MESHES,
+                    recommended_action=ActionType.CLEAN_STAGING_DIR,
                     requires_approval=True,
                 )
             )

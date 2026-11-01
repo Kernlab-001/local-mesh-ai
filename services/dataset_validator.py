@@ -2,6 +2,7 @@
 Dataset Validation and Integrity Service for Local Mesh AI.
 Enforces schema validity, duplicate detection via cryptographic hashes,
 and family-partitioned train/test splitting to prevent benchmark leakage.
+Strictly flags single-family datasets as insufficient to prevent leakage.
 """
 
 import hashlib
@@ -46,6 +47,8 @@ class DatasetValidator:
         """
         Partitions samples into train and test sets strictly by asset family.
         Ensures zero data leakage between training and testing evaluation.
+        If family-based separation is impossible (< 2 families), returns an explicit
+        insufficient-families result instead of leaking one family across both sets.
         """
         family_map: Dict[str, List[str]] = defaultdict(list)
         for s in samples:
@@ -53,30 +56,44 @@ class DatasetValidator:
             family_map[family].append(s.sample_id)
 
         all_families = sorted(list(family_map.keys()))
-        split_idx = max(1, int(len(all_families) * train_ratio))
 
-        train_families = all_families[:split_idx]
-        test_families = all_families[split_idx:] if split_idx < len(all_families) else [all_families[-1]]
+        # Single family or empty: impossible to split without leakage
+        if len(all_families) < 2:
+            all_ids = [s.sample_id for s in samples]
+            return DatasetSplit(
+                train_ids=all_ids,
+                test_ids=[],
+                asset_families_train=all_families,
+                asset_families_test=[],
+                insufficient_families=True,
+                message=(
+                    f"Insufficient distinct asset families ({len(all_families)} found). "
+                    "At least two distinct asset families are required for train/test partition without benchmark data leakage. "
+                    "All samples placed in train set; test set left empty."
+                ),
+            )
 
-        train_ids: List[str] = []
+        # 2 or more families: partition distinct families
+        # Ensure at least 1 family in train and at least 1 family in test
+        num_train = max(1, min(len(all_families) - 1, int(round(len(all_families) * train_ratio))))
+        train_families = all_families[:num_train]
+        test_families = all_families[num_train:]
+
+        train_ids = []
         for f in train_families:
             train_ids.extend(family_map[f])
 
-        test_ids: List[str] = []
+        test_ids = []
         for f in test_families:
             test_ids.extend(family_map[f])
-
-        # If test is empty because of small family count, partition samples within family deterministically
-        if not test_ids and len(train_ids) > 1:
-            split_sample_idx = max(1, int(len(train_ids) * train_ratio))
-            test_ids = train_ids[split_sample_idx:]
-            train_ids = train_ids[:split_sample_idx]
 
         return DatasetSplit(
             train_ids=train_ids,
             test_ids=test_ids,
             asset_families_train=train_families,
             asset_families_test=test_families,
+            insufficient_families=False,
+            message="Asset families partitioned successfully with zero benchmark data leakage.",
         )
 
 

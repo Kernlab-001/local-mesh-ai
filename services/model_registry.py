@@ -1,7 +1,8 @@
 """
 Model Registry Service for Local Mesh AI.
-Catalogs base foundational models (Qwen2.5-Coder, TripoSR) and LoRA fine-tuning adapters,
-computing cryptographic checksums, parameter counts, and filesystem provenance.
+Catalogs immutable foundational models and LoRA adapters.
+Implements complete streaming SHA-256 file hashing, deterministic directory manifest hashing,
+real filesystem size calculation, and checkpoint integrity validation.
 """
 
 import hashlib
@@ -23,6 +24,7 @@ class ModelArtifact(BaseModel):
     file_size_mb: float
     parameter_count_str: str
     is_active: bool = False
+    is_immutable: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -31,19 +33,36 @@ class ModelRegistry:
         self.models_dir = get_data_dir() / "models"
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
-    def _compute_sha256(self, file_path: Path, max_bytes: int = 50 * 1024 * 1024) -> str:
-        """Computes SHA-256 hash (or head/tail hash for multi-gigabyte models for speed)."""
+    @staticmethod
+    def hash_file_complete(file_path: Path) -> str:
+        """Computes complete SHA-256 checksum over the entire file contents using streaming chunks."""
         h = hashlib.sha256()
         with open(file_path, "rb") as f:
-            chunk = f.read(max_bytes)
-            h.update(chunk)
+            while chunk := f.read(1048576):  # 1 MB chunk
+                h.update(chunk)
+        return h.hexdigest()
+
+    @staticmethod
+    def hash_directory_deterministic(dir_path: Path) -> str:
+        """
+        Creates a deterministic SHA-256 hash across all contained files and relative paths.
+        Ensures any modification or corrupt file alters the digest.
+        """
+        h = hashlib.sha256()
+        files = sorted([p for p in dir_path.rglob("*") if p.is_file()], key=lambda p: str(p.relative_to(dir_path)))
+        for p in files:
+            rel = str(p.relative_to(dir_path)).replace("\\", "/")
+            h.update(rel.encode("utf-8"))
+            with open(p, "rb") as f:
+                while chunk := f.read(1048576):
+                    h.update(chunk)
         return h.hexdigest()
 
     def discover_models(self) -> List[ModelArtifact]:
-        """Scans workspace and data directory for base models and trained adapters."""
+        """Scans workspace and data directory for base models and verified adapters."""
         artifacts: List[ModelArtifact] = []
 
-        # 1. Base Qwen Model
+        # 1. Base Qwen Model (Immutable)
         qwen_file = PROJECT_ROOT / "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
         if qwen_file.exists():
             size_mb = round(qwen_file.stat().st_size / (1024**2), 2)
@@ -53,15 +72,16 @@ class ModelRegistry:
                     name="Qwen2.5-Coder-7B-Instruct (GGUF Q4_K_M)",
                     model_type="base_llm",
                     file_path=str(qwen_file),
-                    sha256_hash=self._compute_sha256(qwen_file),
+                    sha256_hash=self.hash_file_complete(qwen_file),
                     file_size_mb=size_mb,
                     parameter_count_str="7.6 Billion",
                     is_active=True,
+                    is_immutable=True,
                     metadata={"quantization": "Q4_K_M", "backend": "llama.cpp"}
                 )
             )
 
-        # 2. Candidate and approved adapters
+        # 2. Candidate and verified adapters
         candidates_dir = self.models_dir / "candidates"
         if candidates_dir.exists():
             for d in candidates_dir.iterdir():
@@ -74,16 +94,27 @@ class ModelRegistry:
                                 meta = json.load(f)
                         except Exception:
                             pass
+
+                    # Require real checkpoint file existence
+                    ckpt_files = list(d.glob("*.bin")) + list(d.glob("*.pt")) + list(d.glob("*.safetensors"))
+                    if not ckpt_files:
+                        continue
+
+                    total_size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+                    size_mb = round(total_size / (1024**2), 2)
+
+                    dir_hash = self.hash_directory_deterministic(d)
                     artifacts.append(
                         ModelArtifact(
                             model_id=f"adapter_{d.name}",
                             name=meta.get("adapter_name", d.name),
                             model_type="lora_adapter",
                             file_path=str(d),
-                            sha256_hash=hashlib.sha256(d.name.encode()).hexdigest(),
-                            file_size_mb=round(meta.get("file_size_mb", 24.5), 2),
-                            parameter_count_str="LoRA Rank 16 (~16M params)",
+                            sha256_hash=dir_hash,
+                            file_size_mb=size_mb,
+                            parameter_count_str="LoRA Rank 16",
                             is_active=meta.get("promoted_to_active", False),
+                            is_immutable=False,
                             metadata=meta
                         )
                     )

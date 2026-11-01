@@ -47,9 +47,12 @@ class RecoveryActionResult(BaseModel):
     action_id: str = Field(default_factory=lambda: f"act_{uuid.uuid4().hex[:8]}")
     action_type: ActionType
     timestamp: float = Field(default_factory=time.time)
-    status: str  # "success", "dry_run", "failed", "requires_approval", "skipped"
+    status: str  # "success", "dry_run", "failed", "requires_approval", "skipped", "rejected"
     message: str
     changes_made: List[str] = Field(default_factory=list)
+    affected_files: List[str] = Field(default_factory=list)
+    verification_status: str = "not_applicable"  # "verified", "unresolved", "not_applicable"
+    post_remediation_summary: Optional[str] = None
     error: Optional[str] = None
 
 class SystemHealthSummary(BaseModel):

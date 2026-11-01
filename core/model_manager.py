@@ -272,6 +272,34 @@ class ModelManager:
 
         return status
 
+    # --- Active LoRA / Adapter Runtime Management ---
+
+    def load_adapter(self, adapter_id: str, adapter_path: str):
+        """Loads and activates a fine-tuned adapter into the runtime inference state."""
+        self._active_adapter_id = adapter_id
+        self._active_adapter_path = adapter_path
+        try:
+            from core.qwen_planner import qwen_planner
+            if hasattr(qwen_planner, "set_active_adapter"):
+                qwen_planner.set_active_adapter(adapter_path)
+        except Exception:
+            pass
+
+    def unload_adapter(self):
+        """Unloads any active adapter, reverting strictly to base model inference."""
+        self._active_adapter_id = None
+        self._active_adapter_path = None
+        try:
+            from core.qwen_planner import qwen_planner
+            if hasattr(qwen_planner, "set_active_adapter"):
+                qwen_planner.set_active_adapter(None)
+        except Exception:
+            pass
+
+    def get_active_adapter(self) -> Optional[str]:
+        """Returns the currently loaded adapter ID, or None if using pure base model."""
+        return getattr(self, "_active_adapter_id", None)
+
 
 # Global singleton instance
 model_manager = ModelManager()

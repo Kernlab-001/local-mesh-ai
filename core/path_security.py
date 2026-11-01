@@ -6,7 +6,6 @@ prevents path traversal attacks, rejects malicious symlinks, and validates file 
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -31,14 +30,16 @@ def get_staging_dir() -> Path:
 
 
 def get_allowed_roots() -> List[Path]:
-    """Returns the list of authorized directory roots that file accesses may target."""
+    """
+    Returns the list of authorized directory roots that file accesses may target.
+    Restricted strictly to application-owned project and data directories.
+    General system temporary directory is explicitly excluded.
+    """
     roots = [
         PROJECT_ROOT.resolve(),
         get_data_dir().resolve(),
         get_staging_dir().resolve(),
-        Path(tempfile.gettempdir()).resolve()
     ]
-    # Remove duplicate roots while preserving order
     unique_roots = []
     for r in roots:
         if r not in unique_roots:
@@ -48,7 +49,7 @@ def get_allowed_roots() -> List[Path]:
 
 DEFAULT_ALLOWED_EXTENSIONS = {
     ".glb", ".gltf", ".obj", ".mtl", ".fbx", ".ply", ".stl",
-    ".png", ".jpg", ".jpeg", ".json", ".txt", ".bin", ".md"
+    ".png", ".jpg", ".jpeg", ".json", ".txt", ".bin", ".md", ".pt", ".safetensors"
 }
 
 

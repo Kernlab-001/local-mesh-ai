@@ -1,5 +1,6 @@
 
 from typing import Optional, Dict, Any, List, Tuple
+from contextlib import contextmanager
 
 from api.schemas import (
     ValidateMeshRequest,
@@ -861,6 +862,16 @@ def get_session_render(session_id: str, view_name: str):
 # Phase 7 Professional 3D Finishing, Retopology & Export Endpoints
 # ==============================================================================
 
+@contextmanager
+def _session_lock_guard(session_id: Optional[str]):
+    """Acquires the session RLock for the duration of the mutation if session_id is provided."""
+    if session_id:
+        with editing_session_manager.get_session_lock(session_id):
+            yield
+    else:
+        yield
+
+
 def _resolve_mesh_path(session_id: Optional[str], mesh_path: Optional[str]) -> Tuple[str, Optional[Any]]:
     if session_id:
         session = editing_session_manager.get_session(session_id)
@@ -882,89 +893,94 @@ def _resolve_mesh_path(session_id: Optional[str], mesh_path: Optional[str]) -> T
 @router.post("/api/v1/finishing/validate")
 def validate_mesh_endpoint(req: ValidateMeshRequest):
     """Performs comprehensive geometric, topological, manifold, and UV inspection."""
-    target_path, _ = _resolve_mesh_path(req.session_id, req.mesh_path)
-    try:
-        report = mesh_finishing.analyze_mesh_health(target_path)
-        return report.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Mesh validation failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, _ = _resolve_mesh_path(req.session_id, req.mesh_path)
+        try:
+            report = mesh_finishing.analyze_mesh_health(target_path)
+            return report.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Mesh validation failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/repair")
 def repair_mesh_endpoint(req: RepairMeshRequest):
     """Safely repairs degenerate geometry, non-manifold edges, and normals without destroying UVs/materials."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    try:
-        res = mesh_finishing.repair_mesh(target_path, options=req.options)
-        if session:
-            session.version += 1
-            session.status = "REPAIRED"
-            session.updated_at = time.strftime("%Y-%m-%d %H:%M:%S")
-            session.save()
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Mesh repair failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        try:
+            res = mesh_finishing.repair_mesh(target_path, options=req.options)
+            if session:
+                session.version += 1
+                session.status = "REPAIRED"
+                session.updated_at = time.strftime("%Y-%m-%d %H:%M:%S")
+                session.save()
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Mesh repair failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/low-poly")
 def generate_low_poly_endpoint(req: LowPolyRequest):
     """Generates edge-preserving low-poly mesh while strictly preserving the high-poly reference."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    out_dir = Path(target_path).parent
-    out_file = str(out_dir / f"{Path(target_path).stem}_lowpoly.glb")
-    try:
-        res = mesh_finishing.generate_low_poly(
-            mesh_path=target_path,
-            target_triangles=req.target_triangles,
-            reduction_ratio=req.reduction_ratio,
-            method=req.method,
-            output_path=out_file
-        )
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Low-poly generation failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        out_dir = Path(target_path).parent
+        out_file = str(out_dir / f"{Path(target_path).stem}_lowpoly.glb")
+        try:
+            res = mesh_finishing.generate_low_poly(
+                mesh_path=target_path,
+                target_triangles=req.target_triangles,
+                reduction_ratio=req.reduction_ratio,
+                method=req.method,
+                output_path=out_file
+            )
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Low-poly generation failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/retopology")
 def retopologize_endpoint(req: RetopologyRequest):
     """Executes true quad retopology using Blender native QuadriFlow remeshing."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    out_dir = Path(target_path).parent
-    out_file = str(out_dir / f"{Path(target_path).stem}_retopo.glb")
-    try:
-        res = mesh_finishing.retopologize_quadriflow(
-            mesh_path=target_path,
-            target_faces=req.target_faces,
-            symmetry_axis=req.symmetry_axis,
-            preserve_sharp=req.preserve_sharp,
-            output_path=out_file
-        )
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"QuadriFlow retopology failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        out_dir = Path(target_path).parent
+        out_file = str(out_dir / f"{Path(target_path).stem}_retopo.glb")
+        try:
+            res = mesh_finishing.retopologize_quadriflow(
+                mesh_path=target_path,
+                target_faces=req.target_faces,
+                symmetry_axis=req.symmetry_axis,
+                preserve_sharp=req.preserve_sharp,
+                output_path=out_file
+            )
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"QuadriFlow retopology failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/unwrap")
 def unwrap_uv_endpoint(req: UnwrapUVRequest):
     """Unwraps and packs UV islands using Blender Smart UV Project or conformal unwrapping."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    out_dir = Path(target_path).parent
-    out_file = str(out_dir / f"{Path(target_path).stem}_uv.glb")
-    try:
-        res = mesh_finishing.unwrap_uvs(
-            mesh_path=target_path,
-            method=req.method,
-            margin=req.margin,
-            output_path=out_file
-        )
-        if session:
-            # Update working mesh to unwrapped version
-            shutil.copy2(out_file, session.working_mesh_path)
-            session.version += 1
-            session.save()
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"UV unwrapping failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        out_dir = Path(target_path).parent
+        out_file = str(out_dir / f"{Path(target_path).stem}_uv.glb")
+        try:
+            res = mesh_finishing.unwrap_uvs(
+                mesh_path=target_path,
+                method=req.method,
+                margin=req.margin,
+                output_path=out_file
+            )
+            if session:
+                # Update working mesh to unwrapped version
+                shutil.copy2(out_file, session.working_mesh_path)
+                session.version += 1
+                session.save()
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"UV unwrapping failed: {str(e)}")
 
 
 @router.get("/api/v1/finishing/presets")
@@ -979,84 +995,88 @@ def get_material_presets_endpoint():
 @router.post("/api/v1/finishing/materials")
 def apply_materials_endpoint(req: ApplyMaterialRequest):
     """Configures Principled BSDF PBR material node trees and assigns slots."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    specs = [mesh_finishing.PBRMaterialSpec(**m) for m in req.materials] if req.materials else []
-    try:
-        res = mesh_finishing.apply_pbr_materials(mesh_path=target_path, materials=specs)
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PBR material configuration failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        specs = [mesh_finishing.PBRMaterialSpec(**m) for m in req.materials] if req.materials else []
+        try:
+            res = mesh_finishing.apply_pbr_materials(mesh_path=target_path, materials=specs)
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PBR material configuration failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/bake")
 def bake_textures_endpoint(req: BakeTexturesRequest):
     """Executes genuine Cycles selected-to-active baking (Normal, Base Color, AO, Roughness, Metallic)."""
-    if req.session_id:
-        session = editing_session_manager.get_session(req.session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail=f"Session '{req.session_id}' not found.")
-        high_path = session.original_mesh_path
-        low_path = session.working_mesh_path
-        out_dir = str(Path(session.working_dir) / "textures")
-    else:
-        if not req.high_poly_path or not req.low_poly_path:
-            raise HTTPException(status_code=400, detail="Either session_id or both high_poly_path and low_poly_path must be supplied.")
+    with _session_lock_guard(req.session_id):
+        if req.session_id:
+            session = editing_session_manager.get_session(req.session_id)
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Session '{req.session_id}' not found.")
+            high_path = session.original_mesh_path
+            low_path = session.working_mesh_path
+            out_dir = str(Path(session.working_dir) / "textures")
+        else:
+            if not req.high_poly_path or not req.low_poly_path:
+                raise HTTPException(status_code=400, detail="Either session_id or both high_poly_path and low_poly_path must be supplied.")
+            try:
+                high_p = validate_safe_path(req.high_poly_path, must_exist=True)
+                low_p = validate_safe_path(req.low_poly_path, must_exist=True)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid bake input mesh path: {str(e)}")
+            high_path = str(high_p)
+            low_path = str(low_p)
+            out_dir = str(Path(low_path).parent / "textures")
+
+        spec = mesh_finishing.TextureBakeSpec(
+            high_poly_path=high_path,
+            low_poly_path=low_path,
+            bake_resolution=req.bake_resolution,
+            bake_cage_extrusion=req.bake_cage_extrusion,
+            ray_max_distance=req.ray_max_distance,
+            margin_pixels=req.margin_pixels,
+            bake_maps=req.bake_maps,
+            output_dir=out_dir
+        )
+
         try:
-            high_p = validate_safe_path(req.high_poly_path, must_exist=True)
-            low_p = validate_safe_path(req.low_poly_path, must_exist=True)
+            res = mesh_finishing.bake_textures_cycles(spec)
+            return res.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid bake input mesh path: {str(e)}")
-        high_path = str(high_p)
-        low_path = str(low_p)
-        out_dir = str(Path(low_path).parent / "textures")
-
-    spec = mesh_finishing.TextureBakeSpec(
-        high_poly_path=high_path,
-        low_poly_path=low_path,
-        bake_resolution=req.bake_resolution,
-        bake_cage_extrusion=req.bake_cage_extrusion,
-        ray_max_distance=req.ray_max_distance,
-        margin_pixels=req.margin_pixels,
-        bake_maps=req.bake_maps,
-        output_dir=out_dir
-    )
-
-    try:
-        res = mesh_finishing.bake_textures_cycles(spec)
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cycles texture baking failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Cycles texture baking failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/lods")
 def generate_lods_endpoint(req: GenerateLODsRequest):
     """Generates multi-tier LODs (LOD0-LOD3) with comparative metrics."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    out_dir = str(Path(target_path).parent / "lods")
-    try:
-        res = mesh_finishing.generate_lods(
-            mesh_path=target_path,
-            budgets=req.budgets,
-            output_dir=out_dir
-        )
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LOD generation failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        out_dir = str(Path(target_path).parent / "lods")
+        try:
+            res = mesh_finishing.generate_lods(
+                mesh_path=target_path,
+                budgets=req.budgets,
+                output_dir=out_dir
+            )
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LOD generation failed: {str(e)}")
 
 
 @router.post("/api/v1/finishing/export")
 def export_asset_endpoint(req: ExportAssetRequest):
     """Exports asset across multiple formats (GLB, FBX, OBJ) with structural re-import verification and manifest."""
-    target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
-    out_dir = str(Path(target_path).parent / "export")
-    name = req.asset_name or (session.asset_name if session else "finished_asset")
-    try:
-        res = mesh_finishing.export_finished_asset(
-            mesh_path=target_path,
-            export_dir=out_dir,
-            asset_name=name,
-            formats=req.formats
-        )
-        return res.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Asset export failed: {str(e)}")
+    with _session_lock_guard(req.session_id):
+        target_path, session = _resolve_mesh_path(req.session_id, req.mesh_path)
+        out_dir = str(Path(target_path).parent / "export")
+        name = req.asset_name or (session.asset_name if session else "finished_asset")
+        try:
+            res = mesh_finishing.export_finished_asset(
+                mesh_path=target_path,
+                export_dir=out_dir,
+                asset_name=name,
+                formats=req.formats
+            )
+            return res.model_dump()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Asset export failed: {str(e)}")

@@ -12,7 +12,7 @@
 ---
 
 ### 🧭 Navigation & Deliverables
-[**🛠️ Phase 7 3D Finishing Report**](docs/PHASE_7_PROFESSIONAL_3D_FINISHING_REPORT.md) • [**🎨 Phase 6 AI Technical Artist Report**](docs/PHASE_6_ADVANCED_AI_TECHNICAL_ARTIST_REPORT.md) • [**🚀 Phase 5 Blender Studio Report**](docs/PHASE_5_BLENDER_STUDIO_REPORT.md) • [**Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
+[**🛡️ Phase 9.1 Reliability Closure Report**](docs/PHASE_9_1_RELIABILITY_CLOSURE_REPORT.md) • [**🧠 Phase 9 Self-Healing & Learning Report**](docs/PHASE_9_SELF_HEALING_AND_CONTROLLED_LEARNING_REPORT.md) • [**🛠️ Phase 7 3D Finishing Report**](docs/PHASE_7_PROFESSIONAL_3D_FINISHING_REPORT.md) • [**🎨 Phase 6 AI Technical Artist Report**](docs/PHASE_6_ADVANCED_AI_TECHNICAL_ARTIST_REPORT.md) • [**🚀 Phase 5 Blender Studio Report**](docs/PHASE_5_BLENDER_STUDIO_REPORT.md) • [**Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
@@ -42,6 +42,21 @@ Below is an authentic dining chair generated completely end-to-end via **Mode A:
 ---
 
 ## 🌟 Core Capabilities
+
+* **🛡️ Phase 9.1: Reliability Closure, Real LoRA Training, GPU Safety & Full System Integrity:**
+  * **Guaranteed GPU Lease Release:** Physical lease lock files (`gpu_lease.lock`) released across worker success, exception, cancellation, and timeout; immediate reacquisition verified.
+  * **Unified Hardware Preflight & Status:** Accurately measures physical free VRAM; rejects 7B local training on 6 GB RTX 3050 hardware with export instructions.
+  * **Safe Two-Stage Self-Healing:** Dry-run preview lists affected staging files without modifying disk; active session meshes protected from deletion.
+  * **Coplanar Geometry & UV Overlap Inspection:** Möller-Trumbore coplanar triangle 2D SAT projection; accidental UV overlaps penalized with game-ready gating.
+  * **Session Concurrency & Centroid Invariant Tracking:** Mutating endpoints serialized with `threading.RLock`; non-target component centroid drift monitored with automatic rollback.
+  * **Single-Family Data Partitioning:** Prevents benchmark data leakage by setting `insufficient_families=True` when fewer than 2 families exist.
+  * **Genuine PyTorch LoRA Training:** Real `TechnicalArtistLoRAModule` optimization, loss history recording, `adapter_model.bin` checkpoints, and SHA-256 fingerprinting.
+  * **Benchmark Evaluation & Gated Model Promotion:** Candidate models must achieve >= 80% score and explicit user approval before promotion; atomic runtime model loading and rollback.
+  * **Panel 10 Addon Integration:** Two-stage dry-run preview & approved remediation, real-time VRAM preflight display, candidate model evaluation, and learning data purge.
+
+* **🧠 Phase 9: Autonomous Self-Healing, Controlled Data Collection, LoRA Learning & Model Lifecycle:**
+  * **Subsystem Diagnostic Monitoring:** Continuously tracks memory, GPU lease health, and file integrity with audit logging.
+  * **Opt-In Privacy & Local Learning:** Privacy-first design requiring explicit opt-in consent; zero external telemetry or cloud communication.
 
 * **🛠️ Phase 7: Professional 3D Finishing, Retopology, UV Unwrapping, PBR Materials & Game-Ready Export:**
   * **Mesh Health & Manifold Inspection:** Complete topological analysis detecting non-manifold edges, zero-area faces, coincident vertices, and game-readiness scoring.
