@@ -28,10 +28,23 @@ from api.schemas import (
     DecomposeComponentsRequest,
     AlignAndGroundRequest,
     BoundedCorrectionRequest,
-    ExecuteToolRequest
+    ExecuteToolRequest,
+    StageAssetRequest,
+    StageAssetResponse,
+    AnalyzeAssetRequest,
+    AnalyzeAssetResponse,
+    GeneratePlanRequest,
+    GeneratePlanResponse,
+    ExecutePlanRequest,
+    ExecutePlanResponse,
+    RollbackRequest,
+    RollbackResponse,
+    SessionStateResponse,
+    ComponentSummary
 )
 from services.job_manager import job_manager
 from services.export_service import export_service
+from services.editing_session_manager import editing_session_manager
 from core.gpu_broker import gpu_broker
 from core.qwen_planner import qwen_planner
 from core.hardware_detector import hardware_detector
@@ -525,3 +538,288 @@ def sync_blender_scene(req: SceneSyncRequest):
 def get_blender_scene_status():
     """Returns the most recent synchronized scene metadata from Blender."""
     return _latest_blender_scene_state
+
+
+# ==============================================================================
+# Phase 6 Advanced AI Technical Artist Endpoints
+# ==============================================================================
+
+@router.post("/api/v1/blender/stage-asset", response_model=StageAssetResponse)
+def stage_blender_asset(req: StageAssetRequest):
+    """Stages an active mesh object from Blender into an isolated editing session."""
+    import base64
+    temp_mesh_file = None
+
+    if req.mesh_base64:
+        safe_name = "".join(c for c in req.asset_name if c.isalnum() or c in ("_", "-")) or "staged_mesh"
+        staging_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "jobs" / "staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        temp_mesh_file = str(staging_dir / f"{safe_name}_{uuid.uuid4().hex[:6]}.{req.file_format}")
+        with open(temp_mesh_file, "wb") as f:
+            f.write(base64.b64decode(req.mesh_base64))
+        mesh_to_load = temp_mesh_file
+    elif req.mesh_path:
+        mesh_to_load = os.path.abspath(req.mesh_path)
+        if not os.path.exists(mesh_to_load):
+            raise HTTPException(status_code=400, detail=f"Staged mesh file does not exist: {req.mesh_path}")
+    else:
+        raise HTTPException(status_code=400, detail="Either mesh_path or mesh_base64 must be provided.")
+
+    try:
+        session = editing_session_manager.create_session(
+            asset_name=req.asset_name,
+            source_mesh_path=mesh_to_load,
+            object_metadata=req.object_metadata,
+            fingerprint=req.fingerprint
+        )
+        rep = geometry_analyzer.analyze_mesh(session.working_mesh_path)
+    finally:
+        if temp_mesh_file and os.path.exists(temp_mesh_file):
+            try:
+                os.remove(temp_mesh_file)
+            except Exception:
+                pass
+
+    return {
+        "session_id": session.session_id,
+        "asset_id": session.asset_id,
+        "asset_name": session.asset_name,
+        "mesh_path": session.working_mesh_path,
+        "mesh_url": f"/api/v1/artist/session/{session.session_id}/mesh",
+        "vertex_count": rep.counts.vertex_count,
+        "face_count": rep.counts.face_count,
+        "dimensions": [float(d) for d in rep.bounds.dimensions],
+        "created_at": session.created_at,
+        "message": f"Asset '{session.asset_name}' staged successfully ({rep.counts.face_count} faces)."
+    }
+
+
+@router.post("/api/v1/artist/analyze", response_model=AnalyzeAssetResponse)
+def analyze_asset_components(req: AnalyzeAssetRequest):
+    """Executes component decomposition, multi-view rendering, and visual understanding for session."""
+    try:
+        session = editing_session_manager.analyze_session(
+            session_id=req.session_id,
+            decomposition_method=req.decomposition_method,
+            num_clusters=req.num_clusters,
+            include_vlm=req.include_vlm,
+            user_description=req.user_description
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Editing session '{req.session_id}' not found.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Asset analysis failed: {str(e)}")
+
+    components = []
+    if session.hierarchy:
+        for cid, node in session.hierarchy.components.items():
+            if "root" in cid.lower() or "assembly" in cid.lower():
+                continue
+            components.append(ComponentSummary(
+                component_id=cid,
+                semantic_label=node.semantic_label,
+                confidence=round(node.confidence, 2),
+                is_uncertain=node.is_uncertain,
+                dimensions=[float(d) for d in node.dimensions],
+                centroid=[float(c) for c in node.centroid],
+                face_count=node.face_count,
+                vertex_count=node.vertex_count,
+                relative_z_position=round(node.relative_z_position, 2),
+                color_hex=session.color_legend.get(cid),
+                submesh_url=f"/api/v1/artist/session/{session.session_id}/submesh/{cid}" if node.submesh_path else None
+            ))
+
+    render_urls = {
+        view: f"/api/v1/artist/session/{session.session_id}/renders/{view}"
+        for view in session.render_paths.keys()
+    }
+    mask_url = f"/api/v1/artist/session/{session.session_id}/renders/mask" if session.mask_render_path else None
+
+    return {
+        "session_id": session.session_id,
+        "asset_id": session.asset_id,
+        "asset_name": session.asset_name,
+        "total_components": len(components),
+        "components": components,
+        "decomposition_provenance": session.decomposition_provenance,
+        "vlm_provenance": session.vlm_provenance,
+        "render_paths": session.render_paths,
+        "render_urls": render_urls,
+        "mask_render_url": mask_url,
+        "color_legend": session.color_legend,
+        "summary": session.summary
+    }
+
+
+@router.get("/api/v1/artist/components/{session_id}")
+def get_session_components(session_id: str):
+    """Retrieves component hierarchy and color legend for session."""
+    session = editing_session_manager.get_session(session_id)
+    if not session or not session.hierarchy:
+        raise HTTPException(status_code=404, detail=f"Hierarchy not available for session '{session_id}'. Run analyze first.")
+
+    comps = [
+        {
+            "component_id": cid,
+            "semantic_label": node.semantic_label,
+            "confidence": round(node.confidence, 2),
+            "is_uncertain": node.is_uncertain,
+            "dimensions": [float(d) for d in node.dimensions],
+            "centroid": [float(c) for c in node.centroid],
+            "face_count": node.face_count,
+            "vertex_count": node.vertex_count,
+            "relative_z_position": round(node.relative_z_position, 2),
+            "color_hex": session.color_legend.get(cid)
+        }
+        for cid, node in session.hierarchy.components.items()
+        if "root" not in cid.lower() and "assembly" not in cid.lower()
+    ]
+    return {
+        "session_id": session_id,
+        "total_components": len(comps),
+        "components": comps,
+        "color_legend": session.color_legend,
+        "decomposition_provenance": session.decomposition_provenance,
+        "vlm_provenance": session.vlm_provenance
+    }
+
+
+@router.post("/api/v1/artist/plan", response_model=GeneratePlanResponse)
+def generate_artist_plan(req: GeneratePlanRequest):
+    """Produces structured ComponentEditPlan from natural-language instructions."""
+    try:
+        plan = editing_session_manager.generate_plan(
+            session_id=req.session_id,
+            user_instruction=req.user_instruction,
+            target_component_id=req.target_component_id
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Editing session '{req.session_id}' not found.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Plan generation failed: {str(e)}")
+
+    return {
+        "session_id": req.session_id,
+        "plan_id": plan.plan_id,
+        "plan": plan.model_dump(),
+        "status": plan.status,
+        "requires_user_confirmation": plan.requires_user_confirmation,
+        "rationale": plan.rationale
+    }
+
+
+@router.post("/api/v1/artist/execute", response_model=ExecutePlanResponse)
+def execute_artist_plan(req: ExecutePlanRequest):
+    """Executes the approved plan deterministically, verifies invariants, and returns report."""
+    try:
+        report = editing_session_manager.execute_plan(
+            session_id=req.session_id,
+            plan_id=req.plan_id,
+            confirmed_target_id=req.confirmed_target_id,
+            plan_override=req.plan_override
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Editing session '{req.session_id}' not found.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Plan execution failed: {str(e)}")
+
+    return {
+        "session_id": req.session_id,
+        "status": report.status,
+        "report": report.model_dump(),
+        "output_mesh_url": f"/api/v1/artist/session/{req.session_id}/mesh",
+        "message": report.summary
+    }
+
+
+@router.post("/api/v1/artist/rollback", response_model=RollbackResponse)
+def rollback_artist_edit(req: RollbackRequest):
+    """Restores the working mesh to the pre-edit snapshot."""
+    success, msg = editing_session_manager.rollback_session(req.session_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {
+        "session_id": req.session_id,
+        "status": "ROLLED_BACK",
+        "message": msg,
+        "output_mesh_url": f"/api/v1/artist/session/{req.session_id}/mesh"
+    }
+
+
+@router.get("/api/v1/artist/session/{session_id}", response_model=SessionStateResponse)
+def get_artist_session(session_id: str):
+    """Returns complete state, components, and history for an editing session."""
+    session = editing_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Editing session '{session_id}' not found.")
+
+    comps = []
+    if session.hierarchy:
+        for cid, node in session.hierarchy.components.items():
+            if "root" in cid.lower() or "assembly" in cid.lower():
+                continue
+            comps.append(ComponentSummary(
+                component_id=cid,
+                semantic_label=node.semantic_label,
+                confidence=round(node.confidence, 2),
+                is_uncertain=node.is_uncertain,
+                dimensions=[float(d) for d in node.dimensions],
+                centroid=[float(c) for c in node.centroid],
+                face_count=node.face_count,
+                vertex_count=node.vertex_count,
+                relative_z_position=round(node.relative_z_position, 2),
+                color_hex=session.color_legend.get(cid),
+                submesh_url=f"/api/v1/artist/session/{session.session_id}/submesh/{cid}" if node.submesh_path else None
+            ))
+
+    return {
+        "session_id": session.session_id,
+        "asset_id": session.asset_id,
+        "asset_name": session.asset_name,
+        "version": session.version,
+        "status": session.status,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "total_components": len(comps),
+        "components": comps,
+        "history_count": len(session.history),
+        "has_pre_edit_snapshot": bool(session.pre_edit_snapshot_path and os.path.exists(session.pre_edit_snapshot_path)),
+        "mesh_url": f"/api/v1/artist/session/{session.session_id}/mesh",
+        "history": session.history
+    }
+
+
+@router.get("/api/v1/artist/session/{session_id}/mesh")
+def get_session_mesh(session_id: str):
+    """Serves the working GLB/OBJ mesh asset for the session."""
+    session = editing_session_manager.get_session(session_id)
+    if not session or not os.path.exists(session.working_mesh_path):
+        raise HTTPException(status_code=404, detail=f"Mesh asset not found for session '{session_id}'.")
+
+    media_type = "model/gltf-binary"
+    if session.working_mesh_path.lower().endswith(".obj"):
+        media_type = "model/obj"
+
+    return FileResponse(
+        path=session.working_mesh_path,
+        media_type=media_type,
+        filename=f"{session.asset_name}_v{session.version}{Path(session.working_mesh_path).suffix}"
+    )
+
+
+@router.get("/api/v1/artist/session/{session_id}/renders/{view_name}")
+def get_session_render(session_id: str, view_name: str):
+    """Serves rendered multi-view image or color component mask."""
+    session = editing_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+
+    if view_name.lower() in ("mask", "masks", "component_masks"):
+        if not session.mask_render_path or not os.path.exists(session.mask_render_path):
+            raise HTTPException(status_code=404, detail="Mask render not available.")
+        return FileResponse(path=session.mask_render_path, media_type="image/png", filename="mask.png")
+
+    p = session.render_paths.get(view_name.lower())
+    if not p or not os.path.exists(p):
+        raise HTTPException(status_code=404, detail=f"Render view '{view_name}' not available.")
+    return FileResponse(path=p, media_type="image/png", filename=f"{view_name}.png")

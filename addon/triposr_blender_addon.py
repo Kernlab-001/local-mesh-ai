@@ -137,6 +137,38 @@ def check_server_health(url=DEFAULT_SERVER_URL, timeout=0.8):
     return False, 0.0, "Unknown response"
 
 
+
+def run_in_background(task_func, on_success=None, on_error=None):
+    """
+    Executes a network or compute task on a background daemon thread without blocking Blender.
+    When complete, safely schedules on_success(res) or on_error(err) on Blender's main thread via bpy.app.timers.
+    """
+    def _worker():
+        try:
+            res = task_func()
+            if on_success:
+                def _main_success():
+                    try:
+                        on_success(res)
+                    except Exception as ex:
+                        print(f"[LocalMeshAI] Error in main-thread success callback: {ex}")
+                    return None
+                bpy.app.timers.register(_main_success, first_interval=0.01)
+        except Exception as e:
+            if on_error:
+                def _main_error():
+                    try:
+                        on_error(e)
+                    except Exception as ex:
+                        print(f"[LocalMeshAI] Error in main-thread error callback: {ex}")
+                    return None
+                bpy.app.timers.register(_main_error, first_interval=0.01)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return t
+
+
 def find_project_root():
     """Intelligently locates the local-mesh-ai project root directory."""
     pref = get_addon_preferences()
@@ -162,11 +194,9 @@ def find_project_root():
         os.path.abspath(os.path.join(script_dir, "..")),
         script_dir,
         os.getcwd(),
+        os.path.abspath(os.path.join(script_dir, "..", "..")),
         os.path.expanduser(r"~\local-mesh-ai"),
-        r"E:\local-mesh-ai-v6.0",
-        r"E:\GPUPLAT",
-        r"C:\local-mesh-ai",
-        r"D:\local-mesh-ai"
+        os.path.expanduser(r"~\.local-mesh-ai")
     ]
     for path in candidates:
         if path and os.path.exists(os.path.join(path, "run_server.py")):
@@ -392,6 +422,32 @@ class LocalMeshProperties(bpy.types.PropertyGroup):
     last_completed_polycount: IntProperty(name="Last Polycount", default=0)
 
     # --- Asset Catalogue ---
+    # --- Staged Asset & Image Tracking ---
+    staged_image_path: StringProperty(name="Staged Image Path", default="")
+
+    # --- Phase 6 AI Technical Artist Properties ---
+    ai_session_id: StringProperty(name="Session ID", default="")
+    ai_artist_instruction: StringProperty(
+        name="Instruction",
+        default="Make the backrest 20% taller without modifying the seat",
+        description="Natural-language 3D editing request"
+    )
+    ai_artist_target_comp: StringProperty(name="Target Component", default="")
+    ai_artist_status: StringProperty(name="AI Artist Status", default="Ready")
+    ai_plan_preview: StringProperty(name="Plan Preview", default="")
+    ai_plan_id: StringProperty(name="Plan ID", default="")
+    ai_plan_target: StringProperty(name="Target", default="")
+    ai_plan_operation: StringProperty(name="Operation", default="")
+    ai_plan_factor: FloatProperty(name="Factor", default=1.2)
+    ai_plan_axis: StringProperty(name="Axis", default="z")
+    ai_plan_invariants: StringProperty(name="Invariants", default="")
+    ai_has_plan: BoolProperty(name="Has Plan", default=False)
+    ai_needs_confirmation: BoolProperty(name="Needs Confirmation", default=False)
+    ai_is_busy: BoolProperty(name="AI Busy", default=False)
+    ai_component_count: IntProperty(name="Component Count", default=0)
+    ai_candidate_components_json: StringProperty(name="Candidates JSON", default="[]")
+    ai_last_history: StringProperty(name="Last Result", default="")
+
     selected_asset_path: StringProperty(name="Selected Asset", subtype='FILE_PATH', default="")
     asset_search_filter: StringProperty(name="Filter", default="")
 
@@ -984,6 +1040,7 @@ class LOCALMESH_OT_StageImage(bpy.types.Operator):
                 staged_path = data.get("staged_path")
                 dims = f"{data.get('width')}x{data.get('height')}"
                 self.report({'INFO'}, f"Staged successfully ({dims}): {os.path.basename(staged_path)}")
+                props.staged_image_path = staged_path
                 props.status_message = f"Image Staged ({dims})"
         except Exception as e:
             self.report({'ERROR'}, f"Failed to stage image: {e}")
@@ -1035,11 +1092,15 @@ class LOCALMESH_OT_GenerateAsset(bpy.types.Operator):
                 return {'CANCELLED'}
             payload["prompt"] = prompt
         else:
-            img_path = bpy.path.abspath(props.image_path)
-            if not img_path or not os.path.exists(img_path):
-                self.report({'ERROR'}, "Please select a valid reference image.")
-                return {'CANCELLED'}
-            payload["image_path"] = os.path.abspath(img_path)
+            staged = getattr(props, "staged_image_path", "")
+            if staged and os.path.exists(staged):
+                payload["image_path"] = os.path.abspath(staged)
+            else:
+                img_path = bpy.path.abspath(props.image_path)
+                if not img_path or not os.path.exists(img_path):
+                    self.report({'ERROR'}, "Please select a valid reference image.")
+                    return {'CANCELLED'}
+                payload["image_path"] = os.path.abspath(img_path)
 
         try:
             req = urllib.request.Request(
@@ -1723,6 +1784,467 @@ class LOCALMESH_PT_MeshControls(LOCALMESH_PT_BasePanel, bpy.types.Panel):
             edit_box.operator("triposr.apply_component_edit", text="Apply Component Edit", icon='CHECKMARK')
 
 
+
+# ==============================================================================
+# Phase 6 Helpers: Mesh Transfer & In-Place Geometry Replacement
+# ==============================================================================
+def _export_active_object_mesh(obj):
+    """Exports active selected mesh into a temporary working GLB or OBJ file."""
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f"staged_{uuid.uuid4().hex[:6]}.glb")
+
+    prev_active = bpy.context.view_layer.objects.active
+    prev_selected = [o for o in bpy.context.selected_objects]
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    try:
+        bpy.ops.export_scene.gltf(filepath=temp_path, use_selection=True, export_format='GLB')
+    except Exception:
+        temp_path = os.path.join(temp_dir, f"staged_{uuid.uuid4().hex[:6]}.obj")
+        try:
+            bpy.ops.wm.obj_export(filepath=temp_path, export_selected_objects=True)
+        except Exception:
+            bpy.ops.export_scene.obj(filepath=temp_path, use_selection=True)
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in prev_selected:
+            if o.name in bpy.context.view_layer.objects:
+                o.select_set(True)
+        if prev_active and prev_active.name in bpy.context.view_layer.objects:
+            bpy.context.view_layer.objects.active = prev_active
+
+    return temp_path
+
+
+def _update_blender_object_geometry(obj, new_mesh_filepath):
+    """In-place updates target Blender object geometry on the main thread, preserving transforms and materials."""
+    if not obj or obj.type != 'MESH' or not os.path.exists(new_mesh_filepath):
+        return False
+
+    orig_objs = set(bpy.context.scene.objects)
+    try:
+        if new_mesh_filepath.lower().endswith((".glb", ".gltf")):
+            bpy.ops.import_scene.gltf(filepath=new_mesh_filepath)
+        else:
+            try:
+                bpy.ops.wm.obj_import(filepath=new_mesh_filepath)
+            except Exception:
+                bpy.ops.import_scene.obj(filepath=new_mesh_filepath)
+
+        new_objs = set(bpy.context.scene.objects) - orig_objs
+        mesh_objs = [o for o in new_objs if o.type == 'MESH']
+        if mesh_objs:
+            temp_mesh_obj = mesh_objs[0]
+            old_data = obj.data
+            obj.data = temp_mesh_obj.data
+            if not obj.data.materials and old_data.materials:
+                for mat in old_data.materials:
+                    obj.data.materials.append(mat)
+            if old_data.users == 0:
+                bpy.data.meshes.remove(old_data)
+
+        for o in new_objs:
+            if o != obj and o.name in bpy.data.objects:
+                bpy.data.objects.remove(o, do_unlink=True)
+        return True
+    except Exception as e:
+        print(f"[LocalMeshAI] Error applying updated mesh to object: {e}")
+        return False
+
+
+# ==============================================================================
+# OPERATORS: Phase 6 AI Technical Artist
+# ==============================================================================
+class LOCALMESH_OT_StageActiveAsset(bpy.types.Operator):
+    bl_idname = "localmesh.stage_active_asset"
+    bl_label = "Stage Active Asset for AI"
+    bl_description = "Exports active Blender mesh and initializes an AI Technical Artist editing session"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Please select an active 3D mesh object.")
+            return {'CANCELLED'}
+
+        props.ai_is_busy = True
+        props.ai_artist_status = f"Staging '{act.name}'..."
+
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+        obj_name = act.name
+        bbox = {"dimensions": [float(d) for d in act.dimensions]}
+
+        def _task():
+            req_data = {
+                "asset_name": obj_name,
+                "mesh_path": temp_mesh,
+                "file_format": Path(temp_mesh).suffix.lstrip("."),
+                "object_metadata": bbox
+            }
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/blender/stage-asset",
+                data=json.dumps(req_data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _on_success(data):
+            props.ai_session_id = data.get("session_id", "")
+            props.ai_artist_status = f"Staged '{obj_name}' ({data.get('face_count', 0)} faces)"
+            props.ai_is_busy = False
+            self.report({'INFO'}, f"Asset '{obj_name}' staged (Session {props.ai_session_id})")
+
+        def _on_error(err):
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Staging failed: {err}"
+            self.report({'ERROR'}, f"Staging failed: {err}")
+
+        run_in_background(_task, _on_success, _on_error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_AnalyzeActiveAsset(bpy.types.Operator):
+    bl_idname = "localmesh.analyze_active_asset"
+    bl_label = "Analyze Components & Grounding"
+    bl_description = "Performs PartField component decomposition, 6-view rendering, and visual understanding"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        if not props.ai_session_id:
+            # Auto-stage first
+            bpy.ops.localmesh.stage_active_asset()
+
+        session_id = props.ai_session_id
+        server_url = props.server_url
+        props.ai_is_busy = True
+        props.ai_artist_status = "Analyzing geometry & neural components..."
+
+        def _task():
+            req_data = {
+                "session_id": session_id,
+                "decomposition_method": "auto",
+                "num_clusters": 4,
+                "include_vlm": True
+            }
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/artist/analyze",
+                data=json.dumps(req_data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=120.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _on_success(data):
+            props.ai_component_count = data.get("total_components", 0)
+            comps = data.get("components", [])
+            props.ai_candidate_components_json = json.dumps(comps)
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Analyzed: {len(comps)} components ({data.get('decomposition_provenance', 'auto')})"
+            self.report({'INFO'}, f"Analysis complete: {len(comps)} components decomposed.")
+
+        def _on_error(err):
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Analysis failed: {err}"
+            self.report({'ERROR'}, f"Analysis error: {err}")
+
+        run_in_background(_task, _on_success, _on_error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_GenerateArtistPlan(bpy.types.Operator):
+    bl_idname = "localmesh.generate_artist_plan"
+    bl_label = "Generate AI Edit Plan"
+    bl_description = "Converts natural-language instruction into structured Pydantic plan via Qwen Coder"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        if not props.ai_session_id:
+            self.report({'ERROR'}, "Stage or analyze asset before generating edit plan.")
+            return {'CANCELLED'}
+
+        instruction = props.ai_artist_instruction.strip()
+        if not instruction:
+            self.report({'ERROR'}, "Please enter an instruction (e.g. 'Make backrest 20% taller').")
+            return {'CANCELLED'}
+
+        props.ai_is_busy = True
+        props.ai_artist_status = "Qwen Coder generating edit plan..."
+        session_id = props.ai_session_id
+        server_url = props.server_url
+        explicit_target = props.ai_artist_target_comp.strip() or None
+
+        def _task():
+            req_data = {
+                "session_id": session_id,
+                "user_instruction": instruction,
+                "target_component_id": explicit_target
+            }
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/artist/plan",
+                data=json.dumps(req_data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _on_success(data):
+            props.ai_is_busy = False
+            plan = data.get("plan", {})
+            props.ai_plan_id = data.get("plan_id", "")
+            targets = plan.get("target_semantic_labels", []) or plan.get("target_component_ids", [])
+            props.ai_plan_target = ", ".join(targets) if targets else "unresolved"
+            props.ai_plan_operation = plan.get("operation_type", "scale")
+            props.ai_plan_factor = float(plan.get("scale_factor", 1.0))
+            props.ai_plan_axis = plan.get("axis", "z")
+
+            invs = [inv.get("component_id", "") for inv in plan.get("invariants", [])]
+            props.ai_plan_invariants = ", ".join(invs) if invs else "All other components"
+            props.ai_plan_preview = plan.get("rationale", data.get("rationale", ""))
+
+            needs_conf = (data.get("status") == "NEEDS_COMPONENT_CONFIRMATION" or plan.get("requires_user_confirmation", False))
+            props.ai_needs_confirmation = needs_conf
+            props.ai_has_plan = True
+            props.ai_artist_status = f"Plan Ready: {props.ai_plan_operation} on {props.ai_plan_target}"
+            self.report({'INFO'}, f"Edit plan generated: {props.ai_plan_operation} (Status: {data.get('status')})")
+
+        def _on_error(err):
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Planning failed: {err}"
+            self.report({'ERROR'}, f"Planning error: {err}")
+
+        run_in_background(_task, _on_success, _on_error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ConfirmTargetComponent(bpy.types.Operator):
+    bl_idname = "localmesh.confirm_target_component"
+    bl_label = "Select Candidate Target"
+    bl_description = "Selects this candidate component to resolve planning ambiguity"
+
+    target_cid: bpy.props.StringProperty(name="Target CID")
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        props.ai_artist_target_comp = self.target_cid
+        props.ai_needs_confirmation = False
+        self.report({'INFO'}, f"Confirmed target component: {self.target_cid}")
+        # Regenerate plan immediately with confirmed target
+        bpy.ops.localmesh.generate_artist_plan()
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ApplyArtistPlan(bpy.types.Operator):
+    bl_idname = "localmesh.execute_artist_plan"
+    bl_label = "⚡ Apply Edit Plan"
+    bl_description = "Executes approved plan, verifies invariants, and updates active Blender object geometry"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        if not props.ai_session_id or not props.ai_has_plan:
+            self.report({'ERROR'}, "No active approved plan to apply.")
+            return {'CANCELLED'}
+
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select the target mesh object in the 3D viewport.")
+            return {'CANCELLED'}
+
+        props.ai_is_busy = True
+        props.ai_artist_status = "Executing deterministic edit & verifying geometry..."
+        session_id = props.ai_session_id
+        plan_id = props.ai_plan_id
+        server_url = props.server_url
+
+        def _task():
+            req_data = {
+                "session_id": session_id,
+                "plan_id": plan_id,
+                "confirmed_target_id": props.ai_artist_target_comp or None
+            }
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/artist/execute",
+                data=json.dumps(req_data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
+                res_data = json.loads(resp.read().decode("utf-8"))
+
+            # Download the resulting mesh
+            mesh_url = res_data.get("output_mesh_url")
+            if not mesh_url.startswith("http"):
+                mesh_url = f"{server_url}{mesh_url}"
+            import tempfile
+            dl_path = os.path.join(tempfile.gettempdir(), f"edited_{session_id}_{uuid.uuid4().hex[:6]}.glb")
+            urllib.request.urlretrieve(mesh_url, dl_path)
+            res_data["_downloaded_mesh_path"] = dl_path
+            return res_data
+
+        def _on_success(data):
+            props.ai_is_busy = False
+            status = data.get("status", "SUCCESS")
+            report = data.get("report", {})
+            dl_path = data.get("_downloaded_mesh_path")
+
+            if dl_path and os.path.exists(dl_path):
+                applied = _update_blender_object_geometry(act, dl_path)
+                if applied:
+                    self.report({'INFO'}, f"Edit applied: {report.get('summary', 'Updated mesh geometry')}")
+
+            props.ai_last_history = report.get("summary", "")
+            props.ai_artist_status = f"Result: {status}"
+            props.ai_has_plan = False
+
+        def _on_error(err):
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Execution failed: {err}"
+            self.report({'ERROR'}, f"Execution error: {err}")
+
+        run_in_background(_task, _on_success, _on_error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_RollbackArtistEdit(bpy.types.Operator):
+    bl_idname = "localmesh.rollback_artist_edit"
+    bl_label = "↺ Rollback Edit"
+    bl_description = "Restores previous pre-edit mesh geometry snapshot on active object"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        if not props.ai_session_id:
+            self.report({'ERROR'}, "No active editing session found.")
+            return {'CANCELLED'}
+
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select the target mesh object.")
+            return {'CANCELLED'}
+
+        props.ai_is_busy = True
+        props.ai_artist_status = "Rolling back to previous snapshot..."
+        session_id = props.ai_session_id
+        server_url = props.server_url
+
+        def _task():
+            req_data = {"session_id": session_id}
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/artist/rollback",
+                data=json.dumps(req_data).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                res_data = json.loads(resp.read().decode("utf-8"))
+
+            mesh_url = res_data.get("output_mesh_url")
+            if not mesh_url.startswith("http"):
+                mesh_url = f"{server_url}{mesh_url}"
+            import tempfile
+            dl_path = os.path.join(tempfile.gettempdir(), f"rollback_{session_id}_{uuid.uuid4().hex[:6]}.glb")
+            urllib.request.urlretrieve(mesh_url, dl_path)
+            res_data["_downloaded_mesh_path"] = dl_path
+            return res_data
+
+        def _on_success(data):
+            props.ai_is_busy = False
+            dl_path = data.get("_downloaded_mesh_path")
+            if dl_path and os.path.exists(dl_path):
+                _update_blender_object_geometry(act, dl_path)
+            props.ai_artist_status = "Rolled Back to Pre-Edit Snapshot"
+            self.report({'INFO'}, "Successfully restored pre-edit snapshot.")
+
+        def _on_error(err):
+            props.ai_is_busy = False
+            props.ai_artist_status = f"Rollback failed: {err}"
+            self.report({'ERROR'}, f"Rollback error: {err}")
+
+        run_in_background(_task, _on_success, _on_error)
+        return {'FINISHED'}
+
+
+# ==============================================================================
+# PANEL 8: AI Technical Artist & Interactive Workspace
+# ==============================================================================
+class LOCALMESH_PT_AITechnicalArtist(LOCALMESH_PT_BasePanel, bpy.types.Panel):
+    bl_label = "AI Technical Artist & Component Editing"
+    bl_idname = "LOCALMESH_PT_ai_technical_artist"
+    bl_order = 8
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.local_mesh_props
+        act = context.active_object
+
+        # 1. Active Target Asset Info
+        box_asset = layout.box()
+        if act and act.type == 'MESH':
+            row = box_asset.row()
+            row.label(text=f"Target: {act.name}", icon='OBJECT_DATAMODE')
+            row.label(text=f"{len(act.data.polygons)} faces", icon='MESH_DATA')
+            row_actions = box_asset.row(align=True)
+            row_actions.operator("localmesh.stage_active_asset", text="Stage for AI", icon='EXPORT')
+            row_actions.operator("localmesh.analyze_active_asset", text="Analyze & Decompose", icon='NODETREE')
+        else:
+            box_asset.label(text="Select a Mesh object to edit", icon='INFO')
+            return
+
+        # 2. Decomposed Components Hierarchy
+        if props.ai_component_count > 0:
+            box_comp = layout.box()
+            box_comp.label(text=f"Detected Components ({props.ai_component_count}):", icon='OUTLINER_OB_MESH')
+            try:
+                comps = json.loads(props.ai_candidate_components_json or "[]")
+                for c in comps[:6]:
+                    c_row = box_comp.row(align=True)
+                    cid = c.get("component_id", "")
+                    lbl = c.get("semantic_label", cid)
+                    conf = c.get("confidence", 0.5)
+                    color = c.get("color_hex")
+                    dims = c.get("dimensions", [0, 0, 0])
+                    dim_str = f"{dims[0]:.2f}x{dims[1]:.2f}x{dims[2]:.2f}m"
+                    c_row.label(text=f"{lbl} ({dim_str}, {int(conf*100)}%)")
+                    op = c_row.operator("localmesh.confirm_target_component", text="Target", icon='RESTRICT_SELECT_OFF')
+                    op.target_cid = cid
+            except Exception:
+                pass
+
+        # 3. Natural Language Instruction Input
+        box_inst = layout.box()
+        box_inst.label(text="Natural-Language Technical Artist Request:", icon='CONSOLE')
+        box_inst.prop(props, "ai_artist_instruction", text="")
+        if props.ai_artist_target_comp:
+            box_inst.label(text=f"Explicit Target: {props.ai_artist_target_comp}", icon='CHECKMARK')
+
+        btn_row = box_inst.row()
+        btn_row.operator("localmesh.generate_artist_plan", text="Generate Edit Plan", icon='LIGHT_SUN')
+
+        # 4. Plan Preview & Confirmation Gating
+        if props.ai_has_plan:
+            box_plan = layout.box()
+            box_plan.label(text="AI Proposed Plan:", icon='SCRIPT')
+            box_plan.label(text=f"Target: {props.ai_plan_target} | Op: {props.ai_plan_operation}")
+            box_plan.label(text=f"Factor: {props.ai_plan_factor:.2f} | Axis: {props.ai_plan_axis}")
+            box_plan.label(text=f"Invariants: {props.ai_plan_invariants}")
+            box_plan.label(text=props.ai_plan_preview)
+
+            if props.ai_needs_confirmation:
+                box_plan.alert = True
+                box_plan.label(text="Ambiguous Target: Select Component Above!", icon='ERROR')
+
+            row_exec = box_plan.row(align=True)
+            row_exec.operator("localmesh.execute_artist_plan", text="⚡ Apply Edit Plan", icon='CHECKMARK')
+            row_exec.operator("localmesh.rollback_artist_edit", text="↺ Rollback", icon='LOOP_BACK')
+
+        # 5. Status & Telemetry
+        box_stat = layout.box()
+        box_stat.label(text=f"Status: {props.ai_artist_status}", icon='TIME')
+        if props.ai_last_history:
+            box_stat.label(text=props.ai_last_history)
+
 # Legacy Main Panel retained under "AI 3D Generator" for backwards compatibility
 class TRIPOSR_PT_MainPanel(LOCALMESH_PT_BasePanel, bpy.types.Panel):
     bl_label = "Local Neural 3D Studio"
@@ -1794,6 +2316,13 @@ classes = (
     LOCALMESH_PT_Assets,
     LOCALMESH_PT_SceneInfo,
     LOCALMESH_PT_SceneSync,
+    LOCALMESH_OT_StageActiveAsset,
+    LOCALMESH_OT_AnalyzeActiveAsset,
+    LOCALMESH_OT_GenerateArtistPlan,
+    LOCALMESH_OT_ConfirmTargetComponent,
+    LOCALMESH_OT_ApplyArtistPlan,
+    LOCALMESH_OT_RollbackArtistEdit,
+    LOCALMESH_PT_AITechnicalArtist,
     LOCALMESH_PT_MeshControls,
     TRIPOSR_PT_MainPanel
 )
