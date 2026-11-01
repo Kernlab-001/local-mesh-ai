@@ -12,7 +12,7 @@
 ---
 
 ### 🧭 Navigation & Deliverables
-[**🚀 Phase 5 Blender Studio Report**](docs/PHASE_5_BLENDER_STUDIO_REPORT.md) • [**Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
+[**🎨 Phase 6 AI Technical Artist Report**](docs/PHASE_6_ADVANCED_AI_TECHNICAL_ARTIST_REPORT.md) • [**🚀 Phase 5 Blender Studio Report**](docs/PHASE_5_BLENDER_STUDIO_REPORT.md) • [**Phase 4 Delivery Report**](docs/PHASE_4_GENERATION_PIPELINE_REPORT.md) • [**📖 Beginner Guide**](BEGINNER_GUIDE.md) • [**📘 User Manual**](docs/USER_GUIDE.md) • [**🧩 Multi-Engine Architecture**](docs/MULTI_ENGINE_ARCHITECTURE.md) • [**📊 20-Case Benchmark**](docs/BENCHMARK_REPORT.md) • [**🛠️ Contributing**](CONTRIBUTING.md) • [**⚖️ Legal Audit**](docs/LEGAL_AND_LICENSE_AUDIT.md) • [**🛡️ Failure Recovery**](docs/FAILURE_RECOVERY_AUDIT.md) • [**📊 Presentation Deck (.pptx)**](docs/presentation/Local_Mesh_AI_Project_Presentation.pptx) • [**🎤 Presenter Notes**](docs/presentation/Presenter_Notes.md) • [**📋 Demo Checklist**](docs/presentation/Live_Demo_Checklist.md) • [**📈 Release Validation Report**](docs/presentation/Release_Validation_Report.md) • [**📜 License**](LICENSE)
 
 ---
 
@@ -42,6 +42,15 @@ Below is an authentic dining chair generated completely end-to-end via **Mode A:
 ---
 
 ## 🌟 Core Capabilities
+
+* **🧠 Phase 6: Advanced AI Technical Artist, Visual Understanding & Component-Aware 3D Editing:**
+  * **Interactive Multi-Session Staging:** Stages active Blender meshes into isolated editing sessions with immutable provenance and versioned snapshots (`jobs/editing_sessions/`).
+  * **Component Decomposition & Multi-View Renders:** Decomposes multi-part assets (connected components & PartField feature fields) and generates 6-view orthographic/perspective camera renders plus color masks.
+  * **Visual Semantic Grounding:** Ground components with spatial-geometric heuristics and Qwen3-VL multimodal visual understanding.
+  * **Natural Language Planning & Safety Gating:** Converts natural-language instructions (e.g. *"Make the backrest 20% taller"*, *"Separate the wheels"*, *"Make the seat 35% wider"*) into verified Pydantic `ComponentEditPlan` models. Halts safely with `NEEDS_COMPONENT_CONFIRMATION` on ambiguity.
+  * **In-Place Geometry Transforms & Physical Invariant Re-measurement:** Executes in-place vertex modifications while actively tracking all non-target components. Automatically rolls back if non-target invariants deviate beyond tolerance.
+  * **Blender Studio Panel 8 (AI Technical Artist):** Complete native Blender N-Panel integration with non-blocking async execution, live candidate component browsing, plan preview, and one-click main-thread mesh swapping and rollback.
+
 
 * **⚡ Dual-Mode 3D Generation:**
   * **Mode A (Text-to-3D):** Synthesizes crisp concept artwork via local SD-Turbo diffusion, projects canonical orthographic views, and reconstructs 3D geometry with automated appearance analysis.

@@ -363,8 +363,8 @@ class BoundedCorrectionLoop:
         edit_args = EditComponentArgs(
             mesh_path=active_mesh_path,
             component_id=target_cid,
-            operation="scale_axis",
-            parameters={"axis": axis, "factor": factor, "anchor": anchor},
+            operation=plan.operation_type if plan.operation_type != "scale" else "scale_axis",
+            parameters=plan.parameters or {"axis": axis, "factor": factor, "anchor": anchor},
             output_path=active_mesh_path,
             hierarchy=hierarchy
         )

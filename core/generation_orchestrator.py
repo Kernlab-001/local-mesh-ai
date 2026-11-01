@@ -294,6 +294,16 @@ class GenerationOrchestrator:
         routes = {r["route_id"]: r for r in self.discover_routes()}
 
         if route_override:
+            # Map known aliases from Blender addon or older versions
+            route_aliases = {
+                "text_to_3d_pipeline": "text_to_3d_hybrid",
+                "text_to_3d_sd_triposr": "text_to_3d_hybrid",
+                "hybrid_sd_triposr": "text_to_3d_hybrid",
+                "image_to_3d_pipeline": "image_to_3d_triposr",
+                "triposr": "image_to_3d_triposr",
+                "shap_e": "text_to_3d_direct",
+            }
+            route_override = route_aliases.get(route_override, route_override)
             if route_override not in routes:
                 raise RouteUnavailableError(f"Unknown generation route '{route_override}'.")
             r_info = routes[route_override]
@@ -377,7 +387,12 @@ class GenerationOrchestrator:
             # STAGE 2: Capability Detection & Route Selection
             # -----------------------------------------------------------------
             job.set_stage("Detecting Capabilities & Selecting Route", 10)
-            route_override = job.params.get("route") or job.params.get("engine")
+            raw_engine = job.params.get("engine")
+            route_override = (
+                job.params.get("route_override")
+                or job.params.get("route")
+                or (raw_engine if raw_engine and raw_engine != "auto" else None)
+            )
             route_id, route_info = self.resolve_route(modality, job.params, route_override)
             job.log(f"[Orchestrator] Selected Route: '{route_info['name']}' ({route_id})")
 

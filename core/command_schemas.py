@@ -336,7 +336,7 @@ class ComponentInvariant(BaseModel):
     component_id: str = Field(..., description="Component ID that must maintain physical dimensions/position")
     preserve_dimensions: bool = Field(default=True, description="Dimensions must stay within tolerance")
     preserve_position: bool = Field(default=True, description="Centroid must stay within tolerance")
-    tolerance: float = Field(default=0.05, ge=0.001, le=0.5, description="Allowed deviation ratio (default 5%)")
+    tolerance: float = Field(default=0.05, ge=0.0, le=1.0, description="Allowed deviation ratio (default 5%)")
 
 
 class ComponentEditPlan(BaseModel):
@@ -348,7 +348,7 @@ class ComponentEditPlan(BaseModel):
     target_semantic_labels: List[str] = Field(default_factory=list, description="Target labels (e.g. backrest, blade, leg)")
     operation_type: Literal[
         "scale", "translate", "rotate", "mirror", "solidify", "subdivide",
-        "boolean_difference", "boolean_union", "extrude", "bevel"
+        "boolean_difference", "boolean_union", "extrude", "bevel", "separate_component", "cleanup"
     ] = Field(default="scale", description="Allowlisted geometry operation")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Operation-specific parameters")
     axis: Optional[Literal["x", "y", "z", "all"]] = Field(default="z", description="Primary transformation axis")

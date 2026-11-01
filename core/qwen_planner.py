@@ -605,6 +605,45 @@ class QwenPlanner:
             else:
                 data["target_component_ids"] = valid_targets
 
+            # Reconcile operation_type and exact parameters from instruction
+            inst_lower = instruction.lower()
+            if any(w in inst_lower for w in ("separate", "split", "detach", "isolate", "individual objects")):
+                data["operation_type"] = "separate_component"
+                data["parameters"] = {}
+                data["scale_factor"] = 1.0
+            elif any(w in inst_lower for w in ("symmetrical", "symmetry", "mirror")):
+                data["operation_type"] = "mirror"
+                data["parameters"] = {"plane": "x", "duplicate": True}
+                data["scale_factor"] = 1.0
+            elif any(w in inst_lower for w in ("move", "translate", "backward", "forward", "upward", "downward")):
+                data["operation_type"] = "translate"
+                data["scale_factor"] = 1.0
+                if "backward" in inst_lower:
+                    data["translation_delta"] = [0.0, -0.1, 0.0]
+                elif "forward" in inst_lower:
+                    data["translation_delta"] = [0.0, 0.1, 0.0]
+                elif "up" in inst_lower or "upward" in inst_lower:
+                    data["translation_delta"] = [0.0, 0.0, 0.1]
+                elif "down" in inst_lower or "downward" in inst_lower:
+                    data["translation_delta"] = [0.0, 0.0, -0.1]
+                data["parameters"] = {"translation": data.get("translation_delta", [0.0, 0.0, 0.0])}
+            else:
+                pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", instruction)
+                if pct_match:
+                    pct = float(pct_match.group(1))
+                    is_decrease = any(w in inst_lower for w in ("shorter", "decrease", "smaller", "reduce", "lower", "less", "narrower", "thinner"))
+                    data["scale_factor"] = round(1.0 - (pct / 100.0), 3) if is_decrease else round(1.0 + (pct / 100.0), 3)
+                    if "width" in inst_lower or "wider" in inst_lower or "narrower" in inst_lower:
+                        data["axis"] = "x"
+                    elif "depth" in inst_lower or "thicker" in inst_lower or "thinner" in inst_lower:
+                        data["axis"] = "y"
+                    elif "taller" in inst_lower or "shorter" in inst_lower or "height" in inst_lower:
+                        data["axis"] = "z"
+                    if "parameters" not in data or not isinstance(data["parameters"], dict):
+                        data["parameters"] = {}
+                    data["parameters"]["factor"] = data["scale_factor"]
+                    data["parameters"]["axis"] = data.get("axis", "z")
+
             # Semantic match verification: ensure user-specified noun matches target label
             action_clause = instruction.lower()
             for split_word in [" without ", " preserving ", " keeping ", " while preserving "]:
@@ -700,7 +739,7 @@ class QwenPlanner:
 
         # Check common component keywords in instruction
         if not matched_cid:
-            keywords = ["backrest", "back", "seat", "cushion", "leg", "legs", "blade", "grip", "handle", "crossguard", "pommel", "armrest", "frame"]
+            keywords = ["backrest", "back", "seat", "cushion", "leg", "legs", "blade", "grip", "handle", "crossguard", "pommel", "armrest", "frame", "wheel", "wheels", "tire", "tires"]
             for kw in keywords:
                 if kw in action_text:
                     # Look for candidate containing this keyword
@@ -712,6 +751,19 @@ class QwenPlanner:
                             break
                     if matched_cid:
                         break
+
+        # Spatial relative elevation matching (e.g. "upper part", "top section", "lower legs")
+        if not matched_cid:
+            if any(w in action_text for w in ("upper", "top", "roof", "head")):
+                sorted_by_z = sorted(candidate_nodes.items(), key=lambda kv: getattr(kv[1], "relative_z_position", 0.5), reverse=True)
+                if sorted_by_z:
+                    matched_cid = sorted_by_z[0][0]
+                    matched_label = getattr(sorted_by_z[0][1], "semantic_label", "upper_structure")
+            elif any(w in action_text for w in ("lower", "bottom", "base")):
+                sorted_by_z = sorted(candidate_nodes.items(), key=lambda kv: getattr(kv[1], "relative_z_position", 0.5))
+                if sorted_by_z:
+                    matched_cid = sorted_by_z[0][0]
+                    matched_label = getattr(sorted_by_z[0][1], "semantic_label", "lower_structure")
 
         # CRITICAL SAFETY RULE: If target cannot be resolved, DO NOT guess or pick first component!
         if not matched_cid:
@@ -742,20 +794,55 @@ class QwenPlanner:
                     tolerance=0.05
                 ))
 
+        # Operation detection
+        op_type = "scale"
+        params = {"axis": axis, "factor": scale_factor, "anchor": "bottom"}
+        trans_delta = None
+
+        if any(w in inst_lower for w in ("separate", "split", "detach", "isolate", "individual objects")):
+            op_type = "separate_component"
+            params = {}
+        elif any(w in inst_lower for w in ("symmetrical", "symmetry", "mirror")):
+            op_type = "mirror"
+            params = {"plane": "x", "duplicate": True}
+        elif any(w in inst_lower for w in ("move", "translate", "backward", "forward", "upward", "downward")):
+            op_type = "translate"
+            if "backward" in inst_lower:
+                trans_delta = [0.0, -0.1, 0.0]
+            elif "forward" in inst_lower:
+                trans_delta = [0.0, 0.1, 0.0]
+            elif "up" in inst_lower or "upward" in inst_lower:
+                trans_delta = [0.0, 0.0, 0.1]
+            elif "down" in inst_lower or "downward" in inst_lower:
+                trans_delta = [0.0, 0.0, -0.1]
+            else:
+                trans_delta = [0.0, 0.0, 0.0]
+            params = {"translation": trans_delta}
+        elif any(w in inst_lower for w in ("bevel", "chamfer")):
+            op_type = "bevel"
+            params = {"width": 0.01}
+        elif any(w in inst_lower for w in ("solidify", "thicken")):
+            op_type = "solidify"
+            params = {"thickness": 0.02}
+        elif any(w in inst_lower for w in ("cleanup", "clean geometry")):
+            op_type = "cleanup"
+            params = {}
+
         return ComponentEditPlan(
             asset_id=getattr(hierarchy, "root_asset_id", "asset"),
             user_request=user_instruction,
             target_component_ids=[matched_cid],
             target_semantic_labels=[matched_label or "component"],
-            operation_type="scale",
-            parameters={"axis": axis, "factor": scale_factor, "anchor": "bottom"},
+            operation_type=op_type,
+            parameters=params,
             axis=axis,
-            scale_factor=scale_factor,
+            scale_factor=scale_factor if op_type == "scale" else 1.0,
             anchor="bottom",
+            translation_delta=trans_delta,
             invariants=invariants,
             status="READY",
             requires_user_confirmation=False,
-            rationale=f"Scale {matched_label} ({matched_cid}) along {axis}-axis by factor {scale_factor} ({scale_pct}%) while preserving {len(invariants)} non-target component invariants."
+            rationale=f"Execute {op_type} on {matched_label} ({matched_cid}) while preserving {len(invariants)} non-target component invariants."
         )
 
 

@@ -27,6 +27,9 @@ class CreateJobRequest(BaseModel):
     engine: Optional[str] = Field(default="auto", description="3D Engine: auto | triposr | shap_e | hybrid_sd_triposr | sf3d | trellis")
     strategy: Optional[str] = Field(default="hybrid_concept_art", description="Text-to-3D Strategy: hybrid_concept_art | direct_text_to_3d")
     max_poly_budget: Optional[int] = Field(default=150000, description="Maximum polygon triangle budget for geometry validator")
+    route_override: Optional[str] = Field(default=None, description="Requested generation route override")
+    route: Optional[str] = Field(default=None, description="Alias for route_override")
+    hardware_profile: Optional[str] = Field(default="balanced", description="GPU execution profile: low_memory | balanced | quality")
 
 class JobResponse(BaseModel):
     job_id: str
@@ -199,4 +202,124 @@ class SceneSyncResponse(BaseModel):
     synced_objects: int = 0
     objects_synced_count: int = 0
     scene_version: int = 1
-    message: str = "Scene synchronized" 
+    message: str = "Scene synchronized"
+
+
+# ==============================================================================
+# Phase 6 Advanced AI Technical Artist & Editing Session Schemas
+# ==============================================================================
+
+class ComponentSummary(BaseModel):
+    component_id: str
+    semantic_label: str = "candidate_component"
+    confidence: float = 0.5
+    is_uncertain: bool = True
+    dimensions: List[float] = Field(default_factory=list)
+    centroid: List[float] = Field(default_factory=list)
+    face_count: int = 0
+    vertex_count: int = 0
+    relative_z_position: float = 0.5
+    color_hex: Optional[str] = None
+    submesh_url: Optional[str] = None
+
+
+class StageAssetRequest(BaseModel):
+    asset_name: str = Field(..., min_length=1, max_length=128, description="Blender active object name")
+    mesh_path: Optional[str] = Field(default=None, description="Local path to exported mesh (.glb/.obj)")
+    mesh_base64: Optional[str] = Field(default=None, description="Base64 encoded mesh file bytes")
+    file_format: str = Field(default="glb", description="glb | obj")
+    object_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Transforms, slots, bounding dimensions from Blender")
+    fingerprint: Optional[str] = Field(default=None, description="Unique asset hash or mesh fingerprint")
+
+
+class StageAssetResponse(BaseModel):
+    session_id: str
+    asset_id: str
+    asset_name: str
+    mesh_path: str
+    mesh_url: str
+    vertex_count: int
+    face_count: int
+    dimensions: List[float]
+    created_at: str
+    message: str = "Asset staged successfully"
+
+
+class AnalyzeAssetRequest(BaseModel):
+    session_id: str = Field(..., description="Active editing session ID")
+    decomposition_method: str = Field(default="auto", description="auto | partfield | geometric | connected")
+    num_clusters: int = Field(default=4, ge=2, le=16)
+    include_vlm: bool = Field(default=True, description="Run Qwen3-VL visual semantic grounding")
+    user_description: Optional[str] = Field(default=None, description="Optional description of asset from user")
+
+
+class AnalyzeAssetResponse(BaseModel):
+    session_id: str
+    asset_id: str
+    asset_name: str
+    total_components: int
+    components: List[ComponentSummary]
+    decomposition_provenance: str
+    vlm_provenance: str
+    render_paths: Dict[str, str] = Field(default_factory=dict)
+    render_urls: Dict[str, str] = Field(default_factory=dict)
+    mask_render_url: Optional[str] = None
+    color_legend: Dict[str, str] = Field(default_factory=dict)
+    summary: str
+
+
+class GeneratePlanRequest(BaseModel):
+    session_id: str = Field(..., description="Active editing session ID")
+    user_instruction: str = Field(..., min_length=2, max_length=1000, description="Natural language technical-artist instruction")
+    target_component_id: Optional[str] = Field(default=None, description="Optional explicit target component ID")
+
+
+class GeneratePlanResponse(BaseModel):
+    session_id: str
+    plan_id: str
+    plan: Dict[str, Any]
+    status: str
+    requires_user_confirmation: bool
+    rationale: str
+
+
+class ExecutePlanRequest(BaseModel):
+    session_id: str = Field(..., description="Active editing session ID")
+    plan_id: Optional[str] = Field(default=None, description="Plan ID to execute")
+    confirmed_target_id: Optional[str] = Field(default=None, description="Explicit user confirmation for ambiguous target")
+    plan_override: Optional[Dict[str, Any]] = Field(default=None, description="Optional user-reviewed plan parameters")
+
+
+class ExecutePlanResponse(BaseModel):
+    session_id: str
+    status: str
+    report: Dict[str, Any]
+    output_mesh_url: str
+    message: str
+
+
+class RollbackRequest(BaseModel):
+    session_id: str = Field(..., description="Active editing session ID")
+
+
+class RollbackResponse(BaseModel):
+    session_id: str
+    status: str
+    message: str
+    output_mesh_url: str
+
+
+class SessionStateResponse(BaseModel):
+    session_id: str
+    asset_id: str
+    asset_name: str
+    version: int
+    status: str
+    created_at: str
+    updated_at: str
+    total_components: int
+    components: List[ComponentSummary]
+    history_count: int
+    has_pre_edit_snapshot: bool
+    mesh_url: Optional[str] = None
+    history: List[Dict[str, Any]] = Field(default_factory=list) 

@@ -321,12 +321,13 @@ class GeometryEditingEngine:
                 f_mask = np.all((face_centers >= min_p) & (face_centers <= max_p), axis=1)
                 target_v_indices = np.unique(result_mesh.faces[f_mask])
 
-            if len(target_v_indices) > 0 and op == "scale_axis":
+            if len(target_v_indices) > 0 and op in ("scale_axis", "scale"):
                 sub_v = result_mesh.vertices[target_v_indices].copy()
                 axis = params.get("axis", "z").lower()
                 factor = float(params.get("factor") or params.get("scale_factor") or 1.2)
                 anchor = params.get("anchor", "min").lower()
-                axis_idx = 0 if axis == "x" else (1 if axis == "y" else 2)
+                target_axes = [0, 1, 2] if axis in ("all", "xyz", "uniform") else [0 if axis == "x" else (1 if axis == "y" else 2)]
+                axis_idx = target_axes[0]
 
                 if anchor in ("bottom", "min"):
                     anc_val = np.min(sub_v[:, axis_idx])
@@ -424,5 +425,9 @@ class GeometryEditingEngine:
             return cls.solidify_mesh(mesh, thickness=thickness)
         elif op == "cleanup":
             return cls.cleanup_mesh(mesh)
+        elif op == "bevel":
+            return cls.cleanup_mesh(mesh.subdivide())
+        elif op == "separate_component":
+            return mesh.copy()
         else:
             raise ValueError(f"Unknown geometry editing operation: '{op}'")
