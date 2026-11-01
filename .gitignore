@@ -48,6 +48,7 @@ downloaded_models/
 output/
 inputs/
 jobs/
+data/
 textures/
 *.blend
 *.blend1

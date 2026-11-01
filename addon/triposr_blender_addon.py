@@ -530,11 +530,29 @@ class LocalMeshProperties(bpy.types.PropertyGroup):
         default="1024"
     )
     finishing_bake_maps: StringProperty(name="Bake Maps", default="normal,base_color,ao,roughness,metallic")
+    finishing_bake_high_poly: StringProperty(
+        name="High-Poly Object",
+        description="Source high-detail mesh object for detail baking",
+        default=""
+    )
+    finishing_bake_low_poly: StringProperty(
+        name="Low-Poly Object",
+        description="Target low-poly mesh object receiving baked textures",
+        default=""
+    )
 
     finishing_export_glb: BoolProperty(name="GLB / glTF", default=True)
     finishing_export_fbx: BoolProperty(name="FBX", default=True)
     finishing_export_obj: BoolProperty(name="OBJ + MTL", default=True)
     finishing_export_summary: StringProperty(name="Export Summary", default="")
+
+    # --- Phase 9 System Health, Learning & Lifecycle ---
+    health_status_text: StringProperty(name="Health Status", default="Not Checked")
+    health_issue_count: IntProperty(name="Health Issues", default=0)
+    health_is_busy: BoolProperty(name="Health Busy", default=False)
+    learning_consent_opted_in: BoolProperty(name="Opt-In Local Learning", default=False)
+    active_model_name: StringProperty(name="Active Model", default="Qwen2.5-Coder-7B Base")
+    candidate_model_name: StringProperty(name="Candidate Adapter", default="None")
 
     selected_asset_path: StringProperty(name="Selected Asset", subtype='FILE_PATH', default="")
     asset_search_filter: StringProperty(name="Filter", default="")
@@ -2647,14 +2665,40 @@ class LOCALMESH_OT_BakeTexturesCycles(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.local_mesh_props
-        act = context.active_object
-        if not act or act.type != 'MESH':
-            self.report({'ERROR'}, "Select active low-poly mesh object.")
+        hp_name = props.finishing_bake_high_poly.strip()
+        lp_name = props.finishing_bake_low_poly.strip()
+
+        hp_obj = context.scene.objects.get(hp_name) if hp_name else None
+        lp_obj = context.scene.objects.get(lp_name) if lp_name else None
+
+        if not hp_obj or not lp_obj:
+            selected_meshes = [o for o in context.selected_objects if o.type == 'MESH']
+            if len(selected_meshes) >= 2:
+                act = context.active_object
+                if act in selected_meshes:
+                    lp_obj = act
+                    candidates = [o for o in selected_meshes if o != act]
+                    hp_obj = candidates[0]
+                else:
+                    hp_obj = selected_meshes[0]
+                    lp_obj = selected_meshes[1]
+
+        if not hp_obj or not lp_obj:
+            self.report({'ERROR'}, "Specify both High-Poly and Low-Poly mesh objects (or select 2 mesh objects in viewport).")
+            return {'CANCELLED'}
+
+        if hp_obj == lp_obj:
+            self.report({'ERROR'}, "High-poly and Low-poly must be distinct, separate mesh objects.")
+            return {'CANCELLED'}
+
+        if hp_obj.type != 'MESH' or lp_obj.type != 'MESH':
+            self.report({'ERROR'}, "Both selected objects must be meshes.")
             return {'CANCELLED'}
 
         props.finishing_is_busy = True
-        props.finishing_status = "Baking Cycles PBR maps (Normal, Diffuse, AO)..."
-        temp_mesh = _export_active_object_mesh(act)
+        props.finishing_status = f"Baking Cycles PBR maps ({hp_obj.name} -> {lp_obj.name})..."
+        hp_mesh_path = _export_active_object_mesh(hp_obj)
+        lp_mesh_path = _export_active_object_mesh(lp_obj)
         server_url = props.server_url
         res = int(props.finishing_bake_res)
 
@@ -2662,8 +2706,8 @@ class LOCALMESH_OT_BakeTexturesCycles(bpy.types.Operator):
             req = urllib.request.Request(
                 f"{server_url}/api/v1/finishing/bake",
                 data=json.dumps({
-                    "high_poly_path": temp_mesh,
-                    "low_poly_path": temp_mesh,
+                    "high_poly_path": hp_mesh_path,
+                    "low_poly_path": lp_mesh_path,
                     "bake_resolution": res,
                     "bake_maps": ["normal", "base_color", "ao", "roughness", "metallic"]
                 }).encode("utf-8"),
@@ -2851,6 +2895,8 @@ class LOCALMESH_PT_FinishingStudio(bpy.types.Panel):
         box_bake = layout.box()
         box_bake.label(text="5. Cycles Selected-to-Active Bake", icon='RENDER_STILL')
         col = box_bake.column(align=True)
+        col.prop_search(props, "finishing_bake_high_poly", context.scene, "objects", text="High-Poly")
+        col.prop_search(props, "finishing_bake_low_poly", context.scene, "objects", text="Low-Poly")
         col.prop(props, "finishing_bake_res")
         col.operator("localmesh.bake_textures_cycles", icon='TEXTURE')
 
@@ -2866,6 +2912,174 @@ class LOCALMESH_PT_FinishingStudio(bpy.types.Panel):
         col.operator("localmesh.export_finished_asset", icon='PACKAGE')
         if props.finishing_export_summary:
             col.label(text=props.finishing_export_summary, icon='CHECKMARK')
+
+
+# ==============================================================================
+# Phase 9 Operators & Panel: Autonomous Health & Model Lifecycle
+# ==============================================================================
+
+class LOCALMESH_OT_RunSystemDiagnostics(bpy.types.Operator):
+    bl_idname = "localmesh.run_system_diagnostics"
+    bl_label = "Diagnose System Health"
+    bl_description = "Collects real-time hardware, GPU, memory, and Blender status"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+        props.health_is_busy = True
+
+        def _task():
+            req = urllib.request.Request(f"{server_url}/api/v1/health/diagnostics")
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.health_is_busy = False
+            overall = data.get("overall_status", "healthy")
+            issues = data.get("active_issues", [])
+            props.health_status_text = overall.capitalize()
+            props.health_issue_count = len(issues)
+            self.report({'INFO'}, f"System Health: {overall} ({len(issues)} issues)")
+
+        def _error(err):
+            props.health_is_busy = False
+            props.health_status_text = "Check Failed"
+            self.report({'ERROR'}, f"Diagnostics error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_AutoSelfHeal(bpy.types.Operator):
+    bl_idname = "localmesh.auto_self_heal"
+    bl_label = "Auto-Remediate Issues"
+    bl_description = "Executes authorized recovery actions for active system issues"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/health/recover",
+                data=json.dumps({
+                    "action_type": "clean_staging_dir",
+                    "approved": True
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=20.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            msg = data.get("message", "Remediation executed")
+            props.health_status_text = "Healthy"
+            props.health_issue_count = 0
+            self.report({'INFO'}, msg)
+
+        def _error(err):
+            self.report({'ERROR'}, f"Self-heal error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ToggleLearningConsent(bpy.types.Operator):
+    bl_idname = "localmesh.toggle_learning_consent"
+    bl_label = "Update Privacy Preferences"
+    bl_description = "Updates strictly local opt-in consent for learning data collection"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+        opted = props.learning_consent_opted_in
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/learning/consent",
+                data=json.dumps({"opted_in": opted}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            st = "Opted IN (Strictly Local)" if data.get("opted_in") else "Opted OUT"
+            self.report({'INFO'}, f"Consent updated: {st}")
+
+        def _error(err):
+            self.report({'ERROR'}, f"Consent error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_RollbackModelLifecycle(bpy.types.Operator):
+    bl_idname = "localmesh.rollback_model_lifecycle"
+    bl_label = "Rollback Model Adapter"
+    bl_description = "Atomically rolls back active AI model to previously verified version"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/learning/models/rollback",
+                data=json.dumps({"reason": "User triggered rollback from Blender"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            restored = data.get("restored_active_id", "base")
+            props.active_model_name = restored
+            self.report({'INFO'}, f"Model rolled back to: {restored}")
+
+        def _error(err):
+            self.report({'ERROR'}, f"Rollback error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
+    bl_label = "Panel 10 — Health, Healing & Model Lifecycle"
+    bl_idname = "LOCALMESH_PT_SystemHealthLearning"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'LOCAL MESH AI'
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.local_mesh_props
+
+        # Section 1: System Health & Diagnostics
+        box_health = layout.box()
+        box_health.label(text="1. Runtime Health & Hardware", icon='SYSTEM')
+        col = box_health.column(align=True)
+        col.operator("localmesh.run_system_diagnostics", icon='VIEWZOOM')
+        row = col.row(align=True)
+        row.label(text=f"Status: {props.health_status_text}", icon='INFO')
+        if props.health_issue_count > 0:
+            row.label(text=f"Issues: {props.health_issue_count}", icon='ERROR')
+            col.operator("localmesh.auto_self_heal", icon='AUTO')
+
+        # Section 2: Privacy & Local Learning
+        box_learn = layout.box()
+        box_learn.label(text="2. Privacy & Local Learning (Opt-In)", icon='LOCKED')
+        col = box_learn.column(align=True)
+        col.prop(props, "learning_consent_opted_in", text="Allow Local Data Collection")
+        col.operator("localmesh.toggle_learning_consent", icon='FILE_REFRESH')
+
+        # Section 3: Model Version & Rollback
+        box_model = layout.box()
+        box_model.label(text="3. Model Lifecycle & Rollback", icon='FILE_PARENT')
+        col = box_model.column(align=True)
+        col.label(text=f"Active: {props.active_model_name}")
+        col.label(text=f"Candidate: {props.candidate_model_name}")
+        col.operator("localmesh.rollback_model_lifecycle", icon='RECOVER_LAST')
 
 classes = (
     LocalMeshAddonPreferences,
@@ -2920,6 +3134,11 @@ classes = (
     LOCALMESH_OT_GenerateLODSet,
     LOCALMESH_OT_ExportFinishedAsset,
     LOCALMESH_PT_FinishingStudio,
+    LOCALMESH_OT_RunSystemDiagnostics,
+    LOCALMESH_OT_AutoSelfHeal,
+    LOCALMESH_OT_ToggleLearningConsent,
+    LOCALMESH_OT_RollbackModelLifecycle,
+    LOCALMESH_PT_SystemHealthLearning,
     LOCALMESH_PT_MeshControls,
     TRIPOSR_PT_MainPanel
 )
