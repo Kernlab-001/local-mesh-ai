@@ -42,6 +42,7 @@ class RecoveryActionRequest(BaseModel):
     dry_run: bool = False
     approved: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    preview_id: Optional[str] = None
 
 class RecoveryActionResult(BaseModel):
     action_id: str = Field(default_factory=lambda: f"act_{uuid.uuid4().hex[:8]}")
@@ -54,6 +55,8 @@ class RecoveryActionResult(BaseModel):
     verification_status: str = "not_applicable"  # "verified", "unresolved", "not_applicable"
     post_remediation_summary: Optional[str] = None
     error: Optional[str] = None
+    preview_id: Optional[str] = None
+    expires_at: Optional[float] = None
 
 class SystemHealthSummary(BaseModel):
     overall_status: str  # "healthy", "degraded", "critical"

@@ -551,7 +551,9 @@ class LocalMeshProperties(bpy.types.PropertyGroup):
     health_issue_count: IntProperty(name="Health Issues", default=0)
     health_is_busy: BoolProperty(name="Health Busy", default=False)
     learning_consent_opted_in: BoolProperty(name="Opt-In Local Learning", default=False)
-    active_model_name: StringProperty(name="Active Model", default="Qwen2.5-Coder-7B Base")
+    active_model_name: StringProperty(name="Active Model", default="Qwen2.5-Coder 3B (GGUF Q4_K_M)")
+    recovery_preview_id: StringProperty(name="Recovery Preview ID", default="")
+    recovery_expires_at: FloatProperty(name="Recovery Expiration", default=0.0)
     candidate_model_name: StringProperty(name="Candidate Adapter", default="None")
     model_eval_score: FloatProperty(name="Model Eval Score", default=0.0)
     model_eval_passed: BoolProperty(name="Model Eval Passed", default=False)
@@ -2414,17 +2416,7 @@ class LOCALMESH_PT_AITechnicalArtist(LOCALMESH_PT_BasePanel, bpy.types.Panel):
         if props.ai_last_history:
             box_stat.label(text=props.ai_last_history)
 
-# Legacy Main Panel retained under "AI 3D Generator" for backwards compatibility
-class TRIPOSR_PT_MainPanel(LOCALMESH_PT_BasePanel, bpy.types.Panel):
-    bl_label = "Local Neural 3D Studio"
-    bl_idname = "TRIPOSR_PT_main_panel"
-    bl_category = "AI 3D Generator"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.label(text="Local Mesh AI Studio migrated to 'LOCAL MESH AI' tab", icon='INFO')
-        layout.operator("localmesh.generate_asset", text="Generate 3D Asset", icon='SHADING_RENDERED')
-        layout.operator("triposr.switch_viewport", icon='SHADING_TEXTURE')
+# Consolidated under single unified sidebar tab "LOCAL MESH AI"
 
 
 # ==============================================================================
@@ -3017,12 +3009,16 @@ class LOCALMESH_OT_PreviewRecovery(bpy.types.Operator):
 
         def _success(data):
             affected = data.get("affected_files", [])
+            preview_id = data.get("preview_id", "")
+            expires_at = data.get("expires_at", 0.0)
             props.recovery_preview_ready = True
-            props.recovery_preview_text = f"Dry Run: {len(affected)} files identified for cleanup"
-            props.recovery_affected_files = "; ".join([os.path.basename(f) for f in affected[:5]])
-            if len(affected) > 5:
-                props.recovery_affected_files += f" (+{len(affected)-5} more)"
-            self.report({'INFO'}, f"Recovery Preview: {len(affected)} files identified")
+            props.recovery_preview_id = preview_id
+            props.recovery_expires_at = float(expires_at)
+            props.recovery_preview_text = f"Dry Run: {len(affected)} files identified (ID: {preview_id[:8]}...)" if preview_id else f"Dry Run: {len(affected)} files identified"
+            props.recovery_affected_files = "; ".join([os.path.basename(f) for f in affected[:10]])
+            if len(affected) > 10:
+                props.recovery_affected_files += f" (+{len(affected)-10} more)"
+            self.report({'INFO'}, f"Recovery Preview: {len(affected)} files identified (ID: {preview_id[:8]})")
 
         def _error(err):
             props.recovery_preview_ready = False
@@ -3042,12 +3038,15 @@ class LOCALMESH_OT_ExecuteApprovedRecovery(bpy.types.Operator):
         server_url = props.server_url
 
         def _task():
+            payload = {
+                "action_type": "clean_staging_dir",
+                "approved": True
+            }
+            if props.recovery_preview_id:
+                payload["preview_id"] = props.recovery_preview_id
             req = urllib.request.Request(
                 f"{server_url}/api/v1/health/recover",
-                data=json.dumps({
-                    "action_type": "clean_staging_dir",
-                    "approved": True
-                }).encode("utf-8"),
+                data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
             with urllib.request.urlopen(req, timeout=20.0) as resp:
@@ -3273,8 +3272,12 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         if props.recovery_preview_ready:
             prev_box = col.box()
             prev_box.label(text=props.recovery_preview_text, icon='INFO')
+            if props.recovery_preview_id:
+                prev_box.label(text=f"Preview ID: {props.recovery_preview_id[:16]}...", icon='KEY_HLT')
             if props.recovery_affected_files:
-                prev_box.label(text=f"Files: {props.recovery_affected_files}", icon='FILE')
+                for f_name in props.recovery_affected_files.split("; "):
+                    if f_name:
+                        prev_box.label(text=f_name, icon='FILE')
             prev_box.operator("localmesh.execute_approved_recovery", icon='CHECKMARK', text="2. Execute Approved Recovery")
 
         # Section 2: Privacy & Local Learning
@@ -3288,8 +3291,11 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         # Preflight Hardware Feasibility
         col.separator()
         box_pref = col.box()
-        box_pref.label(text=f"Free VRAM: {props.preflight_free_vram:.0f} MB", icon='PREFERENCES')
-        box_pref.label(text=f"Training Feasibility: {props.preflight_feasibility}", icon='INFO')
+        if props.is_server_online:
+            box_pref.label(text=f"Free VRAM: {props.preflight_free_vram:.0f} MB", icon='PREFERENCES')
+            box_pref.label(text=f"Training Feasibility: {props.preflight_feasibility}", icon='INFO')
+        else:
+            box_pref.label(text="Telemetry Offline (Start Backend)", icon='INFO')
 
         # Section 3: Model Version & Rollback
         box_model = layout.box()
@@ -3372,8 +3378,7 @@ classes = (
     LOCALMESH_OT_ToggleLearningConsent,
     LOCALMESH_OT_RollbackModelLifecycle,
     LOCALMESH_PT_SystemHealthLearning,
-    LOCALMESH_PT_MeshControls,
-    TRIPOSR_PT_MainPanel
+    LOCALMESH_PT_MeshControls
 )
 
 def register():

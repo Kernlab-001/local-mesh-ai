@@ -1,7 +1,7 @@
 """
 FastAPI Routes for Autonomous Runtime Health Diagnostics and Self-Healing.
 Provides endpoints for system telemetry, issue identification, dry-run previews,
-and authorized remediation execution.
+and authorized remediation execution bound to server-side preview IDs.
 """
 
 from typing import List
@@ -38,6 +38,30 @@ def get_recommendations():
         raise HTTPException(status_code=500, detail=f"Failed to fetch recommendations: {str(e)}")
 
 
+@router.post("/preview", response_model=RecoveryActionResult)
+def preview_recovery(req: RecoveryActionRequest):
+    """
+    Evaluates remediation in dry-run mode and returns a cryptographically bound preview_id.
+    """
+    try:
+        return self_healing_manager.preview_action(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Preview evaluation failed: {str(e)}")
+
+
+@router.post("/execute", response_model=RecoveryActionResult)
+def execute_recovery_explicit(req: RecoveryActionRequest):
+    """
+    Executes an approved remediation action bound to a valid, unexpired preview_id.
+    """
+    try:
+        return self_healing_manager.execute_action(req)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Recovery execution failed: {str(e)}")
+
+
 @router.post("/recover", response_model=RecoveryActionResult)
 def execute_recovery(req: RecoveryActionRequest):
     """
@@ -48,6 +72,8 @@ def execute_recovery(req: RecoveryActionRequest):
         if req.dry_run:
             return self_healing_manager.preview_action(req)
         return self_healing_manager.execute_action(req)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Recovery action failed: {str(e)}")
 

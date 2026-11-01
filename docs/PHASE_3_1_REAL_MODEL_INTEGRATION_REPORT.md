@@ -1,4 +1,8 @@
 # PHASE 3.1 TECHNICAL VERIFICATION REPORT
+
+> [!NOTE]
+> **Historical Milestone Record:** This document records the architectural achievements and test validations completed during milestone PHASE 3 1 REAL MODEL INTEGRATION. For current production system documentation, please see the [User Guide](USER_GUIDE.md), [Distribution Architecture](WINDOWS_DISTRIBUTION_ARCHITECTURE.md), and [README.md](../README.md).
+
 ## Real AI Model Integration, 3D Perception & Autonomous Technical-Artist Editing
 
 **Project:** Local Mesh AI  

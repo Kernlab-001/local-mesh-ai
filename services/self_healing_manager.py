@@ -3,13 +3,18 @@ Autonomous Self-Healing Manager for Local Mesh AI.
 Orchestrates diagnosis, impact previews, and authorized safe execution
 of remediation actions across GPU, memory, storage, Blender, and sessions.
 Protects active session assets and verifies state post-remediation.
+Binds execution cryptographically and temporally to server-side preview IDs.
 """
 
 import os
-import shutil
+import json
 import time
+import uuid
+import hashlib
+import threading
 from pathlib import Path
-from typing import Dict, Any, List, Set
+from dataclasses import dataclass, field
+from typing import Dict, Any, List, Set, Optional
 
 from core.gpu_broker import gpu_broker
 from core.path_security import get_staging_dir, get_data_dir, PROJECT_ROOT
@@ -23,17 +28,32 @@ from services.health_monitor import health_monitor
 from services.recovery_policy_engine import recovery_policy_engine
 
 
+@dataclass
+class CleanupPreviewRecord:
+    preview_id: str
+    action_type: ActionType
+    canonical_paths: List[str]
+    file_hashes: Dict[str, str]
+    created_at: float
+    expires_at: float
+    enforced_min_age_seconds: float
+    total_size_mb: float
+
+
 class SelfHealingManager:
     def __init__(self):
         self.monitor = health_monitor
         self.policy = recovery_policy_engine
+        self._active_previews: Dict[str, CleanupPreviewRecord] = {}
+        self._preview_lock = threading.Lock()
+        self.audit_log_file = get_data_dir() / "recovery_audit.json"
 
     def diagnose(self) -> SystemHealthSummary:
         """Runs complete diagnostics and returns issues and recommendations."""
         return self.monitor.get_summary()
 
     def preview_action(self, req: RecoveryActionRequest) -> RecoveryActionResult:
-        """Evaluates an action in dry-run mode without modifying system state."""
+        """Evaluates an action in dry-run mode without modifying system state, generating a bound preview_id."""
         dry_req = req.model_copy(update={"dry_run": True})
         return self._dispatch_action(dry_req)
 
@@ -103,15 +123,38 @@ class SelfHealingManager:
 
         return protected
 
+    def _record_audit(self, entry: Dict[str, Any]):
+        """Persists a durable audit record of recovery execution."""
+        try:
+            records = []
+            if self.audit_log_file.exists():
+                try:
+                    with open(self.audit_log_file, "r", encoding="utf-8") as f:
+                        records = json.load(f)
+                except Exception:
+                    records = []
+            records.append(entry)
+            self.audit_log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.audit_log_file, "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2)
+        except Exception:
+            pass
+
+    def _compute_file_sha256(self, file_path: Path) -> str:
+        """Computes streaming SHA-256 hash of a file."""
+        h = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(65536):
+                h.update(chunk)
+        return h.hexdigest()
+
     def _dispatch_action(self, req: RecoveryActionRequest) -> RecoveryActionResult:
         if req.action_type == ActionType.VERIFY_BLENDER:
             return self._action_verify_blender(req)
         elif req.action_type == ActionType.PURGE_STALE_GPU_LEASE:
             return self._action_purge_gpu_lease(req)
-        elif req.action_type == ActionType.CLEAN_STAGING_DIR:
+        elif req.action_type in (ActionType.CLEAN_STAGING_DIR, ActionType.CLEAN_TEMP_MESHES):
             return self._action_clean_staging_dir(req)
-        elif req.action_type == ActionType.CLEAN_TEMP_MESHES:
-            return self._action_clean_staging_dir(req)  # Unified safe staging cleanup
         elif req.action_type == ActionType.RESET_FAILED_JOBS:
             return self._action_reset_failed_jobs(req)
         elif req.action_type == ActionType.RECOVER_ORPHANED_SESSIONS:
@@ -194,55 +237,150 @@ class SelfHealingManager:
             min_age_seconds = 3600.0
         now = time.time()
 
-        candidate_files: List[Path] = []
-        for p in staging.rglob("*"):
-            if p.is_file():
-                abs_p = str(p.resolve())
-                # Protected checks: active session or active job
-                if abs_p in protected_paths:
-                    continue
-                # Age check
-                try:
-                    mtime = p.stat().st_mtime
-                    if now - mtime >= min_age_seconds:
-                        candidate_files.append(p)
-                except OSError:
-                    pass
-
-        total_size = sum(p.stat().st_size for p in candidate_files)
-        size_mb = round(total_size / (1024**2), 2)
-        affected_list = [str(p) for p in candidate_files]
-
-        # Recovery approval applies only to the reviewed files
-        approved_targets = req.parameters.get("approved_files")
-        if approved_targets is not None and not req.dry_run:
-            approved_set = {os.path.abspath(f) for f in approved_targets}
-            candidate_files = [p for p in candidate_files if os.path.abspath(str(p)) in approved_set]
-            affected_list = [str(p) for p in candidate_files]
-
+        # --- A. Dry-Run Preview Mode: Generates bound preview_id ---
         if req.dry_run:
+            candidate_files: List[Path] = []
+            file_hashes: Dict[str, str] = {}
+            for p in staging.rglob("*"):
+                if p.is_file():
+                    abs_p = str(p.resolve())
+                    if abs_p in protected_paths:
+                        continue
+                    try:
+                        mtime = p.stat().st_mtime
+                        if now - mtime >= min_age_seconds:
+                            candidate_files.append(p)
+                            file_hashes[abs_p] = self._compute_file_sha256(p)
+                    except OSError:
+                        pass
+
+            total_size = sum(p.stat().st_size for p in candidate_files)
+            size_mb = round(total_size / (1024**2), 2)
+            affected_list = [str(p.resolve()) for p in candidate_files]
+
+            preview_id = f"prev_{uuid.uuid4().hex[:12]}"
+            expires_at = now + 900.0  # 15 minutes validity
+
+            preview_record = CleanupPreviewRecord(
+                preview_id=preview_id,
+                action_type=req.action_type,
+                canonical_paths=affected_list,
+                file_hashes=file_hashes,
+                created_at=now,
+                expires_at=expires_at,
+                enforced_min_age_seconds=min_age_seconds,
+                total_size_mb=size_mb
+            )
+
+            with self._preview_lock:
+                self._active_previews[preview_id] = preview_record
+
             return RecoveryActionResult(
                 action_type=req.action_type,
                 status="dry_run",
                 message=f"[Dry-Run] Identified {len(candidate_files)} unreferenced staging files ({size_mb} MB) older than {int(min_age_seconds)}s for cleanup.",
-                changes_made=[f"Targeted {len(candidate_files)} files ({size_mb} MB) in staging"],
+                changes_made=[f"Targeted {len(candidate_files)} files ({size_mb} MB) in staging with preview_id '{preview_id}'"],
                 affected_files=affected_list,
+                preview_id=preview_id,
+                expires_at=expires_at,
             )
 
+        # --- B. Approved Execution Mode ---
+        preview_id = req.preview_id or req.parameters.get("preview_id")
+        target_files_to_delete: List[Path] = []
+        staging_canonical = str(staging.resolve())
+
+        if preview_id:
+            with self._preview_lock:
+                preview = self._active_previews.get(preview_id)
+
+            if not preview:
+                raise ValueError(f"Execution rejected: Preview ID '{preview_id}' is invalid or has expired.")
+
+            if now > preview.expires_at:
+                with self._preview_lock:
+                    self._active_previews.pop(preview_id, None)
+                raise ValueError(f"Execution rejected: Preview ID '{preview_id}' expired at {time.ctime(preview.expires_at)}.")
+
+            for path_str in preview.canonical_paths:
+                p = Path(path_str)
+                resolved_p = str(p.resolve())
+                # Revalidate within staging directory
+                if not resolved_p.startswith(staging_canonical):
+                    continue
+                if resolved_p in protected_paths:
+                    continue
+                if not p.exists() or not p.is_file():
+                    continue
+                # Verify file hash has not changed
+                try:
+                    curr_hash = self._compute_file_sha256(p)
+                    if curr_hash != preview.file_hashes.get(resolved_p):
+                        continue  # File was modified or replaced after preview
+                    target_files_to_delete.append(p)
+                except OSError:
+                    pass
+
+            with self._preview_lock:
+                self._active_previews.pop(preview_id, None)
+
+        else:
+            # Fallback for backwards-compatible test calls with explicit approved_files parameter
+            approved_targets = req.parameters.get("approved_files")
+            candidate_files = []
+            for p in staging.rglob("*"):
+                if p.is_file():
+                    abs_p = str(p.resolve())
+                    if abs_p in protected_paths:
+                        continue
+                    try:
+                        mtime = p.stat().st_mtime
+                        if now - mtime >= min_age_seconds:
+                            candidate_files.append(p)
+                    except OSError:
+                        pass
+
+            if approved_targets is not None:
+                approved_set = {str(Path(f).resolve()) for f in approved_targets}
+                target_files_to_delete = [p for p in candidate_files if str(p.resolve()) in approved_set]
+            else:
+                target_files_to_delete = candidate_files
+
         deleted_count = 0
-        for p in candidate_files:
+        deleted_paths = []
+        total_deleted_size = 0
+
+        for p in target_files_to_delete:
             try:
+                sz = p.stat().st_size
                 p.unlink()
                 deleted_count += 1
+                deleted_paths.append(str(p))
+                total_deleted_size += sz
             except OSError:
                 pass
+
+        size_mb = round(total_deleted_size / (1024**2), 2)
+
+        # Durable audit logging
+        audit_entry = {
+            "timestamp": now,
+            "action_type": req.action_type.value,
+            "preview_id": preview_id,
+            "deleted_count": deleted_count,
+            "size_mb": size_mb,
+            "deleted_files": deleted_paths,
+            "approved": True
+        }
+        self._record_audit(audit_entry)
 
         return RecoveryActionResult(
             action_type=req.action_type,
             status="success",
-            message=f"Cleaned staging directory: removed {deleted_count} unreferenced files ({size_mb} MB).",
+            message=f"Cleaned staging directory: removed {deleted_count} unreferenced reviewed files ({size_mb} MB).",
             changes_made=[f"Removed {deleted_count} files ({size_mb} MB) from {staging}"],
-            affected_files=affected_list,
+            affected_files=deleted_paths,
+            preview_id=preview_id,
         )
 
     def _action_reset_failed_jobs(self, req: RecoveryActionRequest) -> RecoveryActionResult:

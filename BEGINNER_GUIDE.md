@@ -1,35 +1,29 @@
 # 🔰 Local Mesh AI — Complete Beginner Guide & Operations Manual
 
-Welcome to **Local Mesh AI**! This guide is designed for everyone—whether you are a 3D technical artist, game developer, indie creator, or a complete beginner who has never run a Python script, touched an AI model, or opened Blender before.
+Welcome to **Local Mesh AI**! This guide is designed for creators of all experience levels—whether you are an experienced 3D technical artist, game developer, indie creator, or a beginner launching their very first generative 3D tool.
 
 ---
 
 ## 🧭 Table of Contents
-- [1. Architectural Overview](#1-architectural-overview)
+- [1. Executive Architectural Overview](#1-executive-architectural-overview)
 - [2. Hardware & System Requirements](#2-hardware--system-requirements)
-- [3. The 7-Step Setup & Verification Workflow](#3-the-7-step-setup--verification-workflow)
-  - [Step 1: Environment & Hardware Detection](#step-1-environment--hardware-detection)
-  - [Step 2: Dedicated Git Branch & Codebase Integrity](#step-2-dedicated-git-branch--codebase-integrity)
-  - [Step 3: Dependency Installation & CUDA Acceleration](#step-3-dependency-installation--cuda-acceleration)
-  - [Step 4: Offline Model Provisioning](#step-4-offline-model-provisioning)
-  - [Step 5: Truthful Readiness & Offline Verification](#step-5-truthful-readiness--offline-verification)
-  - [Step 6: Executing 3D Reconstruction & Technical-Artist Planning](#step-6-executing-3d-reconstruction--technical-artist-planning)
-  - [Step 7: Automated Blender Sanitation & Scene Inspection](#step-7-automated-blender-sanitation--scene-inspection)
-- [4. Core Systems Explained](#4-core-systems-explained)
-  - [TripoSR Volumetric Engine](#triposr-volumetric-engine)
-  - [Qwen 2.5 Coder Technical-Artist Planner](#qwen-25-coder-technical-artist-planner)
+- [3. The Quick-Start Launch Workflow](#3-the-quick-start-launch-workflow)
+- [4. Core Systems & Model Identity Explained](#4-core-systems--model-identity-explained)
+  - [TripoSR Neural 3D Engine](#triposr-neural-3d-engine)
+  - [AI Technical Artist: Qwen Coder & Auxiliary Classifier](#ai-technical-artist-qwen-coder--auxiliary-classifier)
   - [Zero-VRAM GPU Lease Broker](#zero-vram-gpu-lease-broker)
-  - [Per-Job Isolated Workspaces](#per-job-isolated-workspaces)
+  - [Blender 5.2 Studio Addon Suite](#blender-52-studio-addon-suite)
 - [5. Beginner's Guide to Modifiers & Settings](#5-beginners-guide-to-modifiers--settings)
 - [6. Exporting Assets to Game Engines (Unreal / Unity / Godot)](#6-exporting-assets-to-game-engines-unreal--unity--godot)
 - [7. Troubleshooting & Diagnostics](#7-troubleshooting--diagnostics)
 - [8. 3D Graphics Glossary for Beginners](#8-3d-graphics-glossary-for-beginners)
+- [9. Trust, Privacy & Legal References](#9-trust-privacy--legal-references)
 
 ---
 
-## 1. Architectural Overview
+## 1. Executive Architectural Overview
 
-Local Mesh AI is centered around **TripoSR** as its primary neural 3D reconstruction engine and **Qwen 2.5 Coder 7B** as its central Technical-Artist intelligence.
+Local Mesh AI combines feedforward neural reconstruction, large language model spatial reasoning, procedural PBR texturing, and automated Blender remeshing into a unified, local-first studio:
 
 ```
                     ┌────────────────────────────────────────┐
@@ -38,37 +32,35 @@ Local Mesh AI is centered around **TripoSR** as its primary neural 3D reconstruc
                                         │
                                         ▼
                     ┌────────────────────────────────────────┐
-                    │      Qwen 2.5 Coder 7B Planner         │
-                    │  - Component Identification & Hierarchy│
-                    │  - Proportions & Metric Dimensions     │
-                    │  - PBR Materials & Color Schemes       │
-                    │  - Topology Budget & Mesh Style        │
-                    │  - Deterministic Blender Commands      │
+                    │  AI Technical Artist Reasoning Engine  │
+                    │  - Qwen 2.5 Coder 3B GGUF / 7B Base   │
+                    │  - Auxiliary Technical Artist Adapter  │
+                    │  - Bounded Pydantic ComponentEditPlan  │
                     └───────────────────┬────────────────────┘
                                         │
                                         ▼
 ┌──────────────────────┐    ┌────────────────────────────────────────┐
 │  2D Concept Artwork  │───>│         TripoSR Neural Engine          │
-│  (PNG, JPG, WebP)    │    │  - Transparent Background Preparation  │
-└──────────────────────┘    │  - Volumetric NeRF / Marching Cubes    │
-                            │  - Real Peak VRAM Measurement (~3.1GB) │
-                            │  - Strict Isolated Job Folders         │
+│  (PNG, JPG, WebP)    │    │  - Transparent Background Isolation    │
+└──────────────────────┘    │  - Marching Cubes Watertight Meshing   │
+                            │  - Real Peak VRAM Measurement (~2.5GB) │
+                            │  - Isolated Staging & Job Folders      │
                             └───────────────────┬────────────────────┘
                                                 │
                                                 ▼
                             ┌────────────────────────────────────────┐
                             │    Geometry Validation & Inspection    │
-                            │  - Vertices (>10K), Faces (>20K)       │
-                            │  - Watertightness & Finite Coordinates │
-                            │  - Extents & Vertex Colors Verified    │
+                            │  - Coplanar Intersections (2D SAT)     │
+                            │  - Manifold Health & UV Overlap Checks │
                             └───────────────────┬────────────────────┘
                                                 │
                                                 ▼
                             ┌────────────────────────────────────────┐
-                            │       Blender 4.2 / 5.2 Bridge         │
-                            │  - Safe Command Execution              │
-                            │  - Real-world Scaling & PBR Materials  │
-                            │  - Final GLB & .blend Scene Export     │
+                            │       Blender 5.2 Finishing Studio     │
+                            │  - QuadriFlow True Quad Retopology     │
+                            │  - Cycles High-to-Low Texture Baking   │
+                            │  - Multi-Tier LOD Generation (LOD0-3)  │
+                            │  - Validated GLB, OBJ & FBX Export     │
                             └────────────────────────────────────────┘
 ```
 
@@ -76,103 +68,62 @@ Local Mesh AI is centered around **TripoSR** as its primary neural 3D reconstruc
 
 ## 2. Hardware & System Requirements
 
-| Component | Minimum Requirement | Verified Test Platform |
-| :--- | :--- | :--- |
-| **Operating System** | Windows 10/11 (64-bit) | Windows 11 (64-bit) |
-| **Processor (CPU)** | Intel Core i5 / AMD Ryzen 5 | Intel Core i5-13420H (8 Cores, 16 Threads) |
-| **Graphics Card (GPU)** | NVIDIA GPU with 6.0 GB VRAM (CUDA 12+) | NVIDIA GeForce RTX 3050 Laptop GPU (6.0 GB VRAM) |
-| **System Memory (RAM)**| 16 GB DDR4/DDR5 | 16 GB RAM |
-| **Storage (Persistent)**| 15 GB free space on SSD | High-speed SSD (`E:\LocalMeshAI-Data\models`) |
-| **Blender Version** | Blender 3.6 LTS | Blender 5.2 / 4.2 LTS (`C:\Program Files\Blender Foundation\Blender 5.2`) |
-
-> [!IMPORTANT]
-> **Single-Occupancy GPU Budgeting:** On 6GB VRAM GPUs (such as RTX 3050), TripoSR requires ~3.1 GB and Qwen 2.5 Coder requires ~4.2 GB. They **must never run simultaneously** in VRAM. The system enforces an atomic cross-process lease broker (`core/gpu_broker.py`) to guarantee zero OOM collisions.
+- **Operating System:** Windows 11 64-bit (or Ubuntu 22.04+ LTS).
+- **GPU (Recommended Target):** NVIDIA RTX 3050 Laptop GPU (6 GB physical GDDR6 VRAM) or higher.
+- **System RAM:** 16 GB Physical RAM.
+- **Blender:** Blender 5.2 LTS or 4.2+ LTS.
+- **Python:** Python 3.12 64-bit.
+- **Storage:** ~10 GB free space for virtual environment, models, and cache.
 
 ---
 
-## 3. The 7-Step Setup & Verification Workflow
+## 3. The Quick-Start Launch Workflow
 
-### Step 1: Environment & Hardware Detection
-Detect your GPU, available VRAM, CUDA runtime, and Blender installation:
-```powershell
-python -c "from core.hardware_detector import hardware_detector; print(hardware_detector.detect_gpu())"
-```
+### Method A: Master Launcher (Recommended)
+1. Double-click `Start_Local_Mesh_AI.bat` in the repository root.
+2. Select option **`[1] Start Full Studio`**.
+3. The launcher automatically verifies the Python virtual environment and spawns:
+   - Backend Server on `http://127.0.0.1:8000` (API & Swagger Docs at `/docs`).
+   - 3D Studio Workspace UI on `http://127.0.0.1:7860`.
 
-### Step 2: Dedicated Git Branch & Codebase Integrity
-Confirm you are on the dedicated Phase 1 branch (`phase-1/triposr-foundation`):
-```powershell
-git status
-git branch
-```
-
-### Step 3: Dependency Installation & CUDA Acceleration
-Activate your virtual environment and verify PyTorch CUDA and `llama-cpp-python`:
-```powershell
-.venv\Scripts\activate
-python -c "import torch; print('CUDA Available:', torch.cuda.is_available(), 'Device:', torch.cuda.get_device_name(0))"
-python -c "import llama_cpp; print('llama_cpp Version:', llama_cpp.__version__)"
-```
-
-### Step 4: Offline Model Provisioning
-Download model weights to persistent storage outside Git (`E:\LocalMeshAI-Data\models`):
-```powershell
-# Provision TripoSR and DINO ViT weights (~1.67 GB)
-python scripts/download_models.py --triposr
-
-# Provision Qwen 2.5 Coder 7B GGUF weights (~4.7 GB)
-python scripts/download_models.py --qwen
-```
-
-### Step 5: Truthful Readiness & Offline Verification
-Verify all model files and checksums offline without network requests:
-```powershell
-python scripts/download_models.py --check
-```
-*Output should report `TripoSR Status: fully_installed`, `Ready for Offline Inference: True`, and `Qwen Status: fully_installed`.*
-
-### Step 6: Executing 3D Reconstruction & Technical-Artist Planning
-Run the end-to-end acceptance test workflow:
-```powershell
-# 1. Run TripoSR Neural Reconstruction on reference chair
-python scripts/test_triposr_workflow.py
-
-# 2. Test Qwen Technical-Artist Planning
-python scripts/test_qwen_planner.py
-```
-
-### Step 7: Automated Blender Sanitation & Scene Inspection
-Generate a complete asset and open the project directly inside Blender:
-```powershell
-python run_master.py --image TripoSR/examples/chair.png --open-blender
-```
+### Method B: Blender Studio Addon
+1. Open Blender 5.2.
+2. In **Edit** $\rightarrow$ **Preferences** $\rightarrow$ **Add-ons**, install `addon/triposr_blender_addon.py`.
+3. In the 3D Viewport, press `N` to open the sidebar and navigate to the single unified tab: **`LOCAL MESH AI`**.
+4. Click **Start Backend Console** in Panel 1. The addon will automatically launch `run_server.py` using `.venv\Scripts\python.exe` with process-lifecycle tracking.
 
 ---
 
-## 4. Core Systems Explained
+## 4. Core Systems & Model Identity Explained
 
-### TripoSR Volumetric Engine
+### TripoSR Neural 3D Engine
 - **Module:** `core/triposr_engine.py`
-- Converts a single 2D image into 3D volumetric representations using feedforward neural reconstruction.
-- Uses Marching Cubes with chunk size `8192` and resolution `256` calibrated for 6GB laptop GPUs.
-- Performs automatic background isolation, watertightness checking, coordinate finiteness checks, and vertex color inspection.
+- Converts a single 2D concept image into a watertight 3D mesh via feedforward neural reconstruction.
+- Uses Marching Cubes with chunk size `8192` and resolution `256`, optimized for 6GB laptop GPUs.
 
-### Qwen 2.5 Coder Technical-Artist Planner
-- **Module:** `core/qwen_planner.py` & `core/command_schemas.py`
-- Operates as the lead technical artist:
-  1. Identifies components and structural hierarchy (e.g. blade, crossguard, grip, pommel).
-  2. Sets real-world metric dimensions (height, width, depth, symmetry).
-  3. Formulates PBR material specifications (preset, base color, roughness, metallic).
-  4. Prescribes topology budgets and geometry correction targets.
-  5. Translates requirements into an allowlist of deterministic Blender operations.
+### AI Technical Artist: Qwen Coder & Auxiliary Classifier
+- **Truthful Model Identity:**
+  - **Primary LLM Reasoning:** Uses `Qwen2.5-Coder 3B (GGUF Q4_K_M)` on 6 GB VRAM GPUs (or 7B on 12GB+ workstations) for high-level semantic planning.
+  - **Auxiliary Technical Artist Classifier:** An on-device PyTorch sequence classifier with trainable low-rank adaptation decomposition matrices (`services/lora_training_manager.py`). It predicts component targets (`backrest`, `legs`, `wheels`) and bounded scale parameters without altering the base LLM weights.
+- **Bounded Safety:** AI models never execute arbitrary Python, shell code, or raw scripts. Every operation is strictly bounded to structured Pydantic `ComponentEditPlan` schemas.
 
 ### Zero-VRAM GPU Lease Broker
 - **Module:** `core/gpu_broker.py`
-- Uses atomic OS file locks and thread synchronizers to prevent concurrent neural operations.
-- Automatically purges PyTorch CUDA cache and reclaims memory when releasing a lease.
+- Enforces cross-process serialized GPU access via atomic disk lock files (`data/gpu_lease.lock`).
+- Purges PyTorch CUDA cache between operations to prevent Out-Of-Memory (OOM) collisions.
 
-### Per-Job Isolated Workspaces
-- All generated meshes, textures, logs, and intermediary files are stored in unique timestamped folders (`output/triposr_<timestamp>_<uuid>/`).
-- Shared collision-prone folders (such as `output/meshes`) have been eliminated.
+### Blender 5.2 Studio Addon Suite
+- All features are consolidated under a **single sidebar tab: `LOCAL MESH AI`**:
+  - **Panel 1 — Connection & Console:** Live server status, latency, and GPU telemetry.
+  - **Panel 2 — Generate AI 3D Asset:** Text-to-3D and Image-to-3D generation.
+  - **Panel 3 — Asset Browser:** Inspect, filter, and import generated GLB assets.
+  - **Panel 4 — Material Studio:** Synthesizes Principled BSDF procedural materials.
+  - **Panel 5 — Transform Calibration:** Calibrates real-world metric scales (furniture, weapons, characters).
+  - **Panel 6 — Scene Synchronization:** Bi-directional sync between Blender and backend.
+  - **Panel 7 — Mesh Controls:** Subdivisions, normals, bevels, and manifold repairs.
+  - **Panel 8 — AI Technical Artist:** Component decomposition and conversational mesh edits.
+  - **Panel 9 — 3D Finishing & Retopo:** QuadriFlow remeshing, UV unwrapping, Cycles baking, LODs, and multi-format export.
+  - **Panel 10 — System Health & Learning:** Autonomous diagnostics, two-stage dry-run preview recovery, and model lifecycle management.
 
 ---
 
@@ -182,20 +133,18 @@ python run_master.py --image TripoSR/examples/chair.png --open-blender
 | :--- | :--- | :--- | :--- |
 | **mc_resolution** | `256` | Marching Cubes voxel grid resolution. | Set to `128` for ultra-fast draft mode (~10s); `256` for standard (~30s). |
 | **chunk_size** | `8192` | Point evaluation batch size during meshing. | Lower to `4096` if VRAM is under 4GB to prevent OOM. |
-| **target_height_m**| `1.0m` | Desired real-world height in meters. | Adjust per asset (e.g., `0.3m` for a bottle, `1.2m` for a sword, `1.8m` for a character). |
+| **target_height_m**| `1.0m` | Desired real-world height in meters. | Adjust per asset (e.g., `0.9m` for a chair, `1.0m` for a sword, `1.8m` for a character). |
 | **watertight** | `True` | Requires mesh to have 0 open boundary edges. | Always keep `True` for 3D printing and physics simulations. |
-| **decimate_ratio** | `0.5` | Target polygon triangle reduction ratio. | Use `0.3`–`0.5` for mobile games; leave empty for high-poly raw sculpt. |
+| **baking_resolution**| `1024` | Texture map dimensions (Normal, Diffuse, Roughness). | Use `2048` or `4096` for high-resolution hero game assets. |
 
 ---
 
 ## 6. Exporting Assets to Game Engines (Unreal / Unity / Godot)
 
 1. **Unreal Engine 5:**
-   - Drag and drop the generated `.glb` file into the Content Browser.
-   - UE5 will automatically import the geometry, hierarchy, and materials.
+   - Drag and drop the generated `.glb` or `.fbx` into the Content Browser. UE5 automatically imports geometry, LODs, and materials.
 2. **Unity:**
-   - Place the `.glb` into your `Assets/Models` folder.
-   - Use the Unity glTFast package or convert to FBX via Blender.
+   - Place the `.glb` or `.fbx` into your `Assets/Models` folder. Use the Unity glTFast package or native FBX importer.
 3. **Godot 4:**
    - Drag the `.glb` directly into the Godot FileSystem panel. Godot provides native glTF 2.0 support.
 
@@ -203,24 +152,30 @@ python run_master.py --image TripoSR/examples/chair.png --open-blender
 
 ## 7. Troubleshooting & Diagnostics
 
-### Issue 1: "PermissionError: [WinError 5] Access is denied: 'output'"
-- **Cause:** Process running in a sandboxed shell attempting to write to external drive `E:\`.
-- **Solution:** Run with standard user execution privileges or allow script bypass permissions.
+### Issue 1: "Backend Offline" shown in Blender
+- **Solution:** Click **Start Backend Console** in Panel 1 or run `Start_Local_Mesh_AI.bat` and select Option 1. Ensure `.venv` has dependencies installed.
 
 ### Issue 2: "llama.dll: The specified module could not be found (WinError 126)"
-- **Cause:** Windows DLL loader cannot find CUDA 12.4 runtime libraries (`cudart64_12.dll`, `cublas64_12.dll`).
-- **Solution:** The system includes automatic DLL pre-loading in `core/qwen_planner.py` pointing to `.venv/Lib/site-packages/torch/lib`. Ensure PyTorch CUDA 12.4 is installed in `.venv`.
+- **Solution:** Windows DLL loader requires CUDA runtime libraries. Ensure PyTorch CUDA is installed via `launchers\1_setup_environment.bat`.
 
-### Issue 3: "CUDA Out of Memory (OOM)"
-- **Cause:** Concurrent processes holding VRAM or unreleased cache.
-- **Solution:** Verify the lock file with `python -c "from core.gpu_broker import gpu_broker; gpu_broker.purge_vram()"` and ensure no other background tasks are holding the GPU.
+### Issue 3: Staging Disk Cleanup Preview
+- **Solution:** In Panel 10, click **1. Preview Safe Recovery (Dry Run)**. Review the identified files and unique Preview ID, then click **2. Execute Approved Recovery** to securely delete only reviewed files.
 
 ---
 
 ## 8. 3D Graphics Glossary for Beginners
 
-* **GLB / glTF:** GL Transmission Format. The modern standard for 3D web and game engines, storing geometry, materials, and textures in a single binary file.
-* **Vertex / Face:** Vertices are the points in 3D space; faces are the polygons formed by connecting vertices.
-* **Watertight:** A mesh with no holes or self-intersecting boundaries—solid and manifold.
-* **Marching Cubes:** An algorithm that turns volumetric neural density fields into polygonal 3D surfaces.
-* **PBR (Physically Based Rendering):** Modern realistic shading based on physical light transport (Base Color, Metallic, Roughness, Normal).
+* **GLB / glTF:** Standard 3D web and game format storing geometry, materials, and textures in a single binary file.
+* **QuadriFlow:** State-of-the-art quad remeshing algorithm creating clean 4-sided polygon edge loops.
+* **Selected-to-Active Baking:** Baking detailed surface geometry from a high-poly sculpt onto a clean low-poly game model.
+* **LOD (Level of Detail):** Multiple versions of a 3D model with decreasing polygon counts used to optimize game rendering performance at distance.
+
+---
+
+## 9. Trust, Privacy & Legal References
+
+- **Privacy Policy:** [PRIVACY.md](PRIVACY.md) — 100% on-device inference guarantee.
+- **Security Policy:** [SECURITY.md](SECURITY.md) — Vulnerability reporting and sandboxed AI execution.
+- **Third-Party Notices:** [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — Open-source license attribution.
+- **Model Licenses:** [MODEL_LICENSES.md](MODEL_LICENSES.md) — Upstream AI model terms.
+- **Windows Packaging:** [docs/WINDOWS_DISTRIBUTION_ARCHITECTURE.md](docs/WINDOWS_DISTRIBUTION_ARCHITECTURE.md) — Release packaging specifications.
