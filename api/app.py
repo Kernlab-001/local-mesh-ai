@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from api.routes import router
+from api.self_healing_routes import router as self_healing_router
+from api.learning_routes import router as learning_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +59,8 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(self_healing_router)
+app.include_router(learning_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui", "static")
 if os.path.exists(static_dir):

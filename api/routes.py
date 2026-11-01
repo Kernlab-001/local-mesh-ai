@@ -13,6 +13,7 @@ from api.schemas import (
     ExportAssetRequest,
 )
 import core.mesh_finishing as mesh_finishing
+from core.path_security import validate_safe_path, get_staging_dir
 """
 FastAPI Routes for Local Neural 3D Studio.
 Hardened with input validation, path safety, and secure error boundaries.
@@ -582,18 +583,17 @@ def stage_blender_asset(req: StageAssetRequest):
         if len(decoded_bytes) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=400, detail=f"Mesh payload exceeds maximum allowed size ({MAX_UPLOAD_BYTES // (1024*1024)} MB).")
         safe_name = "".join(c for c in req.asset_name if c.isalnum() or c in ("_", "-")) or "staged_mesh"
-        staging_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "jobs" / "staging"
-        staging_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir = get_staging_dir()
         temp_mesh_file = str(staging_dir / f"{safe_name}_{uuid.uuid4().hex[:6]}.{fmt}")
         with open(temp_mesh_file, "wb") as f:
             f.write(decoded_bytes)
         mesh_to_load = temp_mesh_file
     elif req.mesh_path:
-        mesh_to_load = os.path.abspath(req.mesh_path)
-        if not os.path.exists(mesh_to_load) or not os.path.isfile(mesh_to_load):
-            raise HTTPException(status_code=400, detail=f"Staged mesh file does not exist or is not a regular file: {req.mesh_path}")
-        if os.path.getsize(mesh_to_load) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=400, detail=f"Mesh file exceeds maximum allowed size ({MAX_UPLOAD_BYTES // (1024*1024)} MB).")
+        try:
+            safe_p = validate_safe_path(req.mesh_path, allowed_extensions=[f".{f}" for f in ALLOWED_MESH_FORMATS], must_exist=True, max_size_bytes=MAX_UPLOAD_BYTES)
+            mesh_to_load = str(safe_p)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Staged mesh path invalid or unauthorized: {str(e)}")
     else:
         raise HTTPException(status_code=400, detail="Either mesh_path or mesh_base64 must be provided.")
 
@@ -870,10 +870,11 @@ def _resolve_mesh_path(session_id: Optional[str], mesh_path: Optional[str]) -> T
             raise HTTPException(status_code=404, detail=f"Working mesh not found for session '{session_id}'.")
         return session.working_mesh_path, session
     elif mesh_path:
-        p = os.path.abspath(mesh_path)
-        if not os.path.exists(p) or not os.path.isfile(p):
-            raise HTTPException(status_code=400, detail=f"Mesh file does not exist: {mesh_path}")
-        return p, None
+        try:
+            safe_p = validate_safe_path(mesh_path, must_exist=True)
+            return str(safe_p), None
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Mesh path invalid or unauthorized: {str(e)}")
     else:
         raise HTTPException(status_code=400, detail="Either session_id or mesh_path must be provided.")
 
@@ -1000,8 +1001,13 @@ def bake_textures_endpoint(req: BakeTexturesRequest):
     else:
         if not req.high_poly_path or not req.low_poly_path:
             raise HTTPException(status_code=400, detail="Either session_id or both high_poly_path and low_poly_path must be supplied.")
-        high_path = os.path.abspath(req.high_poly_path)
-        low_path = os.path.abspath(req.low_poly_path)
+        try:
+            high_p = validate_safe_path(req.high_poly_path, must_exist=True)
+            low_p = validate_safe_path(req.low_poly_path, must_exist=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid bake input mesh path: {str(e)}")
+        high_path = str(high_p)
+        low_path = str(low_p)
         out_dir = str(Path(low_path).parent / "textures")
 
     spec = mesh_finishing.TextureBakeSpec(
