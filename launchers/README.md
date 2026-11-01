@@ -1,45 +1,46 @@
-# Local Mesh AI — Launcher Suite & Execution Reference
+# Local Mesh AI — Launcher & Startup Architecture
 
-This directory contains the operational and development launchers for **Local Mesh AI** on Windows 11.
+This directory contains individual modular launcher and diagnostic scripts for Local Mesh AI on Windows 11.
 
 ---
 
-## Quick Start (End Users)
+## 🚀 Canonical User Entry Point
 
-Double-click `Start_Local_Mesh_AI.bat` (in the root directory or here) to launch the unified interactive console:
+The primary, authoritative end-user launcher is located at the root of the repository:
 
-```cmd
+```bat
 Start_Local_Mesh_AI.bat
 ```
 
-This master launcher provides menu-driven access to:
-1. **Full Studio** (spawns both Backend Server and Studio UI in parallel).
-2. **Backend Server Only** (FastAPI orchestration on port 8000).
-3. **Studio UI Only** (Blender-themed workspace on port 7860).
-4. **Blender Studio Launch** (launches Blender with addon path preconfigured).
-5. **Hardware Preflight & Diagnostics** (evaluates GPU VRAM, CUDA compatibility, and leasing state).
-6. **Comprehensive Test Suite** (runs pytest integration and acceptance tests).
-7. **Environment Setup & Repair** (synchronizes virtual environment dependencies).
+For backwards compatibility with previous developer shortcuts, `launchers\Start_Local_Mesh_AI.bat` safely delegates execution to the root launcher.
 
 ---
 
-## Developer Scripts Reference
+## 📋 Master Launcher Menu Structure
 
-| Script | Purpose | Port / Target | Prerequisites |
-|---|---|---|---|
-| `Start_Local_Mesh_AI.bat` | Master interactive user launcher | Ports 8000 & 7860 | `.venv` |
-| `1_setup_environment.bat` | Creates Python 3.12 virtual environment, installs PyTorch CUDA 12.1, and project requirements | `.venv/` | Python 3.12 64-bit on PATH |
-| `2_detect_hardware.bat` | Queries `nvidia-smi` and PyTorch to verify GPU presence and VRAM | CLI stdout | NVIDIA Driver |
-| `3_start_backend.bat` | Runs FastAPI server (`run_server.py`) directly with Uvicorn | Port 8000 | `.venv` |
-| `4_run_tests.bat` | Runs standard pytest suites across integration and acceptance specs | pytest CLI | `.venv` |
-| `5_start_studio_ui.bat` | Runs standalone Gradio studio dashboard (`ui/dashboard.py`) | Port 7860 | `.venv` |
-| `generate_model.bat` | Direct CLI single-command asset generation | CLI -> `output/` | Running backend or local models |
+The interactive master launcher provides 8 self-contained operations:
+
+| Menu Item | Action | Description |
+| :--- | :--- | :--- |
+| **[1] Start Full Studio** | Backend + Blender Studio | Probes port 8000; launches FastAPI server if offline, verifies `/health`, and opens Blender with the addon loaded. |
+| **[2] Launch Blender Studio** | Blender Studio Only | Discovers Blender 5.2 LTS (or 4.3/4.2) and opens it with `--addons-path addon`. Reuses existing backend if present. |
+| **[3] Start Backend Server Only** | Port 8000 Orchestrator | Launches the FastAPI orchestration server in an isolated console window with parent watchdog support. |
+| **[4] Start Standalone Studio UI** | Port 7860 Gradio UI | Launches the web-based Blender-inspired Studio workspace at `http://127.0.0.1:7860`. |
+| **[5] Hardware Diagnostics** | GPU Preflight & Detection | Inspects NVIDIA GPU, physical VRAM, CUDA runtime, and model profile feasibility. |
+| **[6] Run Comprehensive Test Suite** | Pytest Test Runner | Executes automated test suites covering recovery, AI models, integration, and Blender communication. |
+| **[7] Setup / Repair Environment** | Dependency Sync | Verifies Python 3.12, creates `.venv`, and installs PyTorch CUDA 12.4 dependencies. |
+| **[8] Exit** | Terminate Launcher | Closes the launcher cleanly without touching running background tasks. |
 
 ---
 
-## Port Allocations
+## 🛠️ Helper Scripts in `launchers/`
 
-- **Port 8000**: FastAPI Orchestration Server (`http://127.0.0.1:8000`)
-  - Interactive Documentation (Swagger UI): `http://127.0.0.1:8000/docs`
-  - OpenAPI Specification: `http://127.0.0.1:8000/openapi.json`
-- **Port 7860**: Gradio 3D Studio Workspace UI (`http://127.0.0.1:7860`)
+| Script | Purpose | Target User |
+| :--- | :--- | :--- |
+| `1_setup_environment.bat` | Automates virtual environment creation (`.venv`) and pip installation of PyTorch CUDA 12.4. | Setup / Recovery |
+| `2_detect_hardware.bat` | Runs `detect_hardware.py` using `.venv` Python to output GPU, VRAM, and RAM telemetry. | Diagnostics |
+| `3_start_backend.bat` | Direct launcher for FastAPI orchestration server on port 8000 without Blender. | Developer / Headless |
+| `4_run_tests.bat` | Runs full automated test suite using pytest with verbose output. | CI / QA |
+| `5_start_studio_ui.bat` | Starts standalone Gradio Studio workspace on port 7860. | Standalone UI |
+| `generate_model.bat` | Drag-and-drop launcher: drag any image onto this script to generate a 3D model. | Quick Testing |
+| `Start_Local_Mesh_AI.bat` | Compatibility wrapper redirecting to the root `Start_Local_Mesh_AI.bat`. | Compatibility |

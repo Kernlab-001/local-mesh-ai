@@ -120,4 +120,11 @@ class RecoveryPolicyEngine:
         return list(self._audit_log)
 
 
+    def reset_circuit_breaker(self, action_type=None):
+        if action_type is not None:
+            self._action_history[action_type].clear()
+        else:
+            self._action_history.clear()
+
+
 recovery_policy_engine = RecoveryPolicyEngine()

@@ -3381,6 +3381,43 @@ classes = (
     LOCALMESH_PT_MeshControls
 )
 
+def _auto_lifecycle_check():
+    """
+    Automatic Backend Lifecycle:
+    When Blender starts and the addon registers:
+    1. Checks if a healthy backend already exists on server_url (default 8000).
+    2. If healthy, reuses it without spawning duplicate processes.
+    3. If offline, automatically spawns an application-owned backend console passing --parent-pid.
+    4. Only this Blender session's spawned backend process is tracked and terminated on shutdown.
+    """
+    try:
+        url = DEFAULT_SERVER_URL
+        if hasattr(bpy.context, "scene"):
+            props = getattr(bpy.context.scene, "local_mesh_props", None) or getattr(bpy.context.scene, "triposr_props", None)
+            if props and props.server_url:
+                url = props.server_url
+
+        online, latency, _ = check_server_health(url, timeout=0.6)
+        if online:
+            if hasattr(bpy.context, "scene"):
+                props = getattr(bpy.context.scene, "local_mesh_props", None) or getattr(bpy.context.scene, "triposr_props", None)
+                if props:
+                    props.is_server_online = True
+                    props.server_latency_ms = latency
+            return None
+
+        root = find_project_root()
+        pref = get_addon_preferences()
+        if pref and pref.project_dir and os.path.exists(pref.project_dir):
+            root = pref.project_dir
+
+        success, msg = launch_backend_console(root)
+        print(f"[Local Mesh AI Lifecycle] Auto-starting backend: {msg}")
+    except Exception as e:
+        print(f"[Local Mesh AI Lifecycle] Auto-start check encountered: {e}")
+    return None
+
+
 def register():
     for cls in classes:
         try:
@@ -3407,6 +3444,8 @@ def register():
     except Exception:
         pass
 
+    if not bpy.app.timers.is_registered(_auto_lifecycle_check):
+        bpy.app.timers.register(_auto_lifecycle_check, first_interval=0.5)
     if not bpy.app.timers.is_registered(_periodic_server_check):
         bpy.app.timers.register(_periodic_server_check, first_interval=1.5)
     if not bpy.app.timers.is_registered(_process_addon_result_queue):
@@ -3424,6 +3463,8 @@ def unregister():
     except Exception:
         pass
 
+    if bpy.app.timers.is_registered(_auto_lifecycle_check):
+        bpy.app.timers.unregister(_auto_lifecycle_check)
     if bpy.app.timers.is_registered(_periodic_server_check):
         bpy.app.timers.unregister(_periodic_server_check)
     if bpy.app.timers.is_registered(poll_active_job_timer):

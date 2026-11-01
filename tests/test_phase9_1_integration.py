@@ -91,7 +91,7 @@ def test_real_trainable_model_parameters_change():
 
     for _ in range(5):
         optimizer.zero_grad()
-        tool_logits, _, _ = module(input_ids)
+        tool_logits, *_ = module(input_ids)
         loss = criterion(tool_logits, target_tool)
         loss.backward()
         optimizer.step()
@@ -358,11 +358,20 @@ def test_recovery_approval_applies_only_to_reviewed_files():
     os.utime(file_a, (old_time, old_time))
     os.utime(file_b, (old_time, old_time))
 
+    # Preview stage: Obtain valid preview_id
+    preview = self_healing_manager.preview_action(
+        RecoveryActionRequest(action_type=ActionType.CLEAN_STAGING_DIR, dry_run=True)
+    )
+    assert preview.preview_id is not None
+    assert str(file_a.resolve()) in preview.affected_files
+
+    # Execute stage: Approved execution bound to preview_id with subset filter
     res = self_healing_manager.execute_action(
         RecoveryActionRequest(
             action_type=ActionType.CLEAN_STAGING_DIR,
             approved=True,
             dry_run=False,
+            preview_id=preview.preview_id,
             parameters={"approved_files": [str(file_a.resolve())]}
         )
     )

@@ -28,20 +28,30 @@ Featuring a serialized Zero-VRAM GPU lease broker (`core.gpu_broker`), Local Mes
 
 ---
 
-## 🎨 Genuine Production Output Showcase
+## 🎨 Example Generation Showcase (Mode A: Text-to-3D)
 
-Below is an authentic dining chair generated end-to-end via **Mode A: Text-to-3D** using the prompt:
-> *"a dining chair with a dark walnut-brown wooden frame and legs, an ivory-cream fabric upholstered seat cushion, and a matching cream tufted backrest"*
+Below is an authentic milestone generation produced end-to-end through the Local Mesh AI text-to-3D pipeline on the host RTX 3050 hardware using the prompt:
 
-| High-Fidelity EEVEE Viewport Render | 4-View Canonical Projections |
+> *"A dining chair with a dark walnut-brown wooden frame and legs, an ivory-cream fabric upholstered seat cushion, and a matching cream tufted backrest."*
+
+| Blender 5.2 EEVEE Viewport Render | 4-View Canonical Projections |
 | :---: | :---: |
-| ![Local Mesh AI Chair EEVEE Render](docs/assets/chair_render_eevee.png) | ![Local Mesh AI Canonical Multi-View Grid](docs/assets/multiview_grid.png) |
-| *Blender 5.2 EEVEE render: Distinct dark walnut wood frame and ivory-cream tufted upholstery (52,552 vertices, 3 PBR material slots).* | *Canonical orthographic projections (0°, 90°, 180°, 270°) feeding the TripoSR neural reconstruction engine.* |
+| ![Local Mesh AI Chair EEVEE Render](docs/assets/showcase/showcase_chair_eevee_viewport_render.png) | ![Local Mesh AI Canonical Multi-View Grid](docs/assets/showcase/showcase_chair_canonical_4view_projections.png) |
+| *Blender 5.2 EEVEE viewport render of the generated chair geometry.* | *Canonical orthographic projections (0°, 90°, 180°, 270°) feeding the TripoSR volumetric reconstruction engine.* |
 
-| 2D Diffusion Concept Artwork | Procedural PBR Diffuse Maps (Wood & Fabric) |
+| 2D Diffusion Concept Artwork | Procedural Diffuse Texture Maps |
 | :---: | :---: |
-| ![Concept Artwork](docs/assets/concept_art_chair.png) | ![Wood and Fabric Textures](docs/assets/tex_wood_diffuse.png) |
-| *SD-Turbo 1-step concept synthesis on isolated studio background.* | *Authoritative 1024×1024 diffuse, normal, and roughness maps embedded in final GLB.* |
+| ![Concept Artwork](docs/assets/showcase/showcase_chair_2d_concept_art.png) | ![Wood and Fabric Textures](docs/assets/showcase/showcase_chair_wood_frame_texture.png) |
+| *SD-Turbo 1-step latent diffusion concept synthesis on isolated studio background.* | *Extracted 1024×1024 diffuse texture map for procedural wood material synthesis.* |
+
+### 🔬 Technical Analysis & Verified Asset Metrics
+
+To ensure strict engineering integrity, we disclose verified metrics from the physical `.glb` asset (`output/chair_aligned_test.glb`):
+
+- **Geometry Count:** **54,910 vertices** and **109,828 triangles** generated via Marching Cubes isosurface extraction on a $256^3$ voxel grid.
+- **Color Representation:** High-density vertex color encoding (`ColorVisuals`).
+- **Render Artifact Investigation:** Visible white jagged/distorted areas in the EEVEE viewport render stem from raw Marching Cubes isosurface facets catching specular reflections at grazing angles prior to quad retopology and normal smoothing.
+- **Development Status:** This asset illustrates the **Development Milestone Showcase** of initial volumetric reconstruction; production-ready game export requires the Phase 7 automated retopology and UV projection pass.
 
 ---
 
@@ -93,20 +103,30 @@ To maintain complete engineering honesty and eliminate false claims, every featu
 
 ## ⚡ Quick Start (Windows 11)
 
-### Option 1: Master Launcher (Recommended)
+### Option 1: Canonical Master Launcher (Recommended)
 Double-click `Start_Local_Mesh_AI.bat` in the repository root:
 ```cmd
 Start_Local_Mesh_AI.bat
 ```
-Select **[1] Start Full Studio** to launch both the FastAPI backend (port 8000) and the Studio Workspace UI (port 7860) simultaneously.
+The interactive menu provides 8 operations:
+1. **[1] Start Full Studio:** Probes port 8000, starts the backend if offline, verifies `/health`, and launches Blender with the addon.
+2. **[2] Launch Blender Studio:** Launches Blender with the unified `LOCAL MESH AI` sidebar category tab.
+3. **[3] Start Backend Server Only:** Dedicated console for the FastAPI server on `http://127.0.0.1:8000`.
+4. **[4] Start Standalone Studio UI:** Web-based Gradio 3D studio workspace on `http://127.0.0.1:7860`.
+5. **[5] Hardware Diagnostics:** Pre-flight GPU and VRAM validation (`detect_hardware.py`).
+6. **[6] Run Comprehensive Test Suite:** Executes full regression test suite (`pytest -v`).
+7. **[7] Setup / Repair Environment:** Synchronizes virtual environment dependencies (`1_setup_environment.bat`).
+8. **[8] Exit:** Clean termination.
+
+For complete documentation on each script, see [File and Launcher Inventory](docs/FILE_AND_LAUNCHER_INVENTORY.md) and [RTX 3050 Benchmark Report](docs/RTX_3050_BENCHMARK_REPORT.md).
 
 ### Option 2: Blender Studio Addon
 1. Open Blender 5.2 (or 4.2+ LTS).
 2. Go to **Edit** $\rightarrow$ **Preferences** $\rightarrow$ **Add-ons** $\rightarrow$ **Install...**
 3. Select `addon/triposr_blender_addon.py`.
 4. Enable the checkbox for **Local Mesh AI Studio**.
-5. Open the 3D Viewport sidebar (press `N`) and click the **`LOCAL MESH AI`** tab.
-6. Click **Start Backend Console** to automatically launch the orchestration server.
+5. Open the 3D Viewport sidebar (press `N`) and click the single unified **`LOCAL MESH AI`** tab.
+6. The addon automatically verifies backend health upon registration and connects seamlessly.
 
 ---
 
