@@ -323,3 +323,63 @@ class SessionStateResponse(BaseModel):
     has_pre_edit_snapshot: bool
     mesh_url: Optional[str] = None
     history: List[Dict[str, Any]] = Field(default_factory=list) 
+
+
+# ==============================================================================
+# Phase 7 Professional 3D Finishing, Retopology & Export Schemas
+# ==============================================================================
+
+class ValidateMeshRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+
+class RepairMeshRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    options: Optional[Dict[str, bool]] = None
+
+class LowPolyRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    target_triangles: Optional[int] = 5000
+    reduction_ratio: Optional[float] = 0.5
+    method: str = "decimation"
+
+class RetopologyRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    target_faces: int = 5000
+    symmetry_axis: Optional[str] = None
+    preserve_sharp: bool = True
+
+class UnwrapUVRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    method: str = "smart_project"
+    margin: float = 0.02
+
+class ApplyMaterialRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    materials: List[Dict[str, Any]] = Field(default_factory=list)
+
+class BakeTexturesRequest(BaseModel):
+    session_id: Optional[str] = None
+    high_poly_path: Optional[str] = None
+    low_poly_path: Optional[str] = None
+    bake_resolution: int = 1024
+    bake_cage_extrusion: float = 0.02
+    ray_max_distance: float = 0.05
+    margin_pixels: int = 16
+    bake_maps: List[str] = Field(default_factory=lambda: ["normal", "base_color", "ao", "roughness", "metallic"])
+
+class GenerateLODsRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    budgets: Optional[Dict[str, float]] = None
+
+class ExportAssetRequest(BaseModel):
+    session_id: Optional[str] = None
+    mesh_path: Optional[str] = None
+    asset_name: Optional[str] = "finished_asset"
+    formats: List[str] = Field(default_factory=lambda: ["glb", "fbx", "obj"])

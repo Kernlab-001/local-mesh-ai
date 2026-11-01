@@ -128,8 +128,26 @@ class EditingSessionManager:
 
     def __init__(self):
         self._sessions: Dict[str, EditingSession] = {}
+        self._session_locks: Dict[str, threading.Lock] = {}
         self._lock = threading.Lock()
         self._partfield = PartFieldAdapter()
+
+    def get_session_lock(self, session_id: str) -> threading.Lock:
+        with self._lock:
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = threading.Lock()
+            return self._session_locks[session_id]
+
+    def _validate_session_path(self, session_id: str) -> Path:
+        """Validates session ID format and ensures strict containment in SESSIONS_ROOT."""
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", session_id):
+            raise ValueError(f"Invalid session ID format: '{session_id}'")
+        session_dir = (SESSIONS_ROOT / session_id).resolve()
+        try:
+            session_dir.relative_to(SESSIONS_ROOT.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal detected for session ID: '{session_id}'")
+        return session_dir
 
     def create_session(
         self,
@@ -174,7 +192,11 @@ class EditingSessionManager:
             if session_id in self._sessions:
                 return self._sessions[session_id]
 
-        session_dir = SESSIONS_ROOT / session_id
+        try:
+            session_dir = self._validate_session_path(session_id)
+        except ValueError:
+            return None
+
         session_file = session_dir / "session.json"
         if not session_file.exists():
             return None
@@ -384,9 +406,20 @@ class EditingSessionManager:
         if not plan:
             raise RuntimeError("No active editing plan generated for this session.")
 
-        # If user passed plan override
+        # Plan integrity checks: validate supplied plan ID matches current approved plan
+        if plan_id and plan.plan_id != plan_id:
+            raise ValueError(
+                f"Supplied plan ID '{plan_id}' does not match active approved plan '{plan.plan_id}'. "
+                f"Plan may be expired, stale, or superseded."
+            )
+
+        # Restrict plan overrides to explicitly allowed fields
+        ALLOWED_PLAN_OVERRIDES = {"invariants", "scale_factor", "axis", "anchor", "translation_delta", "parameters"}
         if plan_override:
             for k, v in plan_override.items():
+                if k not in ALLOWED_PLAN_OVERRIDES:
+                    logger.warning(f"Ignoring unauthorized plan override field: '{k}'")
+                    continue
                 if k == "invariants" and isinstance(v, list):
                     plan.invariants = [ComponentInvariant(**item) if isinstance(item, dict) else item for item in v]
                 elif hasattr(plan, k):
