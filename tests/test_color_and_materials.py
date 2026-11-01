@@ -70,10 +70,6 @@ from core.material_synthesizer import synthesize_and_apply_materials
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 mesh_target = r'{os.path.join(PROJECT_ROOT, "output", "meshes", "0", "mesh.glb")}'
-import pathlib, trimesh
-pathlib.Path(mesh_target).parent.mkdir(parents=True, exist_ok=True)
-if not pathlib.Path(mesh_target).exists():
-    trimesh.creation.box().export(mesh_target, file_type='glb')
 bpy.ops.mesh.primitive_cube_add(size=1.0)
 obj = bpy.context.active_object
 obj.name = "Chair_Fixture"

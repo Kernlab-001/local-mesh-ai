@@ -100,3 +100,57 @@ class ExecuteToolRequest(BaseModel):
     tool_name: str = Field(..., description="Allowlisted tool name")
     arguments: Dict[str, Any] = Field(default_factory=dict)
 
+
+
+# ==============================================================================
+# Phase 4 Unified Generation Pipeline Schemas
+# ==============================================================================
+
+class GenerateTextRequest(BaseModel):
+    prompt: str = Field(..., min_length=2, max_length=1000, description="Text description of the 3D asset to generate")
+    hardware_profile: str = Field(default="balanced", description="low_memory | balanced | quality")
+    preset: str = Field(default="prop", description="prop | character | weapon | furniture")
+    target_height: Optional[float] = Field(default=None, ge=0.05, le=50.0)
+    accurate_colors: bool = Field(default=True, description="Aligns 3D mesh colors with reference artwork")
+    render_turntable: bool = Field(default=False)
+
+class GenerateImageRequest(BaseModel):
+    image_path: str = Field(..., min_length=1, max_length=512, description="Local path to source 2D reference image")
+    hardware_profile: str = Field(default="balanced", description="low_memory | balanced | quality")
+    preset: str = Field(default="prop", description="prop | character | weapon | furniture")
+    target_height: Optional[float] = Field(default=None, ge=0.05, le=50.0)
+    accurate_colors: bool = Field(default=True, description="Aligns 3D mesh colors with reference artwork")
+    render_turntable: bool = Field(default=False)
+
+class JobProgressResponse(BaseModel):
+    job_id: str
+    status: str
+    stage: str
+    progress_pct: int
+    elapsed_seconds: float
+    error: Optional[str] = None
+    logs: List[str] = []
+
+class RouteInfoResponse(BaseModel):
+    route_id: str
+    name: str
+    modality: str
+    status: str
+    ready: bool
+    description: str
+    required_models: List[str]
+    estimated_vram_gb: float
+    notes: str
+
+class AssetResponse(BaseModel):
+    asset_id: str
+    job_id: str
+    created_at: str
+    modality: str
+    route: str
+    hardware_profile: str
+    execution_provenance: str
+    mesh_path: Optional[str] = None
+    preview_path: Optional[str] = None
+    file_size_bytes: int = 0
+    timings: Dict[str, float] = Field(default_factory=dict)

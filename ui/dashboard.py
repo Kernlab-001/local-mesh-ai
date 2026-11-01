@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from services.job_manager import job_manager, JobStatus
+from core.generation_orchestrator import generation_orchestrator, HARDWARE_PROFILES, PipelineStage
 from services.export_service import export_service
 from core.qwen_planner import qwen_planner
 from core.hardware_detector import hardware_detector
@@ -496,6 +497,19 @@ STAGE_NAMES = [
     "9. Blender Scene",
     "10. Completed"
 ]
+
+def render_route_status_badge() -> str:
+    """Renders compact status pills for available generation routes."""
+    routes = generation_orchestrator.discover_routes()
+    pills = []
+    for r in routes:
+        color = "#4E8B58" if r["ready"] else "#B58A30"
+        pills.append(
+            f'<span style="background:#1A1A1A; border:1px solid #3B3B3B; padding:3px 8px; border-radius:3px; font-size:11px; margin-right:6px; display:inline-block;">'
+            f'<span style="color:{color}; font-weight:bold;">● {r["name"]}</span>: <span style="color:{color}; font-size:10px;">[{r["status"]}]</span>'
+            f'</span>'
+        )
+    return f'<div style="margin-bottom:8px; line-height:1.8;">{"".join(pills)}</div>'
 
 def render_stage_bar(active_idx: int, input_mode: str) -> str:
     """Generates Blender-styled horizontal stage progress pills."""
@@ -993,15 +1007,20 @@ def generate_3d_pipeline(
     start_t = time.time()
 
     stage_to_idx = {
+        "QUEUED": 0,
         "VALIDATING": 0,
+        "WAITING_FOR_GPU": 1,
+        "LOADING_MODEL": 1,
         "PREPROCESSING": 1,
-        "MULTIVIEW": 2,
-        "RECONSTRUCTING": 3,
-        "CALIBRATING": 4,
-        "REMESHING": 5,
-        "UV_UNWRAPPING": 6,
-        "BAKING": 7,
-        "INTEGRATING": 8,
+        "GENERATING_CONCEPT": 2,
+        "MULTIVIEW": 3,
+        "RUNNING_RECONSTRUCTION": 4,
+        "RECONSTRUCTING": 4,
+        "CALIBRATING": 5,
+        "PROCESSING_MESH": 6,
+        "REMESHING": 6,
+        "POSTPROCESSING": 7,
+        "SAVING_ASSET": 8,
         "COMPLETED": 9
     }
 
@@ -1307,9 +1326,9 @@ with gr.Blocks(title="Local Mesh AI - 3D Studio Workspace") as demo:
                     label="Asset Preset"
                 )
                 quality = gr.Dropdown(
-                    choices=["draft", "balanced", "high"],
+                    choices=["low_memory", "balanced", "quality"],
                     value="balanced",
-                    label="Reconstruction Quality"
+                    label="Hardware Profile"
                 )
 
             target_height = gr.Slider(

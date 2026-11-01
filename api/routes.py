@@ -9,6 +9,11 @@ import subprocess
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from api.schemas import (
+    GenerateTextRequest,
+    GenerateImageRequest,
+    JobProgressResponse,
+    RouteInfoResponse,
+    AssetResponse,
     CreateJobRequest,
     JobResponse,
     EditJobRequest,
@@ -32,6 +37,8 @@ from core.component_decomposer import component_decomposer
 from core.precision_aligner import precision_aligner
 from core.tool_registry import tool_registry
 from core.bounded_correction_loop import bounded_correction_loop
+from core.generation_orchestrator import generation_orchestrator, RouteUnavailableError
+from core.model_paths import model_path_resolver
 
 router = APIRouter()
 
@@ -327,3 +334,95 @@ def execute_allowlisted_tool(req: ExecuteToolRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Tool execution error: {str(e)}")
 
+
+
+# ==============================================================================
+# Phase 4 Unified Generation Pipeline Endpoints
+# ==============================================================================
+
+@router.get("/api/v1/routes")
+def get_supported_routes():
+    """Returns supported 3D generation routes and hardware profiles with live readiness."""
+    return {
+        "routes": generation_orchestrator.discover_routes(),
+        "hardware_profiles": generation_orchestrator.get_hardware_profiles()
+    }
+
+@router.get("/api/v1/capabilities")
+def get_generation_capabilities():
+    """Returns truthful local AI model availability and hardware orchestration limits."""
+    return {
+        "models": model_path_resolver.get_model_inventory(),
+        "routes": generation_orchestrator.discover_routes(),
+        "hardware": engine_registry.get_hardware_telemetry()
+    }
+
+@router.post("/api/v1/generate/text", response_model=JobResponse)
+def generate_from_text(req: GenerateTextRequest):
+    """Submits a text-conditioned 3D asset generation request."""
+    params = req.model_dump()
+    params["input_mode"] = "prompt"
+
+    valid, err, clean_params = generation_orchestrator.validate_request("text-to-3d", params)
+    if not valid:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        generation_orchestrator.resolve_route("text-to-3d", clean_params)
+    except RouteUnavailableError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    job = job_manager.create_job(clean_params)
+    return job.to_dict()
+
+@router.post("/api/v1/generate/image", response_model=JobResponse)
+def generate_from_image(req: GenerateImageRequest):
+    """Submits an image-to-3D volumetric reconstruction request."""
+    params = req.model_dump()
+    params["input_mode"] = "image"
+
+    valid, err, clean_params = generation_orchestrator.validate_request("image-to-3d", params)
+    if not valid:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        generation_orchestrator.resolve_route("image-to-3d", clean_params)
+    except RouteUnavailableError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    job = job_manager.create_job(clean_params)
+    return job.to_dict()
+
+@router.get("/api/v1/jobs/{job_id}/progress", response_model=JobProgressResponse)
+def get_job_progress(job_id: str):
+    """Retrieves real-time execution progress, stage, and recent logs for a job."""
+    validate_job_id(job_id)
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "stage": job.stage,
+        "progress_pct": job.progress_pct,
+        "elapsed_seconds": job.elapsed_seconds if job.elapsed_seconds else round(time.time() - job.start_time, 2),
+        "error": job.error,
+        "logs": job.logs[-10:] if job.logs else []
+    }
+
+@router.get("/api/v1/assets")
+def list_generated_assets(limit: int = 50):
+    """Returns catalog of registered generated 3D assets across all jobs."""
+    return {
+        "assets": generation_orchestrator.list_assets(limit=limit),
+        "total": len(generation_orchestrator.list_assets(limit=1000))
+    }
+
+@router.get("/api/v1/assets/{asset_id}")
+def get_asset_record(asset_id: str):
+    """Returns detailed metadata for a specific generated 3D asset."""
+    record = generation_orchestrator.get_asset(asset_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found.")
+    return record

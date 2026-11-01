@@ -73,9 +73,8 @@ class ShapEAdapter(Base3DEngine):
 
     def get_status(self) -> EngineStatus:
         """Determines if Shap-E is ready or needs download."""
-        try:
-            from diffusers import ShapEPipeline
-        except ImportError:
+        import importlib.util
+        if not importlib.util.find_spec("diffusers"):
             return EngineStatus.NOT_INSTALLED
 
         # Check CUDA or CPU capability
