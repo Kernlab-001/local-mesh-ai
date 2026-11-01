@@ -77,11 +77,7 @@ class TripoSREngine:
                 if width > 4096 or height > 4096:
                     raise ValueError(f"Image dimensions ({width}x{height}) exceed maximum 4096x4096.")
 
-                has_alpha = False
-                if mode in ("RGBA", "LA") or (mode == "P" and "transparency" in img.info):
-                    rgba_img = img.convert("RGBA")
-                    alpha_arr = np.array(rgba_img)[..., 3]
-                    has_alpha = bool(np.any(alpha_arr < 250))
+                has_alpha = bool(mode in ("RGBA", "LA") or (mode == "P" and "transparency" in img.info))
 
                 return {
                     "width": width,

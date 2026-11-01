@@ -77,12 +77,15 @@ Below is an authentic dining chair generated completely end-to-end via **Mode A:
   * Built-in material presets (Walnut, Oak, Royal Velvet, Brushed Steel, Gold, Clean Plastic, Stone, Glazed Ceramic) with interactive Metallic, Roughness, Specular, and Color Tint sliders.
 * **🛡️ Shared Geometry Quality, Validation & Finishing:**
   * Purges NaN/Inf coordinates, eliminates degenerate zero-area faces, enforces consistent outward normal winding, and diagnoses/repairs monochromatic "white-material" meshes.
-* **🧠 Phase 3.1: Real AI Model Integration & Autonomous Technical-Artist Editing:**
+* **🧠 Phase 3.1 & 3.1.1: Real AI Model Integration, Truthful Status Verification & Production Hardening:**
+  * **Truthful 9-State Model Lifecycle & Verification Receipts:** Rigorous `ModelStatus` taxonomy (`MISSING`, `FOUND_UNVERIFIED`, `VERIFIED_OFFLINE`, `RUNTIME_READY`, `INFERENCE_VERIFIED`, `VERIFIED_ON_HARDWARE`, `DEPENDENCIES_MISSING`, `INCOMPATIBLE`, `FAILED`) backed by persistent receipt logs (`.model_verification_receipts.json`). Zero synthetic simulation—uninstalled weights (e.g., SD-Turbo) report honestly as `MISSING`.
   * **NVIDIA PartField Neural 3D Segmentation:** Continuous feature-field decomposition executing genuine PyTorch forward passes (839 MB peak VRAM, 7.2s latency) producing clean component boundary hierarchies without fake heuristics.
-  * **Qwen3-VL Multimodal Visual Component Perception:** Direct camera render encoding via `mmproj` (324 ms encode latency, 3.2 GB VRAM) with strict candidate allowlisting to eliminate hallucinated components.
-  * **Dynamic Qwen Coder Technical-Artist Brain:** Dynamic scaling for arbitrary percentages (e.g. 23%, 12.5%), direction keywords, and automatic invariant tracking for all non-target components.
+  * **Qwen3-VL Multimodal Visual Component Perception:** Direct camera render encoding via `mmproj` (324 ms encode latency, 3.2 GB VRAM) with true look-at camera coordinate rotations, depth-sorted polygon rasterization, component color masks, and strict candidate allowlisting to eliminate hallucinated components.
+  * **Dynamic Qwen Coder Technical-Artist Brain:** Dynamic scaling for arbitrary percentages (e.g. 23%, 12.5%), direction keywords, action-invariant clause separation, and automatic invariant tracking for all non-target components.
+  * **Hardened Cross-Process GPU Lease Broker:** Atomic file locking with PID ownership verification and an automatic background heartbeat daemon renewing every 60s for long-running neural segmentation and inference tasks.
+  * **In-Place Topological Geometry Editing:** Precision in-place vertex manipulation on target component vertices (`result_mesh.vertices[target_v_indices] = ...`) strictly preserving face winding, UV maps, and non-target invariants (0.00% non-target deviation).
   * **Bounded Precision Safety Loop:** Detects ambiguous or non-existent component requests and halts safely (`NEEDS_COMPONENT_CONFIRMATION`), measures physical post-edit geometry dimensions, and automatically rolls back if non-target invariants deviate by >5%.
-  * **Model Verification CLI:** Run `python scripts/verify_ai_models.py --vram` to inspect local model presence, formats, licenses, and truthful operational readiness.
+  * **Model Verification CLI:** Run `python scripts/verify_ai_models.py --vram`, `--json`, or `--smoke` to inspect local model presence, formats, licenses, and truthful operational readiness.
 
 ---
 

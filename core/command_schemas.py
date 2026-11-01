@@ -365,3 +365,6 @@ class ComponentEditPlan(BaseModel):
         default_factory=list, description="Candidate options for user confirmation"
     )
     rationale: str = Field(default="", description="Technical-artist reasoning")
+    execution_provenance: Literal["qwen_coder_neural", "dynamic_rule_fallback", "failed"] = Field(
+        default="dynamic_rule_fallback", description="Provenance of how the edit plan was generated"
+    )

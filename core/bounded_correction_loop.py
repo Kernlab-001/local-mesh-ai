@@ -402,6 +402,8 @@ class BoundedCorrectionLoop:
 
         for inv in plan.invariants:
             cid = inv.component_id
+            if cid == target_cid:
+                continue
             pre_d = invariant_pre_dims.get(cid)
             inv_node = hierarchy.components.get(cid)
             if pre_d and inv_node and hasattr(inv_node, "face_indices") and inv_node.face_indices:

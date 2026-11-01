@@ -87,3 +87,4 @@ Thumbs.db
 .local_models_config.json
 scratch/
 
+.model_verification_receipts.json

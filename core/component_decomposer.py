@@ -53,6 +53,7 @@ class ComponentNode(BaseModel):
     submesh_path: Optional[str] = Field(default=None, description="Path to isolated component GLB file")
     material_preset: Optional[str] = Field(default=None)
     applied_transforms: List[Dict[str, Any]] = Field(default_factory=list)
+    face_indices: List[int] = Field(default_factory=list, description="Mesh face indices belonging to this component")
 
 
 class ComponentHierarchy(BaseModel):
@@ -98,6 +99,9 @@ class ComponentDecomposer:
         If node.submesh_path exists on disk, loads directly from file.
         Otherwise crops faces whose vertices reside within the component's bounding box.
         """
+        if hasattr(node, "face_indices") and node.face_indices:
+            return mesh.submesh([node.face_indices], append=True)
+
         if node.submesh_path and os.path.exists(node.submesh_path):
             return trimesh.load(node.submesh_path, force="mesh")
 
@@ -242,6 +246,20 @@ class ComponentDecomposer:
             # Initial candidate semantic interpretation based on geometric elevation and proportions
             candidate_label, conf = self._infer_preliminary_label(rel_z, s_dims, asset_bounds.dimensions)
 
+            # Map submesh faces to parent mesh face indices
+            sub_face_indices = []
+            if len(submesh.faces) > 0 and len(mesh.faces) > 0:
+                try:
+                    from scipy.spatial import cKDTree
+                    sub_centers = submesh.triangles_center
+                    mesh_centers = mesh.triangles_center
+                    tree = cKDTree(mesh_centers)
+                    dists, nearest = tree.query(sub_centers, k=1)
+                    matched_mask = dists < 1e-4
+                    sub_face_indices = nearest[matched_mask].tolist()
+                except Exception:
+                    sub_face_indices = list(range(len(submesh.faces)))
+
             node = ComponentNode(
                 component_id=cid,
                 semantic_label=candidate_label,
@@ -257,7 +275,8 @@ class ComponentDecomposer:
                 volume_ratio=round(s_vol / asset_vol, 4),
                 relative_z_position=round(rel_z, 4),
                 segmentation_method=sm_method,  # type: ignore
-                submesh_path=submesh_file
+                submesh_path=submesh_file,
+                face_indices=sub_face_indices
             )
 
             components_dict[cid] = node

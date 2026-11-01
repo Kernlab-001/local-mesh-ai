@@ -307,28 +307,53 @@ class GeometryEditingEngine:
         # Apply edit
         if target_comp is not None:
             # Component-level targeted editing
-            # Isolate sub-mesh of target component
-            submesh = ComponentDecomposer.extract_submesh(mesh, target_comp)
-            target_orig_ext = list(np.round(submesh.extents, 4))
+            result_mesh = mesh.copy()
+            target_orig_ext = list(np.round(target_comp.dimensions, 4))
 
-            # Apply operation to sub-mesh
-            modified_submesh = cls._apply_operation(submesh, op, params)
-
-            # Re-assemble asset by combining non-target components + modified sub-mesh
-            other_submeshes = []
-            for cid, node in hierarchy.components.items():
-                if cid == target_comp.component_id:
-                    continue
-                other_submeshes.append(ComponentDecomposer.extract_submesh(mesh, node))
-
-            if other_submeshes:
-                combined_mesh = trimesh.util.concatenate(other_submeshes + [modified_submesh])
+            # Identify target vertices
+            if hasattr(target_comp, "face_indices") and target_comp.face_indices:
+                target_faces = target_comp.face_indices
+                target_v_indices = np.unique(result_mesh.faces[target_faces])
             else:
-                combined_mesh = modified_submesh
+                min_p = np.array(target_comp.bounds.min_point) - 0.005
+                max_p = np.array(target_comp.bounds.max_point) + 0.005
+                face_centers = np.mean(result_mesh.vertices[result_mesh.faces], axis=1)
+                f_mask = np.all((face_centers >= min_p) & (face_centers <= max_p), axis=1)
+                target_v_indices = np.unique(result_mesh.faces[f_mask])
 
-            result_mesh = combined_mesh
-            target_mod_ext = list(np.round(modified_submesh.extents, 4))
-            delta = [round(target_mod_ext[i] - target_orig_ext[i], 4) for i in range(3)]
+            if len(target_v_indices) > 0 and op == "scale_axis":
+                sub_v = result_mesh.vertices[target_v_indices].copy()
+                axis = params.get("axis", "z").lower()
+                factor = float(params.get("factor") or params.get("scale_factor") or 1.2)
+                anchor = params.get("anchor", "min").lower()
+                axis_idx = 0 if axis == "x" else (1 if axis == "y" else 2)
+
+                if anchor in ("bottom", "min"):
+                    anc_val = np.min(sub_v[:, axis_idx])
+                elif anchor in ("top", "max"):
+                    anc_val = np.max(sub_v[:, axis_idx])
+                else:
+                    anc_val = np.mean(sub_v[:, axis_idx])
+
+                sub_v[:, axis_idx] = anc_val + (sub_v[:, axis_idx] - anc_val) * factor
+                result_mesh.vertices[target_v_indices] = sub_v
+                delta = [0.0, 0.0, 0.0]
+                delta[axis_idx] = round(target_orig_ext[axis_idx] * (factor - 1.0), 4)
+            else:
+                # Fallback to submesh extraction and concatenation (skipping root assembly)
+                submesh = ComponentDecomposer.extract_submesh(mesh, target_comp)
+                modified_submesh = cls._apply_operation(submesh, op, params)
+                other_submeshes = []
+                for cid, node in hierarchy.components.items():
+                    if cid == target_comp.component_id or "root" in cid.lower() or "assembly" in cid.lower():
+                        continue
+                    other_submeshes.append(ComponentDecomposer.extract_submesh(mesh, node))
+                if other_submeshes:
+                    result_mesh = trimesh.util.concatenate(other_submeshes + [modified_submesh])
+                else:
+                    result_mesh = modified_submesh
+                target_mod_ext = list(np.round(modified_submesh.extents, 4))
+                delta = [round(target_mod_ext[i] - target_orig_ext[i], 4) for i in range(3)]
         else:
             # Whole-asset editing
             result_mesh = cls._apply_operation(mesh, op, params)
@@ -337,7 +362,7 @@ class GeometryEditingEngine:
 
         # Validate non-target components invariant preservation
         non_target_preserved = True
-        if target_comp is not None and other_submeshes:
+        if target_comp is not None:
             # Verify non-target components did not distort
             for cid, orig_box in non_target_dims_before.items():
                 # Bounding box should match within float epsilon

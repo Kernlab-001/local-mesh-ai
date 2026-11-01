@@ -69,6 +69,11 @@ from core.appearance_analyzer import appearance_analyzer
 from core.material_synthesizer import synthesize_and_apply_materials
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
+mesh_target = r'{os.path.join(PROJECT_ROOT, "output", "meshes", "0", "mesh.glb")}'
+import pathlib, trimesh
+pathlib.Path(mesh_target).parent.mkdir(parents=True, exist_ok=True)
+if not pathlib.Path(mesh_target).exists():
+    trimesh.creation.box().export(mesh_target, file_type='glb')
 bpy.ops.mesh.primitive_cube_add(size=1.0)
 obj = bpy.context.active_object
 obj.name = "Chair_Fixture"
@@ -380,6 +385,11 @@ def test_texture_image_embedding_and_uv_preservation(verified_chair_glb):
 # ==============================================================================
 def test_material_repair_running_through_actual_addon_entry_point():
     blender_bin = hardware_detector.find_blender() or "blender"
+    mesh_path = os.path.join(PROJECT_ROOT, "output", "meshes", "0", "mesh.glb")
+    os.makedirs(os.path.dirname(mesh_path), exist_ok=True)
+    if not os.path.exists(mesh_path):
+        import trimesh
+        trimesh.creation.box().export(mesh_path, file_type="glb")
     script = f"""
 import bpy, sys
 sys.path.insert(0, r'{PROJECT_ROOT}')

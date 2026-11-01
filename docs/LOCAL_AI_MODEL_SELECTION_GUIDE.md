@@ -2,7 +2,7 @@
 
 **Project:** Local Mesh AI  
 **Author:** AI Systems Architect & Machine-Learning Integration Team  
-**Phase:** 3.1 — Real AI Model Integration, 3D Perception & Autonomous Technical-Artist Editing  
+**Phase:** 3.1 & 3.1.1 — Real AI Model Integration, Truthful Status Verification & Production Hardening  
 **Hardware Baseline:** NVIDIA GeForce RTX 3050 6GB Laptop GPU | Intel Core i5-13420H | 16 GB DDR5 RAM | Windows 11  
 **Scope:** Fully local-first AI 3D asset generation, component decomposition, precision alignment, and geometry editing without cloud API dependencies.
 
@@ -52,6 +52,13 @@ Every model listed below has been audited and verified on the host hardware (Int
 | **Text-to-Image Concept Art** | **SD-Turbo (Stability AI)** | Diffusers / SafeTensors | FP16 | ~2.2 GB | ~0.8s | **WEIGHTS MISSING** | Stability AI Non-Commercial |
 | **Deterministic Geometry Construction** | **Blender 5.2 BMesh API** | Native Binary | N/A | **0.0 GB** | **<0.1s** | **DETERMINISTIC VERIFIED** | GPL v3 |
 | **Exact Dimension & Alignment** | **Trimesh / NumPy Engine** | Python native | N/A | **0.0 GB** | **<0.05s** | **DETERMINISTIC VERIFIED** | MIT / BSD |
+
+> [!NOTE]
+> **Phase 3.1.1 Production Hardening Updates:**
+> - **Fine-Grained 9-State `ModelStatus` Enum:** Distinguishes `MISSING`, `FOUND_UNVERIFIED`, `VERIFIED_OFFLINE`, `RUNTIME_READY`, `INFERENCE_VERIFIED`, `VERIFIED_ON_HARDWARE`, `DEPENDENCIES_MISSING`, `INCOMPATIBLE`, and `FAILED`.
+> - **Persistent Verification Receipts:** Cached in `.model_verification_receipts.json` with timestamped verification metadata.
+> - **Automated GPU Broker Heartbeat:** Thread-safe background renewal prevents lock timeouts during extended neural segmentation and multimodal tasks (>15 min).
+> - **In-Place Geometry Vertex Editing:** `scale_axis` operates in-place on target component vertices, preventing face re-ordering and ensuring non-target components maintain 0.00% deviation.
 
 > [!IMPORTANT]
 > **Zero Simulation Principle:** When PartField is active, components are tagged `methods_used=["partfield_neural"]`. When geometric feature fields run, they are tagged `methods_used=["geometric_feature_field"]`. When visual component perception runs, proposals are tagged `inference_source="qwen3_vl_multimodal"`. The system **never** fabricates AI results from geometric heuristics.

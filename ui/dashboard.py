@@ -776,7 +776,14 @@ def load_latest_job():
     if not jobs_dir.exists():
         return None, None, None, None, render_stats_table(get_mesh_metrics(None)), render_job_status("", "NO_JOBS", 0, 0.0), render_stage_bar(0, "prompt"), "No previous jobs found in jobs/ folder.", "No artifacts found.", ""
 
-    for item in sorted(jobs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+    job_dirs = []
+    for p in jobs_dir.iterdir():
+        try:
+            if p.is_dir():
+                job_dirs.append(p)
+        except (OSError, FileNotFoundError):
+            continue
+    for item in sorted(job_dirs, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
         if item.is_dir():
             out_mesh = None
             for m_cand in [

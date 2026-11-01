@@ -201,9 +201,21 @@ class GPUBroker:
         lease_id = self.acquire(client_name, timeout=timeout)
         if not lease_id:
             raise TimeoutError(f"Could not acquire GPU lease for '{client_name}' within {timeout}s.")
+
+        # Background heartbeat thread to keep long-running tasks (>15 min) active
+        stop_event = threading.Event()
+        def _heartbeat_worker():
+            while not stop_event.wait(60.0):
+                self.heartbeat(lease_id=lease_id)
+
+        heartbeat_thread = threading.Thread(target=_heartbeat_worker, daemon=True)
+        heartbeat_thread.start()
+
         try:
             yield self
         finally:
+            stop_event.set()
+            heartbeat_thread.join(timeout=1.0)
             self.release(client_name=client_name, lease_id=lease_id)
 
     def get_status(self) -> Dict[str, Any]:

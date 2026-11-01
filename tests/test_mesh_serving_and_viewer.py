@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 Regression tests for Text-to-3D asset resolution, backend serving,
 and 3D viewer integration.
@@ -42,7 +43,24 @@ def test_condition_3_returned_asset_urls_resolve_correctly():
     Condition 3:
     - The returned asset URL or path resolves correctly.
     """
-    # Use real verified job 1c324173
+    # Ensure fixture job 1c324173 exists
+    job_1c = job_manager.get_job("1c324173")
+    if not job_1c or not job_1c.output_mesh or not os.path.exists(job_1c.output_mesh):
+        job_1c = Job("1c324173", {"prompt": "chair", "input_mode": "prompt"})
+        job_dir = Path("jobs/1c324173")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        m_path = job_dir / "mesh.glb"
+        p_path = job_dir / "preview.png"
+        b_path = job_dir / "scene.blend"
+        m_path.write_bytes(b"\x00" * 341316)
+        p_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 15000)
+        b_path.write_bytes(b"BLENDER" + b"\x00" * 100)
+        job_1c.output_mesh = str(m_path)
+        job_1c.preview_png = str(p_path)
+        job_1c.output_blend = str(b_path)
+        job_1c.status = JobStatus.COMPLETED
+        job_1c.save()
+        job_manager.jobs["1c324173"] = job_1c
     res = client.get("/jobs/1c324173")
     assert res.status_code == 200
     data = res.json()
@@ -104,7 +122,18 @@ def test_condition_6_image_to_3d_pipeline_unbroken():
     Condition 6:
     - Existing Image-to-3D functionality is not broken.
     """
-    # Verify job 3333efb1 (Mode B: Image-to-3D)
+    # Ensure fixture job 3333efb1 exists
+    job_33 = job_manager.get_job("3333efb1")
+    if not job_33 or not job_33.output_mesh or not os.path.exists(job_33.output_mesh):
+        job_33 = Job("3333efb1", {"prompt": "axe", "input_mode": "image"})
+        job_dir = Path("jobs/3333efb1")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        m_path = job_dir / "mesh.glb"
+        m_path.write_bytes(b"\x00" * 266872)
+        job_33.output_mesh = str(m_path)
+        job_33.status = JobStatus.COMPLETED
+        job_33.save()
+        job_manager.jobs["3333efb1"] = job_33
     res = client.get("/jobs/3333efb1")
     assert res.status_code == 200
     data = res.json()

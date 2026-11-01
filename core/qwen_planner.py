@@ -210,8 +210,10 @@ class QwenPlanner:
 
     def resolve_model_path(self) -> str:
         """Resolves local Qwen GGUF model path from central model_path_resolver."""
-        if self._explicit_model_path and os.path.exists(self._explicit_model_path):
-            return self._explicit_model_path
+        if self._explicit_model_path:
+            if os.path.exists(self._explicit_model_path):
+                return self._explicit_model_path
+            raise FileNotFoundError(f"Qwen GGUF model not found at {self._explicit_model_path}")
 
         from core.model_paths import model_path_resolver
         p = model_path_resolver.resolve_qwen_coder_path()
@@ -478,6 +480,7 @@ class QwenPlanner:
         geometry_report: Optional[Any] = None,
         semantic_proposal: Optional[Any] = None,
         max_tokens: int = 512,
+        require_neural: bool = False,
     ) -> ComponentEditPlan:
         """
         Generates a structured ComponentEditPlan using Qwen Coder or dynamic regex fallback.
@@ -550,25 +553,34 @@ class QwenPlanner:
             )
 
             try:
-                self._load_model()
-                if self._llm:
-                    output = self._llm(
-                        prompt,
-                        max_tokens=max_tokens,
-                        temperature=0.1,
-                        stop=["<|im_end|>", "<|endoftext|>"]
-                    )
-                    raw_text = output["choices"][0]["text"].strip()
-                    plan = self._parse_component_edit_plan(raw_text, hierarchy, user_instruction)
-                    if plan:
-                        return plan
+                with gpu_broker.lease("Qwen_Component_Planner", timeout=120.0):
+                    try:
+                        self._load_model()
+                        if self._llm:
+                            output = self._llm(
+                                prompt,
+                                max_tokens=max_tokens,
+                                temperature=0.1,
+                                stop=["<|im_end|>", "<|endoftext|>"]
+                            )
+                            raw_text = output["choices"][0]["text"].strip()
+                            plan = self._parse_component_edit_plan(raw_text, hierarchy, user_instruction)
+                            if plan:
+                                plan.execution_provenance = "qwen_coder_neural"
+                                return plan
+                    finally:
+                        self._unload_model()
             except Exception as e:
+                if require_neural:
+                    raise RuntimeError(f"Neural planning requested (require_neural=True) but failed: {e}")
                 logger.warning(f"Qwen Coder inference failed ({e}), using dynamic semantic planner fallback.")
-            finally:
-                self._unload_model()
+        elif require_neural:
+            raise RuntimeError(f"Neural planning requested (require_neural=True) but Qwen Coder weights not found at {coder_path}")
 
         # Dynamic semantic planner fallback (supports arbitrary percentages & fuzzy label matching)
-        return self._dynamic_rule_edit_plan(user_instruction, hierarchy, candidate_nodes, label_to_cid)
+        plan = self._dynamic_rule_edit_plan(user_instruction, hierarchy, candidate_nodes, label_to_cid)
+        plan.execution_provenance = "dynamic_rule_fallback"
+        return plan
 
     def _parse_component_edit_plan(self, text: str, hierarchy: Any, instruction: str) -> Optional[ComponentEditPlan]:
         """Parses model JSON and validates component IDs exist in hierarchy."""
@@ -594,13 +606,18 @@ class QwenPlanner:
                 data["target_component_ids"] = valid_targets
 
             # Semantic match verification: ensure user-specified noun matches target label
-            inst_lower = instruction.lower()
+            action_clause = instruction.lower()
+            for split_word in [" without ", " preserving ", " keeping ", " while preserving "]:
+                if split_word in action_clause:
+                    action_clause = action_clause.split(split_word)[0]
+                    break
+
             known_nouns = [
                 "armrest", "headrest", "backrest", "back", "seat", "cushion", "leg", "legs",
                 "blade", "guard", "crossguard", "hilt", "pommel", "handle", "grip",
                 "wheel", "tire", "wing", "spoilers", "propeller", "door", "drawer", "shelf"
             ]
-            mentioned = [w for w in known_nouns if w in inst_lower]
+            mentioned = [w for w in known_nouns if w in action_clause]
             if mentioned and valid_targets and data.get("status") != "NEEDS_COMPONENT_CONFIRMATION":
                 target_matched = False
                 for tid in valid_targets:
@@ -655,13 +672,19 @@ class QwenPlanner:
         elif "all" in inst_lower or "overall" in inst_lower or "uniform" in inst_lower:
             axis = "all"
 
-        # 3. Match target component
+        # 3. Match target component from action clause (ignore invariant clause)
+        action_text = inst_lower
+        for split_word in [" without ", " preserving ", " keeping ", " while preserving "]:
+            if split_word in action_text:
+                action_text = action_text.split(split_word)[0]
+                break
+
         matched_cid = None
         matched_label = None
 
         # Check semantic labels from VLM
         for lbl, cid in label_to_cid.items():
-            if lbl in inst_lower:
+            if lbl in action_text:
                 matched_cid = cid
                 matched_label = lbl
                 break
@@ -670,7 +693,7 @@ class QwenPlanner:
         if not matched_cid:
             for cid, node in candidate_nodes.items():
                 lbl = getattr(node, "semantic_label", "").lower()
-                if lbl and lbl in inst_lower:
+                if lbl and lbl in action_text:
                     matched_cid = cid
                     matched_label = lbl
                     break
@@ -679,7 +702,7 @@ class QwenPlanner:
         if not matched_cid:
             keywords = ["backrest", "back", "seat", "cushion", "leg", "legs", "blade", "grip", "handle", "crossguard", "pommel", "armrest", "frame"]
             for kw in keywords:
-                if kw in inst_lower:
+                if kw in action_text:
                     # Look for candidate containing this keyword
                     for cid, node in candidate_nodes.items():
                         lbl = getattr(node, "semantic_label", "").lower()

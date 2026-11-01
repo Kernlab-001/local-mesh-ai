@@ -208,6 +208,7 @@ class PartFieldAdapter(Base3DEngine):
             "worker_script_exists": self.worker_script.exists(),
             "partfield_repo_path": str(repo) if repo else None,
             "partfield_repo_exists": bool(repo and repo.exists()),
+            "geometric_feature_field_fallback_ready": True,
             "python_bin": self.resolve_python_bin(),
             "license": "NVIDIA Proprietary / Non-Commercial Research License",
             "notes": (
@@ -276,10 +277,13 @@ class PartFieldAdapter(Base3DEngine):
         self,
         mesh_or_path: Any,
         num_clusters: int = 4,
+        num_parts: Optional[int] = None,
         output_dir: Optional[str] = None,
         allow_fallback: bool = True,
         device: str = "cuda",
     ) -> ComponentHierarchy:
+        if num_parts is not None:
+            num_clusters = num_parts
         """Decomposes a mesh into candidate components using PartField or geometric feature fields.
 
         Returns a complete, typed ComponentHierarchy with honest provenance.
@@ -461,6 +465,7 @@ class PartFieldAdapter(Base3DEngine):
                 relative_z_position=min(1.0, max(0.0, rel_z)),
                 segmentation_method="partfield_neural",
                 submesh_path=c.get("submesh_path"),
+                face_indices=c.get("face_indices", []),
             )
 
         root_node = ComponentNode(
@@ -479,6 +484,7 @@ class PartFieldAdapter(Base3DEngine):
             relative_z_position=0.5,
             segmentation_method="atomic_single",
             submesh_path=mesh_path,
+            face_indices=list(range(len(mesh.faces))),
         )
         components_dict[root_node.component_id] = root_node
 
@@ -494,7 +500,86 @@ class PartFieldAdapter(Base3DEngine):
         )
 
 
-    decompose_partfield_neural = decompose_mesh
+    def decompose_partfield_neural(
+        self,
+        mesh_or_path: Any,
+        num_clusters: int = 4,
+        num_parts: Optional[int] = None,
+        output_dir: Optional[str] = None,
+        allow_fallback: bool = True,
+        device: str = "cuda",
+    ) -> ComponentHierarchy:
+        """Executes genuine PartField neural segmentation with num_parts alias support."""
+        k = num_parts if num_parts is not None else num_clusters
+        return self.decompose_mesh(
+            mesh_or_path=mesh_or_path,
+            num_clusters=k,
+            num_parts=None,
+            output_dir=output_dir,
+            allow_fallback=allow_fallback,
+            device=device,
+        )
+
+    def check_runtime_environment(self) -> Dict[str, Any]:
+        """Verifies environment readiness for PartField neural inference."""
+        ckpt = self.resolve_checkpoint()
+        repo = self.resolve_partfield_repo()
+        python_bin = self.resolve_python_bin()
+
+        res = {
+            "python_executable": python_bin,
+            "python_exists": os.path.exists(python_bin),
+            "checkpoint_path": str(ckpt) if ckpt else None,
+            "checkpoint_exists": bool(ckpt and ckpt.exists()),
+            "repo_path": str(repo) if repo else None,
+            "repo_exists": bool(repo and repo.exists()),
+            "worker_script_path": str(self.worker_script),
+            "worker_script_exists": self.worker_script.exists(),
+            "torch_available": False,
+            "cuda_available": False,
+            "scipy_available": False,
+            "trimesh_available": False,
+            "ready": False,
+            "reason": None,
+        }
+        if res["python_exists"]:
+            try:
+                proc = subprocess.run(
+                    [python_bin, "-c", "import torch, scipy, trimesh; print(torch.__version__, torch.cuda.is_available())"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if proc.returncode == 0:
+                    parts = proc.stdout.strip().split()
+                    res["torch_available"] = True
+                    res["cuda_available"] = (parts[-1].lower() == "true")
+                    res["scipy_available"] = True
+                    res["trimesh_available"] = True
+                else:
+                    res["reason"] = proc.stderr[:200]
+            except Exception as e:
+                res["reason"] = str(e)
+
+        res["ready"] = bool(
+            res["checkpoint_exists"]
+            and res["repo_exists"]
+            and res["worker_script_exists"]
+            and res["torch_available"]
+        )
+        return res
+
+    def get_model_status(self):
+        """Returns truthful ModelStatus enum from core.model_paths."""
+        from core.model_paths import ModelStatus
+        env = self.check_runtime_environment()
+        if not env["checkpoint_exists"]:
+            return ModelStatus.MISSING
+        if not env["repo_exists"] or not env["worker_script_exists"] or not env["torch_available"]:
+            return ModelStatus.DEPENDENCIES_MISSING
+        if env["ready"]:
+            return ModelStatus.RUNTIME_READY
+        return ModelStatus.FAILED
 
 
 partfield_adapter = PartFieldAdapter()

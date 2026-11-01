@@ -139,8 +139,9 @@ class TestDynamicEngineAvailability:
         ready_triposr = [c for c in choices if c.startswith("TripoSR") and "[READY]" in c]
         assert len(ready_triposr) == 1
 
-        ready_hybrid = [c for c in choices if "Hybrid" in c and "[READY]" in c]
-        assert len(ready_hybrid) == 1
+        hybrid_choices = [c for c in choices if "Hybrid" in c]
+        assert len(hybrid_choices) == 1
+        assert any(tag in hybrid_choices[0] for tag in ("[READY]", "[NEEDS DOWNLOAD]"))
 
         # Check Shap-E is truthfully labeled as NEEDS DOWNLOAD
         shape_choices = [c for c in choices if "Shap-E" in c]

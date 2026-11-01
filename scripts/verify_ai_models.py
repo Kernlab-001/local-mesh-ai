@@ -1,9 +1,9 @@
 """
-Standalone AI Model Verification CLI for Local Mesh AI (Phase 3.1).
+Standalone AI Model Verification CLI for Local Mesh AI (Phase 3.1.1).
 Audits physical model presence, file sizes, format, license details,
 GPU VRAM budget, and executes honest sequential smoke tests.
 
-Zero simulation: Reports truthful status (VERIFIED OPERATIONAL, WEIGHTS_MISSING, DEPENDENCIES_MISSING).
+Zero simulation: Reports truthful status (MISSING, RUNTIME_READY, INFERENCE_VERIFIED, VERIFIED_ON_HARDWARE).
 """
 
 import os
@@ -29,7 +29,7 @@ if sys.platform == "win32":
                 pass
 
 import torch
-from core.model_paths import model_path_resolver
+from core.model_paths import model_path_resolver, ModelStatus
 from core.gpu_broker import gpu_broker
 
 
@@ -53,7 +53,14 @@ def audit_models() -> List[Dict[str, Any]]:
     coder_path = model_path_resolver.resolve_qwen_coder_path()
     coder_exists = coder_path is not None and coder_path.exists()
     coder_size = get_file_size_str(coder_path)
-    coder_status = "VERIFIED OPERATIONAL" if coder_exists else "WEIGHTS_MISSING"
+    coder_rec = model_path_resolver.get_verification("qwen_coder")
+    if coder_rec:
+        coder_status = coder_rec.get("status", ModelStatus.INFERENCE_VERIFIED.value)
+    elif coder_exists:
+        coder_status = ModelStatus.RUNTIME_READY.value
+    else:
+        coder_status = ModelStatus.MISSING.value
+
     inventory.append({
         "id": "qwen_coder",
         "name": "Qwen 2.5 Coder (Instruct)",
@@ -74,12 +81,16 @@ def audit_models() -> List[Dict[str, Any]]:
     pf_worker = PROJECT_ROOT / "workers" / "partfield" / "run_segmentation.py"
     pf_exists = pf_ckpt is not None and pf_ckpt.exists()
     pf_size = get_file_size_str(pf_ckpt)
-    if pf_exists and pf_worker.exists() and pf_repo:
-        pf_status = "VERIFIED OPERATIONAL"
+    pf_rec = model_path_resolver.get_verification("partfield")
+    if pf_rec:
+        pf_status = pf_rec.get("status", ModelStatus.INFERENCE_VERIFIED.value)
+    elif pf_exists and pf_worker.exists() and pf_repo and pf_repo.exists():
+        pf_status = ModelStatus.RUNTIME_READY.value
     elif pf_exists:
-        pf_status = "DEPENDENCIES_MISSING"
+        pf_status = ModelStatus.DEPENDENCIES_MISSING.value
     else:
-        pf_status = "WEIGHTS_MISSING"
+        pf_status = ModelStatus.MISSING.value
+
     inventory.append({
         "id": "partfield",
         "name": "NVIDIA PartField (Continuous Feature Fields)",
@@ -101,7 +112,16 @@ def audit_models() -> List[Dict[str, Any]]:
     vlm_size = get_file_size_str(vlm_path)
     mmproj_size = get_file_size_str(mmproj_path)
     total_vlm_size = f"{vlm_size} + mmproj {mmproj_size}" if mmproj_path and mmproj_path.exists() else vlm_size
-    vlm_status = "VERIFIED OPERATIONAL" if (vlm_exists and mmproj_path and mmproj_path.exists()) else ("WEIGHTS_MISSING" if not vlm_exists else "MMPROJ_MISSING")
+    vlm_rec = model_path_resolver.get_verification("qwen3_vl")
+    if vlm_rec:
+        vlm_status = vlm_rec.get("status", ModelStatus.INFERENCE_VERIFIED.value)
+    elif vlm_exists and mmproj_path and mmproj_path.exists():
+        vlm_status = ModelStatus.RUNTIME_READY.value
+    elif vlm_exists:
+        vlm_status = ModelStatus.DEPENDENCIES_MISSING.value
+    else:
+        vlm_status = ModelStatus.MISSING.value
+
     inventory.append({
         "id": "qwen3_vl",
         "name": "Qwen3-VL 4B Instruct",
@@ -120,7 +140,14 @@ def audit_models() -> List[Dict[str, Any]]:
     triposr_ckpt = model_path_resolver.resolve_triposr_checkpoint()
     triposr_exists = triposr_ckpt is not None and triposr_ckpt.exists()
     triposr_size = get_file_size_str(triposr_ckpt)
-    triposr_status = "VERIFIED OPERATIONAL" if triposr_exists else "WEIGHTS_MISSING"
+    triposr_rec = model_path_resolver.get_verification("triposr")
+    if triposr_rec:
+        triposr_status = triposr_rec.get("status", ModelStatus.INFERENCE_VERIFIED.value)
+    elif triposr_exists:
+        triposr_status = ModelStatus.RUNTIME_READY.value
+    else:
+        triposr_status = ModelStatus.MISSING.value
+
     inventory.append({
         "id": "triposr",
         "name": "TripoSR (Feedforward Volumetric)",
@@ -139,7 +166,8 @@ def audit_models() -> List[Dict[str, Any]]:
     sd_weights = model_path_resolver.resolve_sdturbo_weights()
     sd_exists = sd_weights is not None and sd_weights.exists()
     sd_size = get_file_size_str(sd_weights)
-    sd_status = "VERIFIED OPERATIONAL" if sd_exists else "WEIGHTS_MISSING"
+    sd_status = ModelStatus.RUNTIME_READY.value if sd_exists else ModelStatus.MISSING.value
+
     inventory.append({
         "id": "sd_turbo",
         "name": "SD-Turbo (Stability AI)",
@@ -159,7 +187,7 @@ def audit_models() -> List[Dict[str, Any]]:
 
 def print_table(inventory: List[Dict[str, Any]]):
     print("=" * 115)
-    print("LOCAL MESH AI — LOCAL AI MODEL RUNTIME INVENTORY (PHASE 3.1)")
+    print("LOCAL MESH AI — LOCAL AI MODEL RUNTIME INVENTORY (PHASE 3.1.1)")
     print("=" * 115)
     print(f"{'Model Name':<28} | {'Role':<28} | {'Size':<12} | {'Format':<14} | {'Status'}")
     print("-" * 115)
@@ -179,7 +207,7 @@ def run_smoke_tests() -> Dict[str, Any]:
     # Smoke Test 1: PartField Worker
     pf_ckpt = model_path_resolver.resolve_partfield_checkpoint()
     if pf_ckpt and pf_ckpt.exists():
-        print("\n[Smoke 1/3] Testing NVIDIA PartField neural worker...")
+        print("\n[Smoke 1/4] Testing NVIDIA PartField neural worker...")
         from core.engines.partfield_adapter import partfield_adapter
         test_mesh = PROJECT_ROOT / "scratch" / "test_chair.obj"
         if test_mesh.exists():
@@ -188,7 +216,7 @@ def run_smoke_tests() -> Dict[str, Any]:
             res = partfield_adapter.decompose_partfield_neural(str(test_mesh), num_parts=4)
             dt = time.time() - t0
             vram_peak = torch.cuda.max_memory_allocated() if torch.cuda.is_available() else 0
-            success = res is not None and len(res.components) > 1
+            success = res is not None and len(res.components) > 1 and "partfield_neural" in res.methods_used
             results["partfield"] = {
                 "success": success,
                 "duration_seconds": round(dt, 2),
@@ -196,57 +224,96 @@ def run_smoke_tests() -> Dict[str, Any]:
                 "methods_used": res.methods_used if res else [],
                 "peak_vram_mb": round((vram_peak - vram_before) / (1024 ** 2), 1)
             }
-            print(f"  -> PartField: {results['partfield']['components_detected']} components in {dt:.2f}s (Methods: {res.methods_used})")
+            if success:
+                model_path_resolver.record_verification("partfield", ModelStatus.INFERENCE_VERIFIED.value, results["partfield"])
+            print(f"  -> PartField: {results['partfield']['components_detected']} components in {dt:.2f}s (Methods: {res.methods_used if res else []})")
     else:
         results["partfield"] = {"success": False, "reason": "WEIGHTS_MISSING"}
 
-    # Smoke Test 2: Qwen3-VL
+    # Smoke Test 2: Qwen3-VL Multimodal
     vlm_path = model_path_resolver.resolve_qwen3_vl_path()
     if vlm_path and vlm_path.exists():
-        print("\n[Smoke 2/3] Testing Qwen3-VL multimodal image perception...")
+        print("\n[Smoke 2/4] Testing Qwen3-VL multimodal image perception...")
         from core.engines.vision_language_adapter import vision_language_adapter
         from PIL import Image
-        test_img = PROJECT_ROOT / "scratch" / "renders" / "render_iso.png"
+        test_img = PROJECT_ROOT / "scratch" / "renders" / "view_perspective.png"
+        if not test_img.exists():
+            test_img = PROJECT_ROOT / "scratch" / "view_perspective.png"
+        if not test_img.exists():
+            # Generate fallback view
+            test_mesh = PROJECT_ROOT / "scratch" / "test_chair.obj"
+            if test_mesh.exists():
+                import trimesh
+                m = trimesh.load(str(test_mesh), force="mesh")
+                test_img.parent.mkdir(parents=True, exist_ok=True)
+                vision_language_adapter._render_view(m, str(test_img), (0.707, 0.5, 0.707))
+
         if test_img.exists():
             t0 = time.time()
             vram_before = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
             prompt = "What 3D object is shown in this rendering? Respond in 5 words."
-            reply = vision_language_adapter._run_multimodal_inference(prompt, [Image.open(test_img)])
+            reply = vision_language_adapter.run_multimodal_inference(prompt, [Image.open(test_img)])
             dt = time.time() - t0
             vram_peak = torch.cuda.max_memory_allocated() if torch.cuda.is_available() else 0
+            success = bool(reply and len(reply.strip()) > 0)
             results["qwen3_vl"] = {
-                "success": bool(reply),
+                "success": success,
                 "duration_seconds": round(dt, 2),
                 "response_sample": reply[:80] if reply else "",
                 "peak_vram_mb": round((vram_peak - vram_before) / (1024 ** 2), 1)
             }
+            if success:
+                model_path_resolver.record_verification("qwen3_vl", ModelStatus.INFERENCE_VERIFIED.value, results["qwen3_vl"])
             print(f"  -> Qwen3-VL: Generated '{reply[:50]}...' in {dt:.2f}s")
     else:
         results["qwen3_vl"] = {"success": False, "reason": "WEIGHTS_MISSING"}
 
-    # Smoke Test 3: Qwen Planner Edit Plan
+    # Smoke Test 3: Qwen Coder Dynamic Edit Plan
     coder_path = model_path_resolver.resolve_qwen_coder_path()
-    print("\n[Smoke 3/3] Testing Qwen Coder dynamic edit planning...")
-    from core.qwen_planner import qwen_planner
-    from core.component_decomposer import component_decomposer
-    test_mesh = PROJECT_ROOT / "scratch" / "test_chair.obj"
-    if test_mesh.exists():
-        hierarchy = component_decomposer.decompose(str(test_mesh))
-        t0 = time.time()
-        plan = qwen_planner.generate_component_edit_plan(
-            user_instruction="Make the backrest 23% taller",
-            hierarchy=hierarchy
-        )
-        dt = time.time() - t0
-        results["qwen_coder"] = {
-            "success": plan.status == "READY",
-            "duration_seconds": round(dt, 2),
-            "scale_factor": plan.scale_factor,
-            "axis": plan.axis,
-            "invariants_count": len(plan.invariants),
-            "target": plan.target_component_ids
+    if coder_path and coder_path.exists():
+        print("\n[Smoke 3/4] Testing Qwen Coder technical-artist planning...")
+        from core.qwen_planner import qwen_planner
+        from core.component_decomposer import component_decomposer
+        test_mesh = PROJECT_ROOT / "scratch" / "test_chair.obj"
+        if test_mesh.exists():
+            hierarchy = component_decomposer.decompose(str(test_mesh))
+            t0 = time.time()
+            plan = qwen_planner.generate_component_edit_plan(
+                user_instruction="Make the upper_structure 23% taller",
+                hierarchy=hierarchy,
+                require_neural=False
+            )
+            dt = time.time() - t0
+            success = plan.status == "READY"
+            results["qwen_coder"] = {
+                "success": success,
+                "duration_seconds": round(dt, 2),
+                "provenance": plan.execution_provenance,
+                "scale_factor": plan.scale_factor,
+                "axis": plan.axis,
+                "invariants_count": len(plan.invariants),
+                "target": plan.target_component_ids
+            }
+            if success and plan.execution_provenance == "qwen_coder_neural":
+                model_path_resolver.record_verification("qwen_coder", ModelStatus.INFERENCE_VERIFIED.value, results["qwen_coder"])
+            print(f"  -> Qwen Planner: Target {plan.target_component_ids}, Factor {plan.scale_factor}, Invariants {len(plan.invariants)} in {dt:.2f}s ({plan.execution_provenance})")
+    else:
+        results["qwen_coder"] = {"success": False, "reason": "WEIGHTS_MISSING"}
+
+    # Smoke Test 4: TripoSR Foundation
+    triposr_ckpt = model_path_resolver.resolve_triposr_checkpoint()
+    if triposr_ckpt and triposr_ckpt.exists():
+        print("\n[Smoke 4/4] Testing TripoSR foundation model status...")
+        results["triposr"] = {
+            "success": True,
+            "checkpoint_path": str(triposr_ckpt),
+            "size_str": get_file_size_str(triposr_ckpt),
+            "status": "READY"
         }
-        print(f"  -> Qwen Planner: Target {plan.target_component_ids}, Factor {plan.scale_factor}, Invariants {len(plan.invariants)} in {dt:.2f}s")
+        model_path_resolver.record_verification("triposr", ModelStatus.RUNTIME_READY.value, results["triposr"])
+        print(f"  -> TripoSR: Ready ({results['triposr']['size_str']})")
+    else:
+        results["triposr"] = {"success": False, "reason": "WEIGHTS_MISSING"}
 
     return results
 

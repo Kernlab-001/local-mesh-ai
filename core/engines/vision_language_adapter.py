@@ -44,6 +44,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from core.command_schemas import ComponentSemanticAssignment, ComponentSemanticProposal
 from core.component_decomposer import ComponentHierarchy, ComponentNode
+from core.gpu_broker import gpu_broker
 from core.hardware_detector import hardware_detector
 from core.model_paths import model_path_resolver
 
@@ -95,17 +96,18 @@ class VisionLanguageAdapter:
         output_dir: str,
         hierarchy: Optional[ComponentHierarchy] = None,
     ) -> MultiViewRenderResult:
-        """Generates 6-view renders and an ID-colored mask render."""
+        """Generates 6 distinct camera view renders and an ID-colored component mask render."""
         os.makedirs(output_dir, exist_ok=True)
         render_paths = {}
 
+        # Angles corresponding to camera look directions from camera to mesh center
         angles = {
-            "front": (0, 0, 1),
-            "back": (0, 0, -1),
-            "left": (-1, 0, 0),
-            "right": (1, 0, 0),
-            "top": (0, 1, 0),
-            "perspective": (0.7, 0.7, 0.7),
+            "front": (0.0, 0.0, 1.0),
+            "back": (0.0, 0.0, -1.0),
+            "left": (-1.0, 0.0, 0.0),
+            "right": (1.0, 0.0, 0.0),
+            "top": (0.0, 1.0, 0.0),
+            "perspective": (0.707, 0.5, 0.707),
         }
 
         for view_name, direction in angles.items():
@@ -117,9 +119,10 @@ class VisionLanguageAdapter:
         mask_path = os.path.join(output_dir, "view_component_masks.png")
 
         if hierarchy and hierarchy.components:
-            colored_mesh = mesh.copy()
-            # Assign solid distinct vertex colors per component
-            colors = np.ones((len(colored_mesh.vertices), 4), dtype=np.uint8) * 180
+            num_faces = len(mesh.faces)
+            face_colors = np.zeros((num_faces, 3), dtype=np.uint8)
+            face_colors[:] = [120, 125, 135]  # Neutral background
+
             pal_idx = 0
             for cid, node in hierarchy.components.items():
                 if "root" in cid.lower() or "assembly" in cid.lower():
@@ -128,7 +131,23 @@ class VisionLanguageAdapter:
                 color_legend[cid] = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
                 pal_idx += 1
 
-            self._render_view(colored_mesh, mask_path, (0.7, 0.7, 0.7))
+                # Apply to face indices of this component
+                if hasattr(node, "face_indices") and node.face_indices:
+                    for f_idx in node.face_indices:
+                        if 0 <= f_idx < num_faces:
+                            face_colors[f_idx] = rgb
+                elif hasattr(node, "bounds") and node.bounds:
+                    # Spatial fallback if face_indices empty
+                    b = node.bounds
+                    centroids = mesh.triangles_center
+                    mask = (
+                        (centroids[:, 0] >= b.min_point[0] - 1e-4) & (centroids[:, 0] <= b.max_point[0] + 1e-4) &
+                        (centroids[:, 1] >= b.min_point[1] - 1e-4) & (centroids[:, 1] <= b.max_point[1] + 1e-4) &
+                        (centroids[:, 2] >= b.min_point[2] - 1e-4) & (centroids[:, 2] <= b.max_point[2] + 1e-4)
+                    )
+                    face_colors[mask] = rgb
+
+            self._render_view(mesh, mask_path, (0.707, 0.5, 0.707), face_colors=face_colors)
 
         return MultiViewRenderResult(
             render_paths=render_paths,
@@ -136,41 +155,85 @@ class VisionLanguageAdapter:
             color_legend=color_legend,
         )
 
-    def _render_view(self, mesh: trimesh.Trimesh, output_path: str, direction: Tuple[float, float, float]):
-        """Renders an image of mesh to disk."""
-        try:
-            scene = mesh.scene()
-            png_bytes = scene.save_image(resolution=(512, 512))
-            with open(output_path, "wb") as f:
-                f.write(png_bytes)
-        except Exception:
-            self._generate_fallback_view_image(output_path, mesh, direction)
-
-    def _generate_fallback_view_image(self, path: str, mesh: trimesh.Trimesh, direction: Tuple[float, float, float]):
-        """Generates a clean 512x512 projection silhouette image."""
+    def _render_view(
+        self,
+        mesh: trimesh.Trimesh,
+        output_path: str,
+        direction: Tuple[float, float, float],
+        face_colors: Optional[np.ndarray] = None,
+    ):
+        """Renders true 3D camera projection image to disk with occlusion depth sorting."""
         try:
             from PIL import Image, ImageDraw
 
-            img = Image.new("RGB", (512, 512), (35, 38, 42))
+            img = Image.new("RGB", (512, 512), (32, 35, 40))
             draw = ImageDraw.Draw(img)
 
-            v = mesh.vertices - mesh.centroid
+            # Camera look-at coordinate frame:
+            # forward: pointing from camera to object, so cam_pos = direction * dist
+            # view_dir = -normalize(direction)
+            dir_vec = np.asarray(direction, dtype=float)
+            dir_norm = np.linalg.norm(dir_vec)
+            if dir_norm < 1e-6:
+                dir_vec = np.array([0.0, 0.0, 1.0])
+                dir_norm = 1.0
+            forward = -dir_vec / dir_norm
+
+            up_ref = np.array([0.0, 1.0, 0.0])
+            if abs(np.dot(forward, up_ref)) > 0.95:
+                up_ref = np.array([0.0, 0.0, 1.0])
+
+            right = np.cross(up_ref, forward)
+            r_norm = np.linalg.norm(right)
+            if r_norm < 1e-6:
+                right = np.array([1.0, 0.0, 0.0])
+            else:
+                right /= r_norm
+
+            up = np.cross(forward, right)
+            up /= np.linalg.norm(up)
+
+            # Transform mesh vertices to camera space: X=right, Y=up, Z=forward
+            cam_rot = np.column_stack([right, up, forward])
+            v_centered = mesh.vertices - mesh.centroid
+            v_cam = v_centered @ cam_rot
+
             ext = np.maximum(mesh.extents, 1e-4)
-            scale = 200.0 / np.max(ext)
+            scale = 210.0 / np.max(ext)
 
-            px = 256 + v[:, 0] * scale
-            py = 256 - v[:, 2] * scale
+            px = 256.0 + v_cam[:, 0] * scale
+            py = 256.0 - v_cam[:, 1] * scale
 
-            step = max(1, len(mesh.faces) // 1000)
-            for f in mesh.faces[::step]:
-                p1 = (px[f[0]], py[f[0]])
-                p2 = (px[f[1]], py[f[1]])
-                p3 = (px[f[2]], py[f[2]])
-                draw.polygon([p1, p2, p3], outline=(180, 185, 195), fill=(70, 75, 85))
+            faces = mesh.faces
+            # Depth sort faces from furthest to nearest (back-to-front painter's algorithm)
+            face_z = np.mean(v_cam[faces, 2], axis=1)
+            depth_order = np.argsort(face_z)
 
-            img.save(path)
+            # Lighting vector in camera space
+            light_cam = np.array([0.3, 0.5, 0.82])
+            light_cam /= np.linalg.norm(light_cam)
+            face_normals_cam = mesh.face_normals @ cam_rot
+
+            step = 1 if len(faces) <= 15000 else max(1, len(faces) // 15000)
+            for f_idx in depth_order[::step]:
+                f = faces[f_idx]
+                p1 = (float(px[f[0]]), float(py[f[0]]))
+                p2 = (float(px[f[1]]), float(py[f[1]]))
+                p3 = (float(px[f[2]]), float(py[f[2]]))
+
+                if face_colors is not None:
+                    rgb = tuple(int(c) for c in face_colors[f_idx])
+                    draw.polygon([p1, p2, p3], outline=rgb, fill=rgb)
+                else:
+                    dot = float(np.dot(face_normals_cam[f_idx], light_cam))
+                    intensity = 0.35 + 0.65 * max(0.0, dot)
+                    c = int(np.clip(160 * intensity, 40, 245))
+                    color = (c, int(c * 0.96), int(c * 1.05))
+                    draw.polygon([p1, p2, p3], outline=color, fill=color)
+
+            img.save(output_path)
         except Exception as e:
-            logger.warning(f"Fallback view image rendering error: {e}")
+            logger.warning(f"View rendering error for {output_path}: {e}")
 
     def interpret_components(
         self,
@@ -309,31 +372,32 @@ class VisionLanguageAdapter:
         )
         content_parts.append({"type": "text", "text": text_prompt})
 
-        # Load Qwen3-VL
+        # Load Qwen3-VL under exclusive GPU lease
         t0 = time.time()
-        handler = Qwen25VLChatHandler(clip_model_path=str(mmproj_path), verbose=False)
-        llm = Llama(
-            model_path=str(model_path),
-            chat_handler=handler,
-            n_ctx=2048,
-            n_gpu_layers=15,
-            verbose=False,
-        )
-
-        try:
-            response = llm.create_chat_completion(
-                messages=[{"role": "user", "content": content_parts}],
-                max_tokens=max_tokens,
-                temperature=0.1,
+        with gpu_broker.lease("Qwen3_VL_Multimodal", timeout=120.0):
+            handler = Qwen25VLChatHandler(clip_model_path=str(mmproj_path), verbose=False)
+            llm = Llama(
+                model_path=str(model_path),
+                chat_handler=handler,
+                n_ctx=2048,
+                n_gpu_layers=15,
+                verbose=False,
             )
-            raw_text = response["choices"][0]["message"]["content"]
-            logger.info(f"Qwen3-VL inference completed in {time.time() - t0:.2f}s")
-        finally:
-            del llm
-            del handler
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
+
+            try:
+                response = llm.create_chat_completion(
+                    messages=[{"role": "user", "content": content_parts}],
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                )
+                raw_text = response["choices"][0]["message"]["content"]
+                logger.info(f"Qwen3-VL inference completed in {time.time() - t0:.2f}s")
+            finally:
+                del llm
+                del handler
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
 
         # Parse and validate JSON
         return self._parse_and_validate_vlm_output(raw_text, candidate_ids, hierarchy)
@@ -538,6 +602,73 @@ class VisionLanguageAdapter:
             has_uncertain_components=any(a.is_uncertain for a in assignments),
             summary=f"Spatial heuristic classified {len(assignments)} components.",
         )
+
+
+    def run_multimodal_inference(
+        self,
+        prompt: str,
+        images: List[Any],
+        max_tokens: int = 256,
+    ) -> str:
+        """Executes standalone multimodal inference on Qwen3-VL under exclusive GPU lease."""
+        model_path = self.resolve_model_path()
+        mmproj_path = self.resolve_mmproj_path()
+        if not model_path or not mmproj_path:
+            raise FileNotFoundError("Qwen3-VL model or mmproj weights not found.")
+
+        # Ensure Windows DLL directory is configured for llama_cpp
+        lib_dir = PROJECT_ROOT / ".venv" / "Lib" / "site-packages" / "llama_cpp" / "lib"
+        if hasattr(os, "add_dll_directory") and lib_dir.exists():
+            os.add_dll_directory(str(lib_dir))
+
+        import torch
+        torch_lib = Path(torch.__file__).parent / "lib"
+        if hasattr(os, "add_dll_directory") and torch_lib.exists():
+            os.add_dll_directory(str(torch_lib))
+
+        from llama_cpp import Llama
+        from llama_cpp.llama_chat_format import Qwen25VLChatHandler
+
+        content_parts: List[Dict[str, Any]] = []
+        for img_item in images:
+            if isinstance(img_item, (str, Path)):
+                uri = self._encode_image_b64(str(img_item))
+                if uri:
+                    content_parts.append({"type": "image_url", "image_url": {"url": uri}})
+            elif hasattr(img_item, "save"):
+                # PIL Image
+                import io
+                buf = io.BytesIO()
+                img_item.save(buf, format="PNG")
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        content_parts.append({"type": "text", "text": prompt})
+
+        with gpu_broker.lease("Qwen3_VL_Multimodal", timeout=120.0):
+            handler = Qwen25VLChatHandler(clip_model_path=str(mmproj_path), verbose=False)
+            llm = Llama(
+                model_path=str(model_path),
+                chat_handler=handler,
+                n_ctx=2048,
+                n_gpu_layers=15,
+                verbose=False,
+            )
+            try:
+                response = llm.create_chat_completion(
+                    messages=[{"role": "user", "content": content_parts}],
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                )
+                return response["choices"][0]["message"]["content"]
+            finally:
+                del llm
+                del handler
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+
+    _run_multimodal_inference = run_multimodal_inference
 
 
 vision_language_adapter = VisionLanguageAdapter()
