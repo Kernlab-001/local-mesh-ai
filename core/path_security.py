@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def get_data_dir() -> Path:
     """Returns the base data storage directory for Local Mesh AI."""
-    env_dir = os.environ.get("LOCAL_MESH_DATA_DIR")
+    env_dir = os.environ.get("LOCAL_MESH_DATA_DIR") or os.environ.get("LOCAL_MESH_AI_DATA_DIR")
     if env_dir:
         d = Path(env_dir).resolve()
     else:
