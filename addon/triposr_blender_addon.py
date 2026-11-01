@@ -138,31 +138,42 @@ def check_server_health(url=DEFAULT_SERVER_URL, timeout=0.8):
 
 
 
+import queue
+
+_addon_result_queue = queue.Queue()
+
+
+def _process_addon_result_queue():
+    """Pumps background worker results exclusively on Blender's main thread."""
+    while not _addon_result_queue.empty():
+        try:
+            cb, arg, is_error = _addon_result_queue.get_nowait()
+            if cb:
+                try:
+                    cb(arg)
+                except Exception as ex:
+                    print(f"[LocalMeshAI] Error in main-thread callback: {ex}")
+            _addon_result_queue.task_done()
+        except queue.Empty:
+            break
+        except Exception as e:
+            print(f"[LocalMeshAI] Error pumping result queue: {e}")
+    return 0.05  # Check queue every 50ms
+
+
 def run_in_background(task_func, on_success=None, on_error=None):
     """
     Executes a network or compute task on a background daemon thread without blocking Blender.
-    When complete, safely schedules on_success(res) or on_error(err) on Blender's main thread via bpy.app.timers.
+    Worker threads NEVER call bpy API functions directly; results are placed onto a thread-safe queue.
     """
     def _worker():
         try:
             res = task_func()
             if on_success:
-                def _main_success():
-                    try:
-                        on_success(res)
-                    except Exception as ex:
-                        print(f"[LocalMeshAI] Error in main-thread success callback: {ex}")
-                    return None
-                bpy.app.timers.register(_main_success, first_interval=0.01)
+                _addon_result_queue.put((on_success, res, False))
         except Exception as e:
             if on_error:
-                def _main_error():
-                    try:
-                        on_error(e)
-                    except Exception as ex:
-                        print(f"[LocalMeshAI] Error in main-thread error callback: {ex}")
-                    return None
-                bpy.app.timers.register(_main_error, first_interval=0.01)
+                _addon_result_queue.put((on_error, e, True))
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -447,6 +458,83 @@ class LocalMeshProperties(bpy.types.PropertyGroup):
     ai_component_count: IntProperty(name="Component Count", default=0)
     ai_candidate_components_json: StringProperty(name="Candidates JSON", default="[]")
     ai_last_history: StringProperty(name="Last Result", default="")
+
+    # --- Phase 7 Finishing Studio Properties ---
+    finishing_status: StringProperty(name="Finishing Status", default="Ready")
+    finishing_is_busy: BoolProperty(name="Finishing Busy", default=False)
+    mesh_health_score: FloatProperty(name="Health Score", default=100.0)
+    mesh_health_summary: StringProperty(name="Health Summary", default="Not inspected")
+    mesh_is_game_ready: BoolProperty(name="Is Game-Ready", default=False)
+    mesh_issues_json: StringProperty(name="Mesh Issues JSON", default="[]")
+
+    finishing_target_tris: IntProperty(name="Target Triangles", default=5000, min=100, max=100000)
+    finishing_reduction_ratio: FloatProperty(name="Reduction Ratio", default=0.5, min=0.01, max=0.99)
+    finishing_retopo_method: EnumProperty(
+        name="Retopo Method",
+        items=[
+            ("quadriflow", "Blender QuadriFlow (Quads)", "True 4-sided polygon flow using native Blender QuadriFlow"),
+            ("decimation", "Quadric Decimation (Triangles)", "Edge-preserving quadric error decimation"),
+            ("voxel", "Voxel Remesh", "Uniform voxel surface reconstruction"),
+        ],
+        default="quadriflow"
+    )
+    finishing_retopo_quads: IntProperty(name="Target Quads", default=4000, min=100, max=50000)
+    finishing_preserve_sharp: BoolProperty(name="Preserve Sharp Edges", default=True)
+    finishing_symmetry: EnumProperty(
+        name="Symmetry",
+        items=[
+            ("none", "None", "No symmetry enforcement"),
+            ("x", "X-Axis", "Enforce bilateral symmetry along X"),
+            ("y", "Y-Axis", "Enforce bilateral symmetry along Y"),
+            ("z", "Z-Axis", "Enforce bilateral symmetry along Z"),
+        ],
+        default="none"
+    )
+
+    finishing_uv_method: EnumProperty(
+        name="UV Method",
+        items=[
+            ("smart_project", "Smart UV Project", "Automated multi-angle projection unwrap"),
+            ("angle_based", "Angle-Based", "Conformal angle-preserving unwrap"),
+            ("conformal", "Conformal", "Area-preserving conformal unwrap"),
+        ],
+        default="smart_project"
+    )
+    finishing_uv_margin: FloatProperty(name="Island Margin", default=0.02, min=0.001, max=0.2)
+    finishing_uv_summary: StringProperty(name="UV Summary", default="No UV data")
+
+    finishing_mat_preset: EnumProperty(
+        name="Material Preset",
+        items=[
+            ("wood_walnut", "Walnut Wood", "Dark walnut wood with subtle gloss"),
+            ("wood_oak", "Oak Wood", "Warm natural oak wood"),
+            ("metal_chrome", "Polished Chrome", "High-reflectivity polished mirror metal"),
+            ("metal_rough", "Brushed Steel", "Industrial brushed metallic surface"),
+            ("fabric_cotton", "Cotton Fabric", "Soft matte upholstered woven textile"),
+            ("leather_aged", "Aged Leather", "Textured vintage brown leather"),
+            ("plastic_glossy", "Glossy Plastic", "Smooth colored hard plastic shell"),
+            ("stone_granite", "Granite Stone", "Rough architectural granite stone"),
+        ],
+        default="wood_walnut"
+    )
+    finishing_mat_metallic: FloatProperty(name="Metallic", default=0.0, min=0.0, max=1.0)
+    finishing_mat_roughness: FloatProperty(name="Roughness", default=0.5, min=0.0, max=1.0)
+
+    finishing_bake_res: EnumProperty(
+        name="Bake Resolution",
+        items=[
+            ("512", "512 x 512 (Draft)", "Fast draft resolution baking"),
+            ("1024", "1024 x 1024 (Standard)", "Standard production PBR map resolution"),
+            ("2048", "2048 x 2048 (High-Res)", "High-resolution texture baking"),
+        ],
+        default="1024"
+    )
+    finishing_bake_maps: StringProperty(name="Bake Maps", default="normal,base_color,ao,roughness,metallic")
+
+    finishing_export_glb: BoolProperty(name="GLB / glTF", default=True)
+    finishing_export_fbx: BoolProperty(name="FBX", default=True)
+    finishing_export_obj: BoolProperty(name="OBJ + MTL", default=True)
+    finishing_export_summary: StringProperty(name="Export Summary", default="")
 
     selected_asset_path: StringProperty(name="Selected Asset", subtype='FILE_PATH', default="")
     asset_search_filter: StringProperty(name="Filter", default="")
@@ -1916,18 +2004,38 @@ class LOCALMESH_OT_AnalyzeActiveAsset(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.local_mesh_props
-        if not props.ai_session_id:
-            # Auto-stage first
-            bpy.ops.localmesh.stage_active_asset()
-
-        session_id = props.ai_session_id
+        act = context.active_object
         server_url = props.server_url
         props.ai_is_busy = True
         props.ai_artist_status = "Analyzing geometry & neural components..."
 
+        # Stage active mesh synchronously in worker if session_id is not yet initialized (eliminates race condition)
+        session_id_to_use = props.ai_session_id
+        temp_mesh_export = _export_active_object_mesh(act) if (not session_id_to_use and act and act.type == 'MESH') else None
+        act_name = act.name if act else "Active_Mesh"
+
         def _task():
+            nonlocal session_id_to_use
+            if not session_id_to_use:
+                if not temp_mesh_export:
+                    raise RuntimeError("No active session or active mesh object found.")
+                stage_payload = {
+                    "asset_name": act_name,
+                    "mesh_path": temp_mesh_export,
+                    "file_format": Path(temp_mesh_export).suffix.lstrip("."),
+                    "object_metadata": {}
+                }
+                stage_req = urllib.request.Request(
+                    f"{server_url}/api/v1/blender/stage-asset",
+                    data=json.dumps(stage_payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(stage_req, timeout=30.0) as s_resp:
+                    s_data = json.loads(s_resp.read().decode("utf-8"))
+                    session_id_to_use = s_data["session_id"]
+
             req_data = {
-                "session_id": session_id,
+                "session_id": session_id_to_use,
                 "decomposition_method": "auto",
                 "num_clusters": 4,
                 "include_vlm": True
@@ -2279,6 +2387,486 @@ def _periodic_server_check():
 # ==============================================================================
 # Registration & Unregistration
 # ==============================================================================
+
+# ==============================================================================
+# Phase 7 Professional 3D Finishing Operators & Studio Panel
+# ==============================================================================
+
+class LOCALMESH_OT_InspectMeshHealth(bpy.types.Operator):
+    bl_idname = "localmesh.inspect_mesh_health"
+    bl_label = "Inspect Mesh Health"
+    bl_description = "Evaluates geometric, topological, manifold, and game-readiness metrics"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select an active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Inspecting mesh health..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/validate",
+                data=json.dumps({"mesh_path": temp_mesh}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            score = float(data.get("health_score", 100.0))
+            props.mesh_health_score = score
+            props.mesh_is_game_ready = bool(data.get("is_game_ready", False))
+            issues = data.get("issues_found", [])
+            props.mesh_issues_json = json.dumps(issues)
+            props.mesh_health_summary = f"Score: {score:.1f}% | Non-manifold: {data.get('non_manifold_edges', 0)} | Zero-area: {data.get('zero_area_faces', 0)}"
+            props.finishing_status = f"Inspection complete: {score:.1f}% health."
+            if issues:
+                self.report({'INFO'}, f"Health score {score:.1f}%. Issues: {len(issues)}")
+            else:
+                self.report({'INFO'}, f"Mesh is healthy ({score:.1f}%).")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Inspection failed: {err}"
+            self.report({'ERROR'}, f"Validation error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_RepairActiveMesh(bpy.types.Operator):
+    bl_idname = "localmesh.repair_active_mesh"
+    bl_label = "Repair Mesh Geometry"
+    bl_description = "Safely removes zero-area faces, duplicate coincident vertices, and fixes normals"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select an active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Repairing geometry..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/repair",
+                data=json.dumps({"mesh_path": temp_mesh}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=40.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            repaired_path = data.get("output_mesh_path")
+            if repaired_path and os.path.exists(repaired_path):
+                _update_blender_object_geometry(act, repaired_path)
+            repairs = data.get("repairs_applied", [])
+            props.finishing_status = f"Repair complete ({len(repairs)} fixes applied)."
+            self.report({'INFO'}, f"Repairs applied: {len(repairs)}")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Repair failed: {err}"
+            self.report({'ERROR'}, f"Repair error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ExecuteRetopology(bpy.types.Operator):
+    bl_idname = "localmesh.execute_retopology"
+    bl_label = "Execute QuadriFlow Retopology"
+    bl_description = "Applies native Blender QuadriFlow remeshing for clean, continuous 4-sided polygon flow"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select an active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Executing QuadriFlow remeshing..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+        target_f = props.finishing_retopo_quads
+        sym = None if props.finishing_symmetry == "none" else props.finishing_symmetry
+        sharp = props.finishing_preserve_sharp
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/retopology",
+                data=json.dumps({
+                    "mesh_path": temp_mesh,
+                    "target_faces": target_f,
+                    "symmetry_axis": sym,
+                    "preserve_sharp": sharp
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=90.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            out_p = data.get("output_mesh_path")
+            if out_p and os.path.exists(out_p):
+                _update_blender_object_geometry(act, out_p)
+            actual_f = data.get("actual_faces", 0)
+            method = data.get("method", "retopology")
+            props.finishing_status = f"Retopology complete ({actual_f} faces, {method})."
+            self.report({'INFO'}, f"Retopology complete: {actual_f} faces.")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Retopology failed: {err}"
+            self.report({'ERROR'}, f"Retopology error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_UnwrapActiveMesh(bpy.types.Operator):
+    bl_idname = "localmesh.unwrap_active_mesh"
+    bl_label = "Unwrap & Pack UVs"
+    bl_description = "Unwraps UVs with island margin padding to prevent texture bleeding"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select an active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Unwrapping UV coordinates..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+        m_method = props.finishing_uv_method
+        m_margin = props.finishing_uv_margin
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/unwrap",
+                data=json.dumps({
+                    "mesh_path": temp_mesh,
+                    "method": m_method,
+                    "margin": m_margin
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            out_p = data.get("output_mesh_path")
+            if out_p and os.path.exists(out_p):
+                _update_blender_object_geometry(act, out_p)
+            uv_rep = data.get("uv_report", {})
+            util = uv_rep.get("uv_utilization_percent", 0.0)
+            props.finishing_uv_summary = f"{util:.1f}% UV utilization, {uv_rep.get('zero_area_uv_count', 0)} zero-area"
+            props.finishing_status = f"UV unwrap complete ({util:.1f}% coverage)."
+            self.report({'INFO'}, f"UV unwrap complete: {util:.1f}% utilization.")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"UV unwrap failed: {err}"
+            self.report({'ERROR'}, f"UV unwrap error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ApplyPBRMaterials(bpy.types.Operator):
+    bl_idname = "localmesh.apply_pbr_materials"
+    bl_label = "Apply PBR Preset"
+    bl_description = "Constructs Principled BSDF PBR material node tree with metallic and roughness parameters"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select an active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Applying PBR material preset..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+        preset = props.finishing_mat_preset
+
+        def _task():
+            mat_spec = {
+                "material_name": f"M_{preset}",
+                "preset": preset,
+                "metallic": props.finishing_mat_metallic,
+                "roughness": props.finishing_mat_roughness
+            }
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/materials",
+                data=json.dumps({"mesh_path": temp_mesh, "materials": [mat_spec]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            out_p = data.get("mesh_path")
+            if out_p and os.path.exists(out_p):
+                _update_blender_object_geometry(act, out_p)
+            props.finishing_status = f"Applied PBR preset '{preset}'."
+            self.report({'INFO'}, f"Applied PBR preset '{preset}'.")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Material failed: {err}"
+            self.report({'ERROR'}, f"Material error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_BakeTexturesCycles(bpy.types.Operator):
+    bl_idname = "localmesh.bake_textures_cycles"
+    bl_label = "Bake PBR Maps (Cycles)"
+    bl_description = "Executes Selected-to-Active baking for Normal, Diffuse, AO, Roughness, and Metallic"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select active low-poly mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Baking Cycles PBR maps (Normal, Diffuse, AO)..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+        res = int(props.finishing_bake_res)
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/bake",
+                data=json.dumps({
+                    "high_poly_path": temp_mesh,
+                    "low_poly_path": temp_mesh,
+                    "bake_resolution": res,
+                    "bake_maps": ["normal", "base_color", "ao", "roughness", "metallic"]
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=180.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            maps = data.get("baked_maps", {})
+            props.finishing_status = f"Baking complete ({len(maps)} maps baked at {res}x{res})."
+            self.report({'INFO'}, f"Baked {len(maps)} texture maps.")
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Bake failed: {err}"
+            self.report({'ERROR'}, f"Baking error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_GenerateLODSet(bpy.types.Operator):
+    bl_idname = "localmesh.generate_lod_set"
+    bl_label = "Generate LOD0-LOD3 Set"
+    bl_description = "Produces multi-tier Level-of-Detail assets with edge-preserving silhouette decimation"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Generating LOD0-LOD3 set..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/lods",
+                data=json.dumps({"mesh_path": temp_mesh}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            summary = data.get("summary", "LODs generated")
+            props.finishing_status = summary
+            self.report({'INFO'}, summary)
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"LOD generation failed: {err}"
+            self.report({'ERROR'}, f"LOD error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_OT_ExportFinishedAsset(bpy.types.Operator):
+    bl_idname = "localmesh.export_finished_asset"
+    bl_label = "Export & Validate (GLB / FBX / OBJ)"
+    bl_description = "Exports multi-format package with structural re-import verification and asset_manifest.json"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        act = context.active_object
+        if not act or act.type != 'MESH':
+            self.report({'ERROR'}, "Select active mesh object.")
+            return {'CANCELLED'}
+
+        props.finishing_is_busy = True
+        props.finishing_status = "Exporting and verifying asset packages..."
+        temp_mesh = _export_active_object_mesh(act)
+        server_url = props.server_url
+
+        fmts = []
+        if props.finishing_export_glb:
+            fmts.append("glb")
+        if props.finishing_export_fbx:
+            fmts.append("fbx")
+        if props.finishing_export_obj:
+            fmts.append("obj")
+        if not fmts:
+            fmts = ["glb"]
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/finishing/export",
+                data=json.dumps({
+                    "mesh_path": temp_mesh,
+                    "asset_name": act.name,
+                    "formats": fmts
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            props.finishing_is_busy = False
+            exp_files = data.get("exported_files", {})
+            m_path = data.get("manifest_path", "")
+            summary = f"Exported {len(exp_files)} formats ({', '.join(exp_files.keys())}). Manifest: {os.path.basename(m_path)}"
+            props.finishing_export_summary = summary
+            props.finishing_status = summary
+            self.report({'INFO'}, summary)
+
+        def _error(err):
+            props.finishing_is_busy = False
+            props.finishing_status = f"Export failed: {err}"
+            self.report({'ERROR'}, f"Export error: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
+
+
+class LOCALMESH_PT_FinishingStudio(bpy.types.Panel):
+    bl_label = "Panel 9 — 3D Finishing, Retopo & PBR Studio"
+    bl_idname = "LOCALMESH_PT_FinishingStudio"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'LOCAL MESH AI'
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.local_mesh_props
+        act = context.active_object
+
+        # Status row
+        box = layout.box()
+        row = box.row(align=True)
+        if props.finishing_is_busy:
+            row.label(text=props.finishing_status, icon='TIME')
+        else:
+            row.label(text=f"Status: {props.finishing_status}", icon='CHECKMARK')
+
+        # Section 1: Mesh Health & Validation
+        box_health = layout.box()
+        box_health.label(text="1. Mesh Health & Validation", icon='HELP')
+        col = box_health.column(align=True)
+        col.operator("localmesh.inspect_mesh_health", icon='VIEWZOOM')
+        if props.mesh_health_summary != "Not inspected":
+            col.label(text=props.mesh_health_summary, icon='INFO')
+            if props.mesh_is_game_ready:
+                col.label(text="✅ Certified Game-Ready", icon='CHECKMARK')
+            else:
+                col.label(text="⚠️ Optimization recommended", icon='ERROR')
+        col.operator("localmesh.repair_active_mesh", icon='TOOL_SETTINGS')
+
+        # Section 2: Retopology & Low-Poly Simplification
+        box_retopo = layout.box()
+        box_retopo.label(text="2. Retopology & Low-Poly", icon='MESH_DATA')
+        col = box_retopo.column(align=True)
+        col.prop(props, "finishing_retopo_quads")
+        col.prop(props, "finishing_symmetry")
+        col.prop(props, "finishing_preserve_sharp")
+        col.operator("localmesh.execute_retopology", icon='MOD_REMESH')
+
+        # Section 3: Professional UV Unwrapping
+        box_uv = layout.box()
+        box_uv.label(text="3. UV Unwrapping & Packing", icon='UV')
+        col = box_uv.column(align=True)
+        col.prop(props, "finishing_uv_method")
+        col.prop(props, "finishing_uv_margin")
+        col.operator("localmesh.unwrap_active_mesh", icon='UV_DATA')
+        if props.finishing_uv_summary != "No UV data":
+            col.label(text=props.finishing_uv_summary, icon='INFO')
+
+        # Section 4: PBR Materials & Presets
+        box_mat = layout.box()
+        box_mat.label(text="4. PBR Materials & Shaders", icon='MATERIAL')
+        col = box_mat.column(align=True)
+        col.prop(props, "finishing_mat_preset")
+        col.prop(props, "finishing_mat_metallic", slider=True)
+        col.prop(props, "finishing_mat_roughness", slider=True)
+        col.operator("localmesh.apply_pbr_materials", icon='NODE_MATERIAL')
+
+        # Section 5: Cycles Texture Baking
+        box_bake = layout.box()
+        box_bake.label(text="5. Cycles Selected-to-Active Bake", icon='RENDER_STILL')
+        col = box_bake.column(align=True)
+        col.prop(props, "finishing_bake_res")
+        col.operator("localmesh.bake_textures_cycles", icon='TEXTURE')
+
+        # Section 6: LODs & Multi-Format Export
+        box_exp = layout.box()
+        box_exp.label(text="6. LODs & Game-Ready Export", icon='EXPORT')
+        col = box_exp.column(align=True)
+        col.operator("localmesh.generate_lod_set", icon='MOD_MULTIRES')
+        row_fmt = col.row(align=True)
+        row_fmt.prop(props, "finishing_export_glb")
+        row_fmt.prop(props, "finishing_export_fbx")
+        row_fmt.prop(props, "finishing_export_obj")
+        col.operator("localmesh.export_finished_asset", icon='PACKAGE')
+        if props.finishing_export_summary:
+            col.label(text=props.finishing_export_summary, icon='CHECKMARK')
+
 classes = (
     LocalMeshAddonPreferences,
     LocalMeshProperties,
@@ -2323,6 +2911,15 @@ classes = (
     LOCALMESH_OT_ApplyArtistPlan,
     LOCALMESH_OT_RollbackArtistEdit,
     LOCALMESH_PT_AITechnicalArtist,
+    LOCALMESH_OT_InspectMeshHealth,
+    LOCALMESH_OT_RepairActiveMesh,
+    LOCALMESH_OT_ExecuteRetopology,
+    LOCALMESH_OT_UnwrapActiveMesh,
+    LOCALMESH_OT_ApplyPBRMaterials,
+    LOCALMESH_OT_BakeTexturesCycles,
+    LOCALMESH_OT_GenerateLODSet,
+    LOCALMESH_OT_ExportFinishedAsset,
+    LOCALMESH_PT_FinishingStudio,
     LOCALMESH_PT_MeshControls,
     TRIPOSR_PT_MainPanel
 )
@@ -2355,9 +2952,16 @@ def register():
 
     if not bpy.app.timers.is_registered(_periodic_server_check):
         bpy.app.timers.register(_periodic_server_check, first_interval=1.5)
+    if not bpy.app.timers.is_registered(_process_addon_result_queue):
+        bpy.app.timers.register(_process_addon_result_queue, persistent=True)
 
 
 def unregister():
+    try:
+        if bpy.app.timers.is_registered(_process_addon_result_queue):
+            bpy.app.timers.unregister(_process_addon_result_queue)
+    except Exception:
+        pass
     try:
         stop_backend_console()
     except Exception:
