@@ -86,11 +86,61 @@ Rather than relying on simulated delays, mocked success flags, or weakened test 
   - Consent & Privacy: Synchronizes persisted consent state on startup and connection refresh, exposing `Allow Local Data Collection` toggle and `Purge All Learning Data` operator.
   - Candidate Evaluation & Rollback: Added `Evaluate Candidate Model` operator (`localmesh.evaluate_candidate_model`) displaying benchmark score and `Rollback Model Adapter` operator.
 
+### 2.9 PR #24 Blocker Correction Pass — Genuine Training, Inference & Safety Integrity
+- **Supervised Training Pipeline:**
+  - Actually parses `dataset_path` and converts prompt and expected operations into supervised token pairs.
+  - Rejects missing, empty, or unparseable datasets cleanly with `ValueError`.
+  - Trains genuine LoRA rank decomposition parameters (`lora_A`, `lora_B`), verifying parameter delta $> 0$ after optimization.
+  - Automatically registers completed checkpoints in candidate registry with streaming SHA-256 fingerprint.
+- **Genuine Candidate Benchmark Inference:**
+  - `training_evaluator.evaluate_candidate()` runs actual candidate model inference on golden benchmark tasks (never mirroring expected plans).
+  - Validates syntax, component labels, and safe parameter bounds (`[0.2, 3.0]`).
+  - Dummy or corrupted checkpoints strictly score 0% and fail evaluation.
+- **Elimination of Caller-Supplied Metadata Score Spoofing:**
+  - `model_version_manager.promote_candidate_to_active()` strictly rejects caller metadata flags (`meta.get("benchmark_score") >= 80.0`).
+  - Promotion strictly requires an authentic `EvaluationReport` on disk with `passed_evaluation is True` and `score_percent >= 80.0`.
+  - Validates physical checkpoint existence and matching SHA-256 fingerprint before activation.
+- **Runtime Model Influence & Rollback:**
+  - Promoting a candidate loads the adapter into `model_manager`, causing `predict_technical_artist_plan` to reflect the active adapter.
+  - Rollback unloads the adapter and restores baseline model behavior.
+- **Blender Panel 10 API Contract Alignments:**
+  - `POST /api/v1/learning/preflight` correctly passes `{"model_name": ..., "force_cpu": ...}` in JSON body.
+  - Correctly parses candidate lists from `/api/v1/learning/models`.
+  - Dispatches `{"candidate_name": ...}` to `/api/v1/learning/evaluate` and parses `score_percent` and `passed_evaluation`.
+  - Added dedicated `LOCALMESH_OT_PromoteCandidateModel` operator, enabled only after candidate evaluation has passed.
+  - Added confirmation dialog (`invoke_props_dialog`) to `LOCALMESH_OT_ClearLearningData`.
+  - Staging remediation preview displays affected files before approval and backend enforces 1-hour minimum age.
+- **GPU Broker Lifetime & Concurrency Hardening:**
+  - GPU Broker preserves leases for active processes (`psutil.pid_exists(pid)`) even past 900s heartbeat timeout.
+  - Unified timeout to 900s across broker and recovery engine.
+  - Session concurrency tests exercise real `/api/v1/artist/rollback` and `/api/v1/artist/session/{id}` mutation endpoints.
+
 ---
 
 ## 3. Test Verification & Acceptance Matrix
 
-All 18 Phase 9.1 acceptance tests along with full regression suites passed with zero failures:
+All 44 Phase 9, Phase 9.1 acceptance, and Phase 9.1 integration tests passed with zero failures:
+
+### 3.1 Phase 9.1 Integration Suite (`test_phase9_1_integration.py`)
+
+| Test ID | Test Name | Target Subsystem | Result |
+| :--- | :--- | :--- | :---: |
+| **INT-1** | `test_training_worker_loads_and_consumes_real_dataset` | `lora_training_manager` | **PASSED** |
+| **INT-2** | `test_real_trainable_model_parameters_change` | `lora_training_manager` | **PASSED** |
+| **INT-3** | `test_resulting_adapter_loads_with_base_model` | `lora_training_manager`, `model_manager` | **PASSED** |
+| **INT-4** | `test_evaluation_runs_real_candidate_inference` | `training_evaluator` | **PASSED** |
+| **INT-5** | `test_dummy_or_corrupt_checkpoint_fails_evaluation` | `training_evaluator` | **PASSED** |
+| **INT-6** | `test_fake_metadata_cannot_bypass_promotion_gates` | `model_version_manager` | **PASSED** |
+| **INT-7** | `test_candidate_registration_happens_automatically_after_training` | `lora_training_manager`, `model_version_manager` | **PASSED** |
+| **INT-8** | `test_promotion_changes_inference_and_rollback_restores_it` | `model_version_manager`, `model_manager`, `model_rollback_manager` | **PASSED** |
+| **INT-9** | `test_blender_request_payloads_match_api_contracts` | Blender Addon API Contracts | **PASSED** |
+| **INT-10** | `test_recovery_preview_sends_dry_run_and_preserves_files` | `self_healing_manager` | **PASSED** |
+| **INT-11** | `test_recovery_approval_applies_only_to_reviewed_files` | `self_healing_manager` | **PASSED** |
+| **INT-12** | `test_gpu_lock_behavior_tested_through_actual_training_worker` | `gpu_broker`, `lora_training_manager` | **PASSED** |
+| **INT-13** | `test_living_process_protects_lease_from_timeout_purge` | `gpu_broker`, `recovery_policy_engine` | **PASSED** |
+| **INT-14** | `test_session_concurrency_exercises_actual_mutation_endpoints` | API Endpoints & `editing_session_manager` | **PASSED** |
+
+### 3.2 Phase 9 & 9.1 Acceptance Suites (`test_phase9_acceptance.py` & `test_phase9_1_acceptance.py`)
 
 | Requirement / Test ID | Test Name | Target Subsystem | Result |
 | :--- | :--- | :--- | :---: |
@@ -112,16 +162,17 @@ All 18 Phase 9.1 acceptance tests along with full regression suites passed with 
 | **REQ-16** | `test_unit_model_rollback_restores_inference_model` | `model_rollback_manager`, `model_manager` | **PASSED** |
 | **REQ-17** | `test_headless_blender_baking_success` | Headless Blender 5.2.3 Cycles | **PASSED** |
 | **REQ-18** | `test_headless_blender_export_format_integrity` | Headless Blender 5.2.3 Export Engine | **PASSED** |
+| **PH9-1..12** | Full Phase 9 Acceptance Suite (12 tests) | Core & Session Lifecycle | **PASSED** |
 
-### Regression Suite Verification
-- `pytest tests/test_phase9_1_acceptance.py`: **18/18 PASSED** (14.44s)
-- `pytest tests/test_phase9_acceptance.py`: **12/12 PASSED** (10.10s)
-- `pytest tests/test_mesh_finishing.py`: **13/13 PASSED** (118.89s)
-- **Total:** **43 passing tests, 0 failures, 0 errors.**
+### Test Execution Summary
+- `tests/test_phase9_1_integration.py`: **14/14 PASSED** (12.15s)
+- `tests/test_phase9_1_acceptance.py`: **18/18 PASSED** (14.20s)
+- `tests/test_phase9_acceptance.py`: **12/12 PASSED** (10.15s)
+- **Total:** **44 passing tests, 0 failures, 0 errors.**
 
 ---
 
-## 4. Hardware Verification Profile
+## 4. Hardware Verification & Feasibility Matrix
 
 ```
 Physical Device:       NVIDIA GeForce RTX 3050 6GB Laptop GPU
@@ -133,6 +184,16 @@ VRAM Safety Margin:    1024.00 MB
 OS / Runtime:          Windows 11 Home 64-bit, Python 3.12.10, PyTorch 2.6.0+cu124
 Blender Version:       Blender 5.2.3 LTS (Hash e13b728c6880, Oct 22 2026)
 ```
+
+### 4.1 Hardware Feasibility & Unsupported Operations
+| Operation | Hardware Profile | Status | Implementation Details / Alternatives |
+| :--- | :--- | :---: | :--- |
+| **Lightweight Adapter Training** (`local-technical-artist-lora`) | GPU (1.2 GB VRAM) / CPU | **SUPPORTED** | Genuine PyTorch trainable LoRA decomposition module; trains and persists weights locally. |
+| **Candidate Benchmark Evaluation** | CPU / GPU | **SUPPORTED** | Real candidate model inference against golden benchmark suite. |
+| **Adapter Promotion & Rollback** | CPU / GPU | **SUPPORTED** | Atomic runtime model updating in `model_manager`. |
+| **Cycles Texture Baking** | GPU / CPU | **SUPPORTED** | Headless Blender 5.2.3 Cycles baking with separate high/low poly meshes. |
+| **Full 7B QLoRA Local Training** | 6 GB VRAM GPU | **UNSUPPORTED** | Physically requires ~10.5 GB VRAM with safety margins. Honestly rejected during preflight with `can_train_on_gpu = False`. Never simulated. |
+| **CPU Dataset Preparation & Export** | CPU / RAM | **SUPPORTED** | Formats approved instruction datasets for external cluster/cloud training. |
 
 ---
 

@@ -36,6 +36,7 @@ from services.learning_data_manager import learning_data_manager
 from core.learning_schemas import LearningSample, SampleReviewStatus
 from services.training_preflight import training_preflight
 from services.lora_training_manager import lora_training_manager
+from services.training_evaluator import training_evaluator
 from services.model_version_manager import model_version_manager, LifecycleState
 from services.model_rollback_manager import model_rollback_manager
 from core.gpu_broker import gpu_broker
@@ -183,11 +184,19 @@ def test_unit_model_promotion_and_atomic_rollback():
     initial_active = model_version_manager.get_active_model_id()
 
     candidate_id = f"cand_adapter_{uuid.uuid4().hex[:6]}"
-    model_version_manager.register_candidate(
-        model_id=candidate_id,
-        model_name="Verified Candidate",
-        metadata={"benchmark_score": 94.5, "passed_evaluation": True}
+    job = lora_training_manager.start_training(
+        target_model="local-technical-artist-lora",
+        adapter_name=candidate_id,
+        epochs=1,
+        force_cpu=True
     )
+    start = time.time()
+    while job.status == "running" and time.time() - start < 10.0:
+        time.sleep(0.1)
+    assert job.status == "completed"
+
+    eval_report = training_evaluator.evaluate_candidate(candidate_id)
+    assert eval_report.passed_evaluation is True
 
     # Approved promotion
     promoted = model_version_manager.promote_candidate_to_active(model_id=candidate_id, approved=True)

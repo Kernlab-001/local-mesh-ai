@@ -553,6 +553,13 @@ class LocalMeshProperties(bpy.types.PropertyGroup):
     learning_consent_opted_in: BoolProperty(name="Opt-In Local Learning", default=False)
     active_model_name: StringProperty(name="Active Model", default="Qwen2.5-Coder-7B Base")
     candidate_model_name: StringProperty(name="Candidate Adapter", default="None")
+    model_eval_score: FloatProperty(name="Model Eval Score", default=0.0)
+    model_eval_passed: BoolProperty(name="Model Eval Passed", default=False)
+    recovery_preview_ready: BoolProperty(name="Recovery Preview Ready", default=False)
+    recovery_preview_text: StringProperty(name="Recovery Preview Text", default="")
+    recovery_affected_files: StringProperty(name="Recovery Affected Files", default="")
+    preflight_free_vram: FloatProperty(name="Preflight Free VRAM", default=0.0)
+    preflight_feasibility: StringProperty(name="Preflight Feasibility", default="unknown")
 
     selected_asset_path: StringProperty(name="Selected Asset", subtype='FILE_PATH', default="")
     asset_search_filter: StringProperty(name="Filter", default="")
@@ -1002,16 +1009,29 @@ class LOCALMESH_OT_RefreshConnection(bpy.types.Operator):
             try:
                 m_req = urllib.request.Request(f"{props.server_url}/api/v1/learning/models")
                 with urllib.request.urlopen(m_req, timeout=3.0) as m_resp:
-                    m_data = json.loads(m_resp.read().decode("utf-8"))
-                    props.active_model_name = m_data.get("active_model_id", "base")
-                    props.candidate_model_name = m_data.get("candidate_model_id") or "None"
+                    m_list = json.loads(m_resp.read().decode("utf-8"))
+                    if isinstance(m_list, list):
+                        cand_found = False
+                        for m_item in m_list:
+                            if m_item.get("is_active"):
+                                props.active_model_name = m_item.get("name") or m_item.get("model_id")
+                            elif m_item.get("model_type") == "lora_adapter" and not cand_found:
+                                props.candidate_model_name = m_item.get("name") or m_item.get("model_id")
+                                cand_found = True
+                        if not cand_found:
+                            props.candidate_model_name = "None"
             except Exception:
                 pass
             try:
-                p_req = urllib.request.Request(f"{props.server_url}/api/v1/learning/preflight")
+                pref_body = json.dumps({"model_name": "local-technical-artist-lora", "force_cpu": False}).encode("utf-8")
+                p_req = urllib.request.Request(
+                    f"{props.server_url}/api/v1/learning/preflight",
+                    data=pref_body,
+                    headers={"Content-Type": "application/json"}
+                )
                 with urllib.request.urlopen(p_req, timeout=3.0) as p_resp:
                     p_data = json.loads(p_resp.read().decode("utf-8"))
-                    props.preflight_free_vram = float(p_data.get("free_vram_mb", 0.0))
+                    props.preflight_free_vram = float(p_data.get("free_vram_mb") or 0.0)
                     props.preflight_feasibility = str(p_data.get("hardware_feasibility", "unknown"))
             except Exception:
                 pass
@@ -2987,7 +3007,8 @@ class LOCALMESH_OT_PreviewRecovery(bpy.types.Operator):
                 f"{server_url}/api/v1/health/recover",
                 data=json.dumps({
                     "action_type": "clean_staging_dir",
-                    "approved": False
+                    "approved": False,
+                    "dry_run": True
                 }).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
@@ -2998,6 +3019,9 @@ class LOCALMESH_OT_PreviewRecovery(bpy.types.Operator):
             affected = data.get("affected_files", [])
             props.recovery_preview_ready = True
             props.recovery_preview_text = f"Dry Run: {len(affected)} files identified for cleanup"
+            props.recovery_affected_files = "; ".join([os.path.basename(f) for f in affected[:5]])
+            if len(affected) > 5:
+                props.recovery_affected_files += f" (+{len(affected)-5} more)"
             self.report({'INFO'}, f"Recovery Preview: {len(affected)} files identified")
 
         def _error(err):
@@ -3058,6 +3082,9 @@ class LOCALMESH_OT_ClearLearningData(bpy.types.Operator):
     bl_label = "Purge All Learning Data"
     bl_description = "Permanently removes all locally collected feedback, training pairs, and telemetry"
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
     def execute(self, context):
         props = context.scene.local_mesh_props
         server_url = props.server_url
@@ -3098,16 +3125,17 @@ class LOCALMESH_OT_EvaluateCandidateModel(bpy.types.Operator):
         def _task():
             req = urllib.request.Request(
                 f"{server_url}/api/v1/learning/evaluate",
-                data=json.dumps({"model_id": cid}).encode("utf-8"),
+                data=json.dumps({"candidate_name": cid}).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
             with urllib.request.urlopen(req, timeout=30.0) as resp:
                 return json.loads(resp.read().decode("utf-8"))
 
         def _success(data):
-            score = float(data.get("overall_score", 0.0))
-            passed = data.get("passed", False)
+            score = float(data.get("score_percent", 0.0))
+            passed = bool(data.get("passed_evaluation", False))
             props.model_eval_score = score
+            props.model_eval_passed = passed
             st = "PASSED" if passed else "FAILED"
             self.report({'INFO'}, f"Candidate Evaluation {st}: Score {score:.1f}%")
 
@@ -3147,6 +3175,46 @@ class LOCALMESH_OT_ToggleLearningConsent(bpy.types.Operator):
         run_in_background(_task, _success, _error)
         return {'FINISHED'}
 
+
+
+class LOCALMESH_OT_PromoteCandidateModel(bpy.types.Operator):
+    bl_idname = "localmesh.promote_candidate_model"
+    bl_label = "Promote Candidate to Active"
+    bl_description = "Promotes the evaluated candidate model adapter to active status"
+
+    def execute(self, context):
+        props = context.scene.local_mesh_props
+        server_url = props.server_url
+        cid = props.candidate_model_name
+        if not cid or cid.lower() in ("none", "null", ""):
+            self.report({'WARNING'}, "No candidate model adapter available to promote.")
+            return {'CANCELLED'}
+
+        if not props.model_eval_passed or props.model_eval_score < 80.0:
+            self.report({'ERROR'}, f"Cannot promote candidate '{cid}': must pass evaluation with score >= 80% (got {props.model_eval_score:.1f}%).")
+            return {'CANCELLED'}
+
+        def _task():
+            req = urllib.request.Request(
+                f"{server_url}/api/v1/learning/models/promote",
+                data=json.dumps({"model_id": cid, "approved": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        def _success(data):
+            promoted_name = data.get("model_name") or data.get("model_id") or cid
+            props.active_model_name = promoted_name
+            props.candidate_model_name = "None"
+            props.model_eval_passed = False
+            self.report({'INFO'}, f"Successfully promoted candidate to active model: {promoted_name}")
+
+        def _error(err):
+            self.report({'ERROR'}, f"Model promotion failed: {err}")
+
+        run_in_background(_task, _success, _error)
+        return {'FINISHED'}
 
 class LOCALMESH_OT_RollbackModelLifecycle(bpy.types.Operator):
     bl_idname = "localmesh.rollback_model_lifecycle"
@@ -3205,6 +3273,8 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         if props.recovery_preview_ready:
             prev_box = col.box()
             prev_box.label(text=props.recovery_preview_text, icon='INFO')
+            if props.recovery_affected_files:
+                prev_box.label(text=f"Files: {props.recovery_affected_files}", icon='FILE')
             prev_box.operator("localmesh.execute_approved_recovery", icon='CHECKMARK', text="2. Execute Approved Recovery")
 
         # Section 2: Privacy & Local Learning
@@ -3229,7 +3299,14 @@ class LOCALMESH_PT_SystemHealthLearning(bpy.types.Panel):
         col.label(text=f"Candidate: {props.candidate_model_name}")
         col.operator("localmesh.evaluate_candidate_model", icon='CHECKMARK')
         if props.model_eval_score > 0.0:
-            col.label(text=f"Eval Score: {props.model_eval_score:.1f}%", icon='SOLO_ON')
+            st_icon = 'CHECKMARK' if props.model_eval_passed else 'ERROR'
+            st_text = 'PASSED' if props.model_eval_passed else 'FAILED'
+            col.label(text=f"Eval Score: {props.model_eval_score:.1f}% ({st_text})", icon=st_icon)
+        
+        # Explicit promotion button only after passing evaluation
+        if props.candidate_model_name != "None" and props.model_eval_passed:
+            col.operator("localmesh.promote_candidate_model", icon='FORWARD', text="Promote Candidate to Active")
+        col.separator()
         col.operator("localmesh.rollback_model_lifecycle", icon='RECOVER_LAST')
 
 classes = (
@@ -3291,6 +3368,7 @@ classes = (
     LOCALMESH_OT_AutoSelfHeal,
     LOCALMESH_OT_ClearLearningData,
     LOCALMESH_OT_EvaluateCandidateModel,
+    LOCALMESH_OT_PromoteCandidateModel,
     LOCALMESH_OT_ToggleLearningConsent,
     LOCALMESH_OT_RollbackModelLifecycle,
     LOCALMESH_PT_SystemHealthLearning,

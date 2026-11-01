@@ -55,13 +55,8 @@ class GPUBroker:
                 self._force_release()
                 return False
 
-            # If process is alive, check heartbeat age.
-            # A live process must refresh its heartbeat at least every 900s (15 min).
-            timestamp = data.get("timestamp", 0)
-            if time.time() - timestamp > 900:
-                self._force_release()
-                return False
-
+            # A live process retains its lease while actively running.
+            # Never automatically evict a living process solely because of heartbeat age.
             return True
         except Exception:
             self._force_release()
@@ -99,8 +94,6 @@ class GPUBroker:
                                 data = json.load(f)
                             holder_pid = data.get("pid")
                             if holder_pid and not self._is_pid_alive(holder_pid):
-                                self._force_release()
-                            elif time.time() - data.get("timestamp", 0) > 900:
                                 self._force_release()
                         except Exception:
                             self._force_release()

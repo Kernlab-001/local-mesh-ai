@@ -186,7 +186,12 @@ class SelfHealingManager:
             )
 
         protected_paths = self._get_protected_file_paths()
-        min_age_seconds = req.parameters.get("min_age_seconds", 3600.0)  # 1 hour minimum age
+        # Enforce 1-hour minimum cleanup age on backend (cannot be bypassed by min_age_seconds=0)
+        raw_min_age = req.parameters.get("min_age_seconds", 3600.0)
+        try:
+            min_age_seconds = max(float(raw_min_age), 3600.0)
+        except (ValueError, TypeError):
+            min_age_seconds = 3600.0
         now = time.time()
 
         candidate_files: List[Path] = []
@@ -207,6 +212,13 @@ class SelfHealingManager:
         total_size = sum(p.stat().st_size for p in candidate_files)
         size_mb = round(total_size / (1024**2), 2)
         affected_list = [str(p) for p in candidate_files]
+
+        # Recovery approval applies only to the reviewed files
+        approved_targets = req.parameters.get("approved_files")
+        if approved_targets is not None and not req.dry_run:
+            approved_set = {os.path.abspath(f) for f in approved_targets}
+            candidate_files = [p for p in candidate_files if os.path.abspath(str(p)) in approved_set]
+            affected_list = [str(p) for p in candidate_files]
 
         if req.dry_run:
             return RecoveryActionResult(
