@@ -1,4 +1,8 @@
 # PHASE 3.1.1 — INTEGRATION INTEGRITY, REAL INFERENCE VERIFICATION & PRODUCTION HARDENING
+
+> [!NOTE]
+> **Historical Milestone Record:** This document records the architectural achievements and test validations completed during milestone PHASE 3 1 1 INTEGRATION INTEGRITY. For current production system documentation, please see the [User Guide](USER_GUIDE.md), [Distribution Architecture](WINDOWS_DISTRIBUTION_ARCHITECTURE.md), and [README.md](../README.md).
+
 ## Technical Audit & Verification Delivery Report
 
 **Project:** Local Mesh AI  

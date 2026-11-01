@@ -1,5 +1,9 @@
 # PHASE 9.1 — RELIABILITY CLOSURE, REAL LoRA TRAINING, GPU SAFETY & FULL SYSTEM INTEGRITY
 
+> [!NOTE]
+> **Historical Milestone Record:** This document records the architectural achievements and test validations completed during milestone PHASE 9 1 RELIABILITY CLOSURE. For current production system documentation, please see the [User Guide](USER_GUIDE.md), [Distribution Architecture](WINDOWS_DISTRIBUTION_ARCHITECTURE.md), and [README.md](../README.md).
+
+
 **Repository:** `https://github.com/Kernlab-001/local-mesh-ai`  
 **Base Commit:** `6ebed8787b3917c71c12bb297c60f762d5a4b658` on `main`  
 **Development Branch:** `phase-9.1/reliability-closure`  

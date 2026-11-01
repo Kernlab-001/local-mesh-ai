@@ -1,8 +1,8 @@
 """
 Training and Adapter Evaluation Service for Local Mesh AI.
 Evaluates fine-tuned model candidates against golden test benchmarks,
-executing actual validation for JSON syntax, component identification,
-parameter limits, invariant preservation, and regression detection.
+executing actual validation for JSON syntax, tool prediction, component identification,
+numeric parameter accuracy within bounds, and invariant preservation.
 Persists evaluation reports and gates model promotion.
 """
 
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 import torch
 from core.path_security import get_data_dir
 from core.command_schemas import ComponentEditPlan
-from services.lora_training_manager import TechnicalArtistLoRAModule
+from services.lora_training_manager import AuxiliaryTechnicalArtistClassifier
 
 GOLDEN_EVALUATION_TASKS = [
     {
@@ -51,8 +51,10 @@ class EvaluationTaskResult(BaseModel):
     prompt: str
     passed: bool
     json_valid: bool
+    tool_match: bool = True
     component_match: bool
     bounds_safe: bool
+    params_accurate: bool = True
     regression_detected: bool = False
     details: str = ""
     prediction: Optional[Dict[str, Any]] = None
@@ -66,6 +68,7 @@ class EvaluationReport(BaseModel):
     passed_tasks: int
     score_percent: float
     syntax_accuracy: float
+    tool_accuracy: float = 100.0
     component_accuracy: float
     safety_accuracy: float
     passed_evaluation: bool
@@ -105,7 +108,7 @@ class TrainingEvaluator:
         adapter_hash = h.hexdigest()
 
         # 2. Attempt loading checkpoint weights into neural module
-        model = TechnicalArtistLoRAModule()
+        model = AuxiliaryTechnicalArtistClassifier()
         model_load_ok = False
         load_error = ""
 
@@ -113,6 +116,11 @@ class TrainingEvaluator:
             state_dict = torch.load(str(primary_ckpt), map_location="cpu", weights_only=True)
             if not isinstance(state_dict, dict) or len(state_dict) == 0:
                 raise ValueError("Checkpoint does not contain a valid PyTorch state_dict.")
+            # Verify required architecture keys
+            required_keys = {"lora_A", "lora_B", "tool_head.weight", "comp_head.weight"}
+            missing_reqs = required_keys.difference(state_dict.keys())
+            if missing_reqs:
+                raise ValueError(f"Checkpoint architecture mismatch: missing required keys {missing_reqs}")
             model.load_state_dict(state_dict, strict=False)
             model_load_ok = True
         except Exception as e:
@@ -128,8 +136,10 @@ class TrainingEvaluator:
                         prompt=task["prompt"],
                         passed=False,
                         json_valid=False,
+                        tool_match=False,
                         component_match=False,
                         bounds_safe=False,
+                        params_accurate=False,
                         regression_detected=True,
                         details=load_error,
                         prediction=None
@@ -141,45 +151,73 @@ class TrainingEvaluator:
                 prompt = task["prompt"]
                 exp_comp = task["expected_component"]
                 exp_tool = task["expected_tool"]
+                exp_params = task.get("expected_params", {})
 
                 json_valid = False
+                tool_match = False
                 component_match = False
+                params_accurate = False
                 bounds_safe = False
                 prediction_data = None
-                details = ""
+                details_list = []
 
                 try:
                     prediction_data = model.generate_plan(prompt, device=torch.device("cpu"))
                     plan_obj = ComponentEditPlan(**prediction_data)
                     json_valid = True
 
-                    # Verify component match
+                    # 1. Tool verification
+                    pred_tool = plan_obj.parameters.get("tool")
+                    pred_op = plan_obj.operation_type
+                    if pred_tool == exp_tool or (exp_tool == "scale_component" and pred_op == "scale") or (exp_tool == "separate_components" and "separate" in pred_op):
+                        tool_match = True
+                    else:
+                        details_list.append(f"Tool mismatch: expected '{exp_tool}', got '{pred_tool}'.")
+
+                    # 2. Component verification
                     labels_str = " ".join(plan_obj.target_semantic_labels).lower()
-                    if exp_comp in labels_str:
+                    ids_str = " ".join(plan_obj.target_component_ids).lower()
+                    if exp_comp in labels_str or exp_comp in ids_str:
                         component_match = True
                     else:
-                        details = f"Component mismatch: expected '{exp_comp}', got '{labels_str}'."
+                        details_list.append(f"Component mismatch: expected '{exp_comp}', got '{labels_str}'.")
 
-                    # Verify parameter bounds
+                    # 3. Numeric parameter bounds & accuracy
+                    min_factor = exp_params.get("min_factor")
+                    max_factor = exp_params.get("max_factor")
                     scale_params = plan_obj.parameters.get("scale", [1.0, 1.0, 1.0])
-                    if all(0.2 <= s <= 3.0 for s in scale_params):
+                    scale_factor = plan_obj.scale_factor
+
+                    if min_factor is not None and max_factor is not None:
+                        matches_range = (min_factor <= scale_factor <= max_factor) or any(min_factor <= s <= max_factor for s in scale_params)
+                        if matches_range:
+                            params_accurate = True
+                        else:
+                            details_list.append(f"Parameter mismatch: expected factor in [{min_factor}, {max_factor}], got scale={scale_params}, factor={scale_factor}.")
+                    else:
+                        params_accurate = True
+
+                    # 4. Global bounds safety
+                    if all(0.2 <= s <= 3.0 for s in scale_params) and (0.2 <= scale_factor <= 3.0):
                         bounds_safe = True
                     else:
-                        details = f"Parameter bounds violation: scale {scale_params} outside [0.2, 3.0]."
+                        details_list.append(f"Parameter bounds violation: scale {scale_params} outside [0.2, 3.0].")
 
                 except Exception as eval_err:
-                    details = f"Inference/schema validation failed: {eval_err}"
+                    details_list.append(f"Inference/schema validation failed: {eval_err}")
 
-                task_passed = json_valid and component_match and bounds_safe
+                task_passed = json_valid and tool_match and component_match and params_accurate and bounds_safe
                 results.append(
                     EvaluationTaskResult(
                         prompt=prompt,
                         passed=task_passed,
                         json_valid=json_valid,
+                        tool_match=tool_match,
                         component_match=component_match,
                         bounds_safe=bounds_safe,
+                        params_accurate=params_accurate,
                         regression_detected=not task_passed,
-                        details=details if not task_passed else "All schema and parameter invariants passed.",
+                        details="; ".join(details_list) if not task_passed else "All schema, tool, component, and parameter checks passed.",
                         prediction=prediction_data
                     )
                 )
@@ -187,6 +225,7 @@ class TrainingEvaluator:
         total = len(results)
         passed = sum(1 for r in results if r.passed)
         syntax = (sum(1 for r in results if r.json_valid) / total) * 100.0 if total else 0.0
+        tools = (sum(1 for r in results if r.tool_match) / total) * 100.0 if total else 0.0
         comp = (sum(1 for r in results if r.component_match) / total) * 100.0 if total else 0.0
         safety = (sum(1 for r in results if r.bounds_safe) / total) * 100.0 if total else 0.0
         score = (passed / total) * 100.0 if total else 0.0
@@ -200,6 +239,7 @@ class TrainingEvaluator:
             passed_tasks=passed,
             score_percent=score,
             syntax_accuracy=syntax,
+            tool_accuracy=tools,
             component_accuracy=comp,
             safety_accuracy=safety,
             passed_evaluation=passed_eval,

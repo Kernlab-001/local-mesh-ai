@@ -283,7 +283,7 @@ class ModelManager:
         try:
             import torch
             from pathlib import Path as P
-            from services.lora_training_manager import TechnicalArtistLoRAModule
+            from services.lora_training_manager import AuxiliaryTechnicalArtistClassifier as TechnicalArtistLoRAModule
             cand_p = P(adapter_path)
             ckpt_files = list(cand_p.glob("*.bin")) + list(cand_p.glob("*.pt")) + list(cand_p.glob("*.safetensors"))
             if ckpt_files:
