@@ -108,18 +108,49 @@ class ModelPathResolver:
             logger.error(f"Failed to save local models config: {e}")
 
     def get_models_root(self) -> Path:
-        """Resolves the external models storage directory."""
+        """Resolves the external models storage directory.
+
+        Precedence (highest first) -- documented so that the launcher, the
+        backend, the Blender add-on and the packaging tools can never disagree:
+
+        1. ``models_root`` in the local user config file (``.local_models_config.json``).
+           Points **directly** at the models directory.
+        2. ``LOCAL_MESH_MODELS_ROOT`` / ``LOCAL_MESH_AI_MODELS_DIR``.
+           Point **directly** at the models directory.
+        3. ``LOCAL_MESH_AI_DATA_DIR``.
+           Points at the **data package root**; the models directory is then
+           ``<LOCAL_MESH_AI_DATA_DIR>/models``. This is the documented
+           convention used by the distributed packages.
+        4. Automatic discovery of an already installed data root.
+        """
         if "models_root" in self._local_config:
             p = Path(self._local_config["models_root"])
             if p.exists():
                 return p.resolve()
 
+        # (2) Explicit "models directory" aliases.
         for env_var in ["LOCAL_MESH_MODELS_ROOT", "LOCAL_MESH_AI_MODELS_DIR"]:
             if env_var in os.environ:
                 p = Path(os.environ[env_var])
                 if p.exists():
                     return p.resolve()
 
+        # (3) Documented convention: the env var points at the DATA PACKAGE ROOT.
+        data_dir = os.environ.get("LOCAL_MESH_AI_DATA_DIR")
+        if data_dir:
+            base = Path(data_dir)
+            # Tolerate the case where the user pointed the variable straight at
+            # the models directory instead of the data package root.
+            if base.name.lower() == "models" and (base / "hf_hub").exists():
+                if base.exists():
+                    return base.resolve()
+            models_sub = base / "models"
+            if models_sub.exists():
+                return models_sub.resolve()
+            if base.exists():
+                return base.resolve()
+
+        # (4) Discovery of an already installed data root.
         candidates = [
             Path(r"E:\LocalMeshAI-Data\models"),
             Path.home() / ".local-mesh-ai" / "models",
@@ -133,7 +164,14 @@ class ModelPathResolver:
         return Path(r"E:\LocalMeshAI-Data\models")
 
     def resolve_qwen_coder_path(self) -> Optional[Path]:
-        """Resolves the GGUF file for Qwen 2.5 Coder."""
+        """Resolves the GGUF file for Qwen 2.5 Coder 7B.
+
+        The single supported artifact is ``qwen2.5-coder-7b-instruct-q4_0.gguf``
+        (Q4_0 quantization), which is what the modular distribution package
+        ships. Older Q5_K_M / Q6_K_M / 3B candidates are deliberately NOT
+        accepted: silently substituting a different quantization would make the
+        installed weights disagree with the documented model catalog.
+        """
         if "qwen_coder_path" in self._local_config:
             p = Path(self._local_config["qwen_coder_path"])
             if p.exists() and p.is_file():
@@ -144,14 +182,12 @@ class ModelPathResolver:
             if p.exists() and p.is_file():
                 return p.resolve()
 
+        filename = "qwen2.5-coder-7b-instruct-q4_0.gguf"
         candidates = [
-            Path(r"E:\Game\Models\qwen2.5-coder-7b-instruct-q5_k_m.gguf"),
-            Path(r"E:\New folder\qwen2.5-coder-3b-instruct-q6_k.gguf"),
-            self.get_models_root() / "qwen2.5-coder-7b-instruct-q5_k_m.gguf",
-            self.get_models_root() / "qwen2.5-coder-3b-instruct-q6_k.gguf",
-            self.get_models_root() / "qwen_coder" / "qwen2.5-coder-7b-instruct-q5_k_m.gguf",
-            self.get_models_root() / "qwen_coder" / "qwen2.5-coder-3b-instruct-q6_k.gguf",
-            PROJECT_ROOT / "models" / "qwen2.5-coder-7b-instruct-q5_k_m.gguf",
+            self.get_models_root() / "qwen_coder" / filename,
+            self.get_models_root() / filename,
+            PROJECT_ROOT / "models" / "qwen_coder" / filename,
+            PROJECT_ROOT / filename,
         ]
         for c in candidates:
             if c.exists() and c.is_file():
