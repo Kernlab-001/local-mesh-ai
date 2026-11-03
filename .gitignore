@@ -88,8 +88,4 @@ Thumbs.db
 .local_models_config.json
 scratch/
 
-# Runtime diagnostics produced by the launcher / add-on
-logs/
-partfield_output/
-.blender_user/
 .model_verification_receipts.json
