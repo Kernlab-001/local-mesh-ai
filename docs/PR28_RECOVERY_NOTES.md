@@ -173,7 +173,7 @@ neural reconstruction, producing a 1 121 716-byte GLB with textures and a previe
 
 ## Test status
 
-**308 tests collected. On this branch: 291 passed, 17 failed. All 17 failures are
+**308 tests collected. Final state: 295 passed, 13 failed. All 13 failures are
 pre-existing** — they fail identically on the base commit (`f824f2c`), which was
 verified by running the same files in a separate `git worktree` of `f824f2c`.
 
@@ -213,12 +213,11 @@ verified by running the same files in a separate `git worktree` of `f824f2c`.
 * `tests/test_real_ai_models.py::test_gpu_broker_lease_and_heartbeat` —
   `AttributeError: 'str' object has no attribute 'get_status'`.
 * `tests/test_phase3_integration.py::test_ai_assisted_editing_feedback_loop`.
-* `tests/test_packaging_and_two_packages.py` — 4 failures. These assert that
-  `dist/releases/LocalMeshAI-v6.0.0-Complete-{Code,Data}.zip` exist. They are
-  produced by `scripts/build_release_archives.py`, which was not re-run as part of
-  this PR (the Data archive is >10 GB). The builder itself was fixed (allowlist,
-  licence enforcement, portability, manifest records) but the archives were not
-  rebuilt.
+* `tests/test_packaging_and_two_packages.py` — 4 failures on the first run, because the
+  `dist/releases/LocalMeshAI-v6.0.0-Complete-{Code,Data}.zip` archives had never been
+  built. They were built as part of this PR and the suite now passes 4/4. The Data
+  archive is >8 GB, so the packaging test asserts the archive's *content* and
+  *licence* contract rather than rebuilding it.
 
 ---
 
