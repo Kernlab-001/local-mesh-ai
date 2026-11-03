@@ -35,7 +35,10 @@ Measurements reflect end-to-end execution of image-to-3D neural reconstruction f
 
 ### 1. TripoSR Neural Engine (`stabilityai/TripoSR`)
 - **Model Checkpoint:** `model.ckpt` (1.79 GB on disk, FP16 parameters)
-- **Feature Extractor:** `facebook/dino-vitb16` (330 MB)
+- **Feature Extractor:** `facebook/dino-vitb16` (ViT-B/16). *Note: the current
+  provisioning path installs only the DINO configuration files; the ~330 MB of
+  ViT weights are fetched separately by `core.download_manager` and are not
+  part of the redistributed Data package.*
 - **Peak CUDA Allocation:** 2.42 GB
 - **VRAM Cleanup on Release:** Broker releases lease and calls `torch.cuda.empty_cache()`, purging VRAM back to baseline (< 250 MB).
 
@@ -53,6 +56,20 @@ Measurements reflect end-to-end execution of image-to-3D neural reconstruction f
 ---
 
 ## 🔬 Measurement Methodology
+
+**Scope of the numbers below — please read before quoting them:**
+
+- **Repetitions:** each row is a **single wall-clock measurement**, not an
+  average over multiple runs. No multi-run averaging was recorded, so the
+  figures should be read as representative rather than statistical.
+- **Input:** one standardized 512×512 PNG (`examples/chair.png`) per profile.
+- **Timings** are end-to-end wall-clock for the image-to-3D route
+  (preprocess → neural forward pass → marching cubes → export), measured on the
+  host described above, and include the GPU lease handshake.
+- **Independent re-measurement:** the automated acceptance test
+  `tests/e2e_blender_generate.py` re-runs the draft/low-memory route inside a
+  real Blender process and records its own timings in
+  `output/e2e/evidence.json`.
 
 Memory is monitored across three distinct layers to prevent misleading metrics:
 

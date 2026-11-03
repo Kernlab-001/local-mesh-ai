@@ -129,6 +129,7 @@ class TripoSRAdapter(Base3DEngine):
         src_ok, missing_sources = self._check_source_code()
         deps_ok, missing_deps = self._check_dependencies()
         weights_info = download_manager.verify_triposr_status()
+        dino_info = download_manager.verify_dino_status()
 
         reason = "Engine is fully installed, verified offline, and ready for inference."
         if status == EngineStatus.SOURCE_MISSING:
@@ -139,6 +140,16 @@ class TripoSRAdapter(Base3DEngine):
             reason = "Model weights missing. Run 'python scripts/download_models.py --triposr'."
         elif status == EngineStatus.WEIGHTS_PARTIAL:
             reason = "Model weights partially installed. Re-run 'python scripts/download_models.py --triposr'."
+
+        # The DINO feature extractor is provisioned separately. Report its true
+        # state instead of letting a missing checkpoint hide behind a "ready"
+        # label.
+        if not dino_info.get("ready_for_offline_inference"):
+            reason += (
+                " Note: the DINO ViT-B/16 feature extractor is only partially installed "
+                f"({dino_info.get('state')}); provision it with "
+                "'python scripts/download_models.py --triposr'."
+            )
 
         hw_profile = hardware_detector.profile or hardware_detector.scan_and_configure(save_config=False)
         gpu_info = hw_profile.get("gpu", {})
@@ -155,6 +166,7 @@ class TripoSRAdapter(Base3DEngine):
             "source_code_verified": src_ok,
             "dependencies_verified": deps_ok,
             "weights": weights_info,
+            "dino_feature_extractor": dino_info,
             "hardware": {
                 "device": gpu_info.get("device", "cpu"),
                 "gpu_name": gpu_info.get("name", "Unknown"),

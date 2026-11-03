@@ -1,7 +1,7 @@
 # Local Mesh AI 🚀
 ### Local-First Neural 3D Asset Generation & AI Technical Artist Studio
 
-[![Tests](https://img.shields.io/badge/Tests-44%2F44%20Passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-291%2F308%20Passing-brightgreen.svg)](tests/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6%20CUDA%2012.4-orange.svg)](https://pytorch.org/)
@@ -74,13 +74,13 @@ To maintain complete engineering honesty and eliminate false claims, every featu
 
 | System / Feature | Description | Evidence Rating | Target Hardware Status (RTX 3050 6GB) |
 |---|---|---|---|
-| **Feedforward Mesh Generation** | Single-image to 3D watertight mesh via TripoSR | `VERIFIED_ON_TARGET_HARDWARE` | Fully operational (~1.8s inference, ~2.5 GB peak VRAM) |
-| **Diffusion Concept Art** | 1-step text-to-concept synthesis via SD-Turbo | `VERIFIED_ON_TARGET_HARDWARE` | Fully operational (~0.8s inference, ~3.2 GB peak VRAM) |
+| **Feedforward Mesh Generation** | Single-image to 3D watertight mesh via TripoSR | `VERIFIED_ON_TARGET_HARDWARE` | Fully operational. Measured end-to-end in a real Blender session (`tests/e2e_blender_generate.py`): **26.2 s** for the draft / low-memory route on `examples/chair.png` |
+| **Diffusion Concept Art** | 1-step text-to-concept synthesis via SD-Turbo | `USER_PROVISIONED` | Optional. SD-Turbo is **not** downloaded automatically and is **not** redistributed (non-commercial licence). Install it into `<models root>/sd_turbo/sd-turbo/` to enable this route; every other feature works without it |
 | **Direct Concept Bypass** | Mode B image upload with strict diffusion bypass | `VERIFIED_ON_TARGET_HARDWARE` | Instant pass-through directly to 3D reconstruction |
 | **GPU Lease Broker** | Cross-process atomic lock file with heartbeat | `VERIFIED_ON_TARGET_HARDWARE` | Verified across worker success, exception, and cancel |
 | **VRAM Purge & Serialization** | Zero-VRAM overlap via torch.cuda.empty_cache() | `VERIFIED_ON_TARGET_HARDWARE` | Memory purges to baseline between engine phases |
-| **Component Decomposition** | Connected components & PartField segmentation | `INTEGRATION_TESTED` | Decomposes assets into hierarchy nodes and bounding boxes |
-| **AI Technical Artist (Reasoning)** | Natural language to structured ComponentEditPlan | `VERIFIED_ON_TARGET_HARDWARE` | Uses Qwen 2.5 Coder 3B GGUF; bounded JSON schema |
+| **Component Decomposition** | Connected components & PartField segmentation | `INTEGRATION_TESTED` | Decomposes assets into hierarchy nodes and bounding boxes. PartField is non-commercially licensed and must be provisioned by you |
+| **AI Technical Artist (Reasoning)** | Natural language to structured ComponentEditPlan | `VERIFIED_ON_TARGET_HARDWARE` | Uses the local **Qwen 2.5 Coder 7B** GGUF (`qwen2.5-coder-7b-instruct-q4_0.gguf`); bounded JSON schema |
 | **Auxiliary Technical Artist** | Neural classifier & bounded scale predictor | `VERIFIED_ON_TARGET_HARDWARE` | Auxiliary sequence module with trainable LoRA heads |
 | **Centroid & Invariant Safety** | Tracks non-target component drift with auto-rollback | `INTEGRATION_TESTED` | Threshold checks protect unedited geometry |
 | **Session Concurrency** | Thread-safe editing sessions via threading.RLock | `INTEGRATION_TESTED` | Concurrent requests serialized; no data corruption |
@@ -140,8 +140,35 @@ For complete documentation on each script, see [File and Launcher Inventory](doc
 
 ## 🧪 Comprehensive Verification Suite
 
-Run all 44 unit, integration, and hardware acceptance tests with one command:
+The suite contains **308 tests** (unit, integration, and hardware acceptance):
 ```cmd
-.venv\Scripts\python.exe -m pytest tests\test_phase9_1_integration.py tests\test_phase9_1_acceptance.py tests\test_phase9_acceptance.py -v
+.venv\Scripts\python.exe -m pytest tests -q
 ```
-*Current Suite Status:* **44 passed, 0 failed in 27.30 seconds.**
+
+*Current Suite Status:* **291 passed, 17 failed.**
+All 17 failures are **pre-existing** — they fail identically on the `main` merge
+commit (`f824f2c`) and are not caused by the current branch. They fall into three
+groups:
+
+| Group | Count | Cause |
+|---|---|---|
+| `tests/test_ai_technical_artist.py` | 10 | The test stages a mesh into the system temp directory, but the staging endpoint deliberately only accepts paths under the authorised roots (`<project>`, `<project>\data`, `<project>\data\staging`). |
+| `tests/test_geometry_editing.py`, `tests/test_phase3_integration.py`, `tests/test_real_ai_models.py::test_gpu_broker_lease_and_heartbeat` | 3 | Upstream API drift (`trimesh` removed `remove_degenerate_faces`) and an internal API mismatch. |
+| `tests/test_packaging_and_two_packages.py` | 4 | Asserts that the release archives exist in `dist/releases/`. They are produced by `scripts/build_release_archives.py`, which must be re-run to regenerate them. |
+
+Run the same suite on `main` to confirm the comparison:
+```cmd
+git worktree add E:\lma-baseline main
+cd E:\lma-baseline && ..\local-mesh-ai-v6.0\.venv\Scripts\python.exe -m pytest tests -q
+```
+
+### Real Blender acceptance test
+
+The end-to-end path (real Blender, real TripoSR inference, real GLB import) has
+its own acceptance test:
+```cmd
+"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --python tests\e2e_blender_generate.py
+```
+It presses the real **Generate** button, waits for the backend job and verifies
+that the produced asset is imported into the active scene. Evidence is written to
+`output/e2e/evidence.json`.

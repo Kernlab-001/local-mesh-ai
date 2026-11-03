@@ -9,13 +9,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from core.backend_identity import backend_identity
 from api.routes import router
 from api.self_healing_routes import router as self_healing_router
 from api.learning_routes import router as learning_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing needed
+    # Startup: publish the versioned backend identity so that clients can
+    # verify they are talking to Local Mesh AI and not to some other service
+    # that happens to own port 8000.
+    try:
+        from core.backend_identity import backend_identity
+        backend_identity.mark_ready()
+        print(f"[IDENTITY] {backend_identity.application} v{backend_identity.app_version} "
+              f"api={backend_identity.api_version} build={backend_identity.build_id} "
+              f"pid={backend_identity.pid} started={backend_identity.started_at}")
+    except Exception:
+        pass
     yield
     # Shutdown: ensure background executor workers and GPU resources are safely released
     try:
@@ -33,9 +44,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Local Neural 3D Studio API",
     description="Local-first 3D Generation and Editing Orchestrator (TripoSR + Qwen + Blender)",
-    version="1.0.0",
+    version=backend_identity.api_version,
     lifespan=lifespan
 )
+
+# The routers are mounted at import time and there is no asynchronous start-up
+# work, so the backend is ready to serve as soon as the app exists. The
+# lifespan calls mark_ready() again, which is idempotent.
+backend_identity.mark_ready()
 
 # Restrict to trusted local browser / frontend origins (prevent malicious cross-origin execution)
 TRUSTED_ORIGINS = [

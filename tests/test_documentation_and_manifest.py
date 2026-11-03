@@ -101,7 +101,8 @@ def test_historical_milestone_banners():
 
 def test_blender_addon_unified_tab_and_no_legacy_panel():
     """Verifies that Blender addon has strictly one sidebar category and no legacy panel."""
-    addon_path = REPO_ROOT / "addon" / "triposr_blender_addon.py"
+    # The add-on is a Blender add-on *package*; the flat file is only a shim.
+    addon_path = REPO_ROOT / "addon" / "local_mesh_ai" / "__init__.py"
     text = addon_path.read_text(encoding="utf-8")
 
     assert 'bl_category = "AI 3D Generator"' not in text, "Found legacy 'AI 3D Generator' tab in addon."
@@ -117,5 +118,10 @@ def test_master_launcher_exists_and_references_venv():
 
     assert ".venv\\Scripts\\python.exe" in text
     assert "Start Full Studio" in text
+    # The backend is launched through the controller helper, which runs
+    # run_server.py and verifies the backend identity before continuing.
+    assert "backend_control.py" in text
     assert "run_server.py" in text
     assert "dashboard.py" in text
+    # The removed Blender 5.x option must not come back.
+    assert "--addons-path" not in text
