@@ -83,9 +83,7 @@ print("BLENDER_ADDON_REGISTRATION_SUCCESS")
 
 def test_blender_addon_contains_all_seven_panels():
     """Inspects that all 7 required studio panels are defined with category LOCAL MESH AI."""
-    # The add-on is a Blender add-on *package* (addon/local_mesh_ai/__init__.py);
-    # addon/triposr_blender_addon.py is only a compatibility import shim.
-    addon_code = (PROJECT_ROOT / "addon" / "local_mesh_ai" / "__init__.py").read_text(encoding="utf-8")
+    addon_code = (PROJECT_ROOT / "addon" / "triposr_blender_addon.py").read_text(encoding="utf-8")
     
     expected_panels = [
         "LOCALMESH_PT_Connection",

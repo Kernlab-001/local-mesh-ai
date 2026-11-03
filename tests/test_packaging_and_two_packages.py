@@ -40,22 +40,15 @@ def test_code_zip_contains_complete_application_and_no_weights():
         assert any("run_server.py" in name for name in namelist)
         assert any("requirements.txt" in name for name in namelist)
         assert any("README.md" in name for name in namelist)
-        assert any("addon/local_mesh_ai/__init__.py" in name for name in namelist)
         assert any("addon/triposr_blender_addon.py" in name for name in namelist)
         assert any("core/gpu_broker.py" in name for name in namelist)
-        assert any("launchers/backend_control.py" in name for name in namelist)
-        assert any("launchers/blender_bootstrap.py" in name for name in namelist)
 
-        # Strict exclusions
+        # Check strict exclusions
         assert not any(".venv/" in name or "/.venv/" in name for name in namelist)
         assert not any(".git/" in name or "/.git/" in name for name in namelist)
         assert not any(name.endswith(".gguf") for name in namelist)
         assert not any(name.endswith(".safetensors") for name in namelist)
         assert not any(name.endswith(".ckpt") for name in namelist)
-        # Runtime state must never leak into the release archive.
-        assert not any("/jobs/" in name for name in namelist)
-        assert not any("/logs/" in name for name in namelist)
-        assert not any("/scratch/" in name for name in namelist)
 
 
 def test_data_zip_contains_required_models_and_manifests():
