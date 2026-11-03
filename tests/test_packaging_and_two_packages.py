@@ -72,7 +72,32 @@ def test_data_zip_contains_required_models_and_manifests():
         assert any("model.ckpt" in name for name in namelist)
         assert any("qwen2.5-coder-7b-instruct-q4_0.gguf" in name for name in namelist)
         assert any("Qwen3VL-4B-Instruct-Q4_K_M.gguf" in name for name in namelist)
-        assert any("model_objaverse.ckpt" in name for name in namelist)
+        assert any("mmproj-Qwen3VL-4B-Instruct-F16.gguf" in name for name in namelist)
+
+        # LICENCE CONTRACT: models whose upstream licence does not permit
+        # redistribution must NOT be shipped, and the manifest must say so.
+        assert not any("model_objaverse.ckpt" in name for name in namelist), (
+            "PartField (NVIDIA non-commercial licence) must not be redistributed."
+        )
+        assert not any("sd_turbo" in name.lower() for name in namelist), (
+            "SD-Turbo (Stability non-commercial licence) must not be redistributed."
+        )
+
+        with zf.open("LocalMeshAI-Data/manifests/model_manifest.json") as handle:
+            manifest = json.loads(handle.read().decode("utf-8"))
+
+        excluded = {entry["model_key"] for entry in manifest.get("excluded_models", [])}
+        assert "partfield" in excluded, (
+            "The manifest must record PartField as excluded by licence."
+        )
+        for entry in manifest.get("excluded_models", []):
+            assert entry.get("reason"), "Each excluded model must carry a reason."
+            assert entry.get("license"), "Each excluded model must carry its licence."
+
+        # Every packaged model must have a licence decision recorded.
+        for entry in manifest.get("models", {}).values():
+            assert "redistribution_permitted" in entry
+            assert "license" in entry
 
 
 def test_release_checksums_match_actual_archives():
