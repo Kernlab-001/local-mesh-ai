@@ -514,7 +514,51 @@ licenses do not permit redistribution. Provision them yourself with
 
 
 # ==============================================================================
-# 3. Checksums and Verification
+# 3. Blender Add-on Package (installable via "Install from Disk")
+# ==============================================================================
+
+ADDON_ZIP_NAME = "local_mesh_ai_blender_addon.zip"
+ADDON_PACKAGE_DIR = "local_mesh_ai"
+
+
+def build_addon_package() -> Path:
+    """Builds the standalone add-on ZIP.
+
+    Blender installs a *directory* add-on from a ZIP, so the archive contains
+    ``local_mesh_ai/__init__.py`` -- not a flat ``.py`` file. The ZIP can be
+    installed with Edit > Preferences > Add-ons > Install from Disk.
+    """
+    print("\n" + "=" * 70)
+    print("  BUILDING THE BLENDER ADD-ON PACKAGE")
+    print("=" * 70)
+
+    out_zip = PROJECT_ROOT / "dist" / ADDON_ZIP_NAME
+    out_zip.parent.mkdir(parents=True, exist_ok=True)
+    if out_zip.exists():
+        out_zip.unlink()
+
+    source_package = PROJECT_ROOT / "addon" / ADDON_PACKAGE_DIR
+    if not source_package.is_dir():
+        raise RuntimeError(f"Add-on package not found: {source_package}")
+
+    with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(source_package):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for name in sorted(files):
+                if name.endswith(".pyc"):
+                    continue
+                src = Path(root) / name
+                arc = f"{ADDON_PACKAGE_DIR}/{src.relative_to(source_package).as_posix()}"
+                zf.write(src, arc)
+
+    sha = compute_sha256(out_zip)
+    print(f"  [SUCCESS] Created {ADDON_ZIP_NAME} ({out_zip.stat().st_size} bytes)")
+    print(f"  SHA-256: {sha}")
+    return out_zip
+
+
+# ==============================================================================
+# 4. Checksums and Verification
 # ==============================================================================
 
 def generate_release_checksums(code_summary: Dict[str, Any], data_summary: Dict[str, Any]) -> Path:
@@ -589,6 +633,7 @@ def verify_packages(code_zip: Path, data_zip: Path):
 
 if __name__ == "__main__":
     t0 = time.time()
+    addon_zip = build_addon_package()
     code_zip, code_sum = build_code_package()
     data_zip, data_sum = build_data_package()
     checksums_file = generate_release_checksums(code_sum, data_sum)

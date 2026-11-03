@@ -72,15 +72,21 @@ class DownloadManager:
     Manages downloading, verifying, and provisioning weights for TripoSR, DINO, and Qwen.
     """
 
+    # TripoSR's own weights. The DINO feature extractor is tracked separately
+    # (see DINO_FILES) so that a missing DINO checkpoint is reported truthfully
+    # instead of silently degrading the TripoSR engine label.
     TRIPOSR_FILES = [
         {"repo_id": "stabilityai/TripoSR", "filename": "config.yaml", "approx_bytes": 2048},
         {"repo_id": "stabilityai/TripoSR", "filename": "model.ckpt", "approx_bytes": 1_790_000_000},
-        # DINO is a complete model, not just a configuration file. Provisioning
-        # config.json alone left the installed DINO component unusable, so the
-        # processor configuration and the ViT-B/16 weights are listed too.
+    ]
+
+    # DINO is a complete model, not just a configuration file. Provisioning
+    # config.json alone left the installed DINO component unusable, so the
+    # processor configuration and the ViT-B/16 weights are listed too.
+    DINO_FILES = [
         {"repo_id": "facebook/dino-vitb16", "filename": "config.json", "approx_bytes": 2048},
         {"repo_id": "facebook/dino-vitb16", "filename": "preprocessor_config.json", "approx_bytes": 512},
-        {"repo_id": "facebook/dino-vitb16", "filename": "pytorch_model.bin", "approx_bytes": 346_000_000}
+        {"repo_id": "facebook/dino-vitb16", "filename": "pytorch_model.bin", "approx_bytes": 346_000_000},
     ]
 
     QWEN_GGUF_FILE = {
@@ -142,6 +148,57 @@ class DownloadManager:
         except Exception:
             pass
         return None
+
+    def verify_dino_status(self) -> Dict[str, Any]:
+        """
+        Truthfully checks the DINO ViT-B/16 feature extractor installation.
+
+        DINO is a complete model: a configuration file on its own is NOT enough
+        to run it. This check reports whether the weights are actually present
+        so the gap is surfaced instead of being hidden behind a "ready" label.
+        """
+        results = {}
+        all_present = True
+        any_present = False
+
+        for item in self.DINO_FILES:
+            repo = item["repo_id"]
+            fn = item["filename"]
+            key = f"{repo}/{fn}"
+            resolved = self.verify_file_offline(repo, fn)
+            if resolved:
+                any_present = True
+                results[key] = {
+                    "installed": True,
+                    "path": str(resolved),
+                    "size_bytes": resolved.stat().st_size
+                }
+            else:
+                all_present = False
+                results[key] = {
+                    "installed": False,
+                    "path": None,
+                    "size_bytes": 0
+                }
+
+        if all_present:
+            state = "fully_installed"
+        elif any_present:
+            state = "partially_installed"
+        else:
+            state = "missing"
+
+        return {
+            "state": state,
+            "ready_for_offline_inference": all_present,
+            "cache_dir": str(self.hf_cache),
+            "files": results,
+            "architecture": "ViT-B/16 (hidden_size 768, 12 layers, patch_size 16)",
+            "note": (
+                "DINO weights are not part of the redistributed Data package. "
+                "Provision them with 'python scripts/download_models.py --triposr'."
+            ) if not all_present else ""
+        }
 
     def verify_triposr_status(self) -> Dict[str, Any]:
         """
@@ -282,7 +339,9 @@ class DownloadManager:
         manifest = self.load_manifest()
         manifest.setdefault("models", {})
 
-        for item in self.TRIPOSR_FILES:
+        # Provision TripoSR's own weights *and* the complete DINO feature
+        # extractor (weights included -- a config file alone is not enough).
+        for item in self.TRIPOSR_FILES + self.DINO_FILES:
             repo = item["repo_id"]
             fn = item["filename"]
             print(f"-> Provisioning {repo}/{fn}...")

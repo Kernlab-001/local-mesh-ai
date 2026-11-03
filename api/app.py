@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from core.backend_identity import backend_identity
 from api.routes import router
 from api.self_healing_routes import router as self_healing_router
 from api.learning_routes import router as learning_router
@@ -43,9 +44,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Local Neural 3D Studio API",
     description="Local-first 3D Generation and Editing Orchestrator (TripoSR + Qwen + Blender)",
-    version="1.0.0",
+    version=backend_identity.api_version,
     lifespan=lifespan
 )
+
+# The routers are mounted at import time and there is no asynchronous start-up
+# work, so the backend is ready to serve as soon as the app exists. The
+# lifespan calls mark_ready() again, which is idempotent.
+backend_identity.mark_ready()
 
 # Restrict to trusted local browser / frontend origins (prevent malicious cross-origin execution)
 TRUSTED_ORIGINS = [

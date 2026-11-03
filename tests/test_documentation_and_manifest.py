@@ -118,5 +118,10 @@ def test_master_launcher_exists_and_references_venv():
 
     assert ".venv\\Scripts\\python.exe" in text
     assert "Start Full Studio" in text
+    # The backend is launched through the controller helper, which runs
+    # run_server.py and verifies the backend identity before continuing.
+    assert "backend_control.py" in text
     assert "run_server.py" in text
     assert "dashboard.py" in text
+    # The removed Blender 5.x option must not come back.
+    assert "--addons-path" not in text

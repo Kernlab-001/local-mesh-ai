@@ -7,11 +7,12 @@ rem ============================================================================
 rem  Local Mesh AI - Windows Studio Launcher
 rem
 rem  Fixes in this revision:
-rem   * Blender 5.x removed "--addons-path", which made the old launcher fail
-rem     to start Blender at all. The add-on is now installed and enabled by
-rem     launchers\blender_bootstrap.py.
+rem   * Blender 5.x removed the old "add-ons path" command line option, which
+rem     made the old launcher fail to start Blender at all. The add-on is now
+rem     installed and enabled by launchers\blender_bootstrap.py.
 rem   * The backend is started through launchers\backend_control.py, which
-rem     verifies the backend *identity* instead of trusting any HTTP 200.
+rem     runs run_server.py in a dedicated console with a persistent log file
+rem     and verifies the backend *identity* instead of trusting any HTTP 200.
 rem   * A failed backend start-up no longer silently continues into Blender.
 rem   * The backend writes a persistent log to logs\backend.log.
 rem ============================================================================
@@ -24,13 +25,13 @@ set "LOG_DIR=%PROJECT_ROOT%\logs"
 
 echo ==============================================================================
 echo                      LOCAL MESH AI - STUDIO LAUNCHER
-echo          Local Neural 3D Asset Generation & AI Technical Artist Studio
+echo          Local Neural 3D Asset Generation ^& AI Technical Artist Studio
 echo ==============================================================================
 echo Project root: %PROJECT_ROOT%
 echo.
 
 if not exist "%PY%" (
-    echo [X] Virtual environment (.venv) not detected.
+    echo [X] Virtual environment ^(.venv^) not detected.
     echo     Expected interpreter: %PY%
     echo.
     echo Initial environment setup is required. Option [7] in the menu runs it.
@@ -243,7 +244,12 @@ goto :MENU
 rem --- RESOLVE_BLENDER -------------------------------------------------------
 :RESOLVE_BLENDER
 set "BLENDER_EXE="
-for /f "usebackq delims=" %%B in (`"%PY%" "%CONTROL%" blender 2^>nul`) do set "BLENDER_EXE=%%B"
+set "BLENDER_PATH_FILE=%LOG_DIR%\blender_path.txt"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+rem  The path is written to a file and read back with set /p: parsing "for /f"
+rem  output is unreliable when the path contains spaces.
+"%PY%" "%CONTROL%" blender --emit-file "%BLENDER_PATH_FILE%" >nul 2>&1
+if exist "%BLENDER_PATH_FILE%" set /p BLENDER_EXE=<"%BLENDER_PATH_FILE%"
 if not defined BLENDER_EXE if exist "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" set "BLENDER_EXE=C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
 if not defined BLENDER_EXE if exist "C:\Program Files\Blender Foundation\Blender 4.3\blender.exe" set "BLENDER_EXE=C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
 if not defined BLENDER_EXE if exist "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe" set "BLENDER_EXE=C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"

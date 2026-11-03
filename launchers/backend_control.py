@@ -312,7 +312,12 @@ def cmd_stop(args) -> int:
 
 
 def cmd_blender(args) -> int:
-    """Prints the resolved Blender executable path (exit 0 when found)."""
+    """Prints (or writes) the resolved Blender executable path.
+
+    ``--emit-file <path>`` writes the path to a file so that the batch
+    launcher can read it with ``set /p`` instead of parsing ``for /f``
+    output, which is unreliable when the path contains spaces.
+    """
     path = ""
     try:
         from core.hardware_detector import hardware_detector  # type: ignore
@@ -323,6 +328,17 @@ def cmd_blender(args) -> int:
     if not path:
         print("NOT FOUND")
         return 1
+
+    emit_file = getattr(args, "emit_file", "") or ""
+    if emit_file:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(emit_file)), exist_ok=True)
+            with open(emit_file, "w", encoding="utf-8") as handle:
+                handle.write(path)
+        except Exception as exc:
+            print(f"ERROR: could not write '{emit_file}': {exc}")
+            return 1
+
     print(path)
     return 0
 
@@ -336,6 +352,11 @@ def main(argv=None) -> int:
              "stop=stop our backend, status=summary, blender=print Blender path",
     )
     parser.add_argument("--timeout", type=float, default=60.0, help="seconds to wait")
+    parser.add_argument(
+        "--emit-file",
+        default="",
+        help="for 'blender': also write the resolved path to this file",
+    )
     args = parser.parse_args(argv)
 
     handlers = {
