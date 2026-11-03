@@ -235,7 +235,7 @@ class HardwareDetector:
                 "vram_limit_gb": tuning["vram_limit_gb"],
                 "qwen_gpu_layers": tuning["qwen_gpu_layers"],
                 "output_format": current_cfg.get("output_format", "glb"),
-                "qwen_model_path": "qwen2.5-coder-7b-instruct-q4_0.gguf",
+                "qwen_model_path": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
                 "output_dir": "output"
             }
 

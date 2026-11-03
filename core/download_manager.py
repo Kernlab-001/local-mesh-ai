@@ -91,10 +91,8 @@ class DownloadManager:
 
     QWEN_GGUF_FILE = {
         "repo_id": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
-        # Must match core/model_paths.py and the shipped modular package:
-        # qwen2.5-coder-7b-instruct-q4_0.gguf (Q4_0).
-        "filename": "qwen2.5-coder-7b-instruct-q4_0.gguf",
-        "approx_bytes": 4_431_390_720
+        "filename": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        "approx_bytes": 4_680_000_000
     }
 
     def __init__(self, models_dir: Optional[Path] = None):
@@ -268,17 +266,18 @@ class DownloadManager:
             except Exception:
                 pass
 
-        # 2. Check known locations in models_dir and configured external paths.
-        # Only the supported Q4_0 artifact is accepted. Accepting a different
-        # quantization here would let the downloader silently skip provisioning
-        # while the runtime later failed to load the installed weights.
-        filename = self.QWEN_GGUF_FILE["filename"]
+        # 2. Check known locations in models_dir and configured external paths
         candidate_paths = [
-            self.models_dir / "qwen_coder" / filename,
-            self.models_dir / "qwen" / filename,
-            self.models_dir / filename,
-            PROJECT_ROOT / "models" / "qwen_coder" / filename,
-            PROJECT_ROOT / filename,
+            self.models_dir / "qwen_coder" / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen_coder" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            self.models_dir / "qwen" / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            self.models_dir / "qwen2.5-coder-7b-instruct-q4_0.gguf",
+            self.models_dir / "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+            Path("E:/LocalMeshAI-Data/models/qwen_coder/qwen2.5-coder-7b-instruct-q4_0.gguf"),
+            Path("E:/Game/Models/qwen2.5-coder-7b-instruct-q5_k_m.gguf"),
+            Path("E:/Game/Models/Spark-X2.6-4B-Q8_0.gguf"),
+            PROJECT_ROOT / "Spark-X2.6-4B-Q8_0.gguf"
         ]
         for cp in candidate_paths:
             if cp.exists() and cp.stat().st_size > 100_000_000:

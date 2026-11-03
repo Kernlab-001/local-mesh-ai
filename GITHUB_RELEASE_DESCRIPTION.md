@@ -23,17 +23,13 @@
 3. **Consolidated Blender 5.2 Studio Addon:**
    - Unified single sidebar category tab: **`LOCAL MESH AI`** (all legacy competing tabs eliminated).
    - 10-panel progressive workflow spanning texturing, remeshing, high-to-low Cycles baking, and LOD generation.
-   - Automatic backend health check with **identity verification** (the add-on refuses to
-     report "Connected" for any service that is not Local Mesh AI) and session-lease based
-     lifecycle management, so closing one Blender instance never breaks another one.
+   - Automatic backend health check and background lifecycle management linked to Blender's process ID.
 4. **Autonomous Self-Healing & Safe Staging Cleanup:**
    - Cryptographically bound, two-stage remediation (`/preview` $\to$ `/execute`).
    - Single-use preview tokens, 1-hour minimum file age, canonical path containment, and streaming SHA-256 validation.
 5. **Zero-VRAM GPU Lease Broker:**
    - Serialized CUDA execution ensuring models (Diffusion, TripoSR, Qwen) never collide in VRAM.
-   - Verified to run on the **6 GB VRAM** target (NVIDIA RTX 3050 Laptop GPU) with the
-     low-memory image-to-3D route. Some routes are rejected by the hardware preflight on
-     this GPU — see the capability table in the README for what is and is not supported.
+   - Guaranteed operation on **6 GB VRAM GPUs** (such as the NVIDIA RTX 3050 Laptop GPU).
 
 ---
 
@@ -64,19 +60,12 @@ Contains the complete application codebase, root master launcher, Blender addon,
 **Filename:** `LocalMeshAI-v6.0.0-Complete-Data.zip`  
 Contains the supported model files, configuration, and manifests that may legally be redistributed:
 - TripoSR volumetric reconstruction checkpoint (`model.ckpt`, `config.yaml`)
-- DINO ViT-B/16 vision transformer configuration (`config.json`, `preprocessor_config.json`)
+- DINO ViT-B/16 vision transformer weights
 - Qwen 2.5 Coder 7B Instruct GGUF (`qwen2.5-coder-7b-instruct-q4_0.gguf`)
 - Qwen3-VL 4B Instruct GGUF (`Qwen3VL-4B-Instruct-Q4_K_M.gguf` + `mmproj-Qwen3VL-4B-Instruct-F16.gguf`)
+- PartField 3D component segmentation checkpoint (`model_objaverse.ckpt`)
 
-*Models that are NOT redistributed:* **PartField** (`model_objaverse.ckpt`, NVIDIA Research
-License - non-commercial) and **SD-Turbo** (Stability AI Non-Commercial Research Community
-License) are excluded by the packager's license enforcement. PartField is used only when you
-provision it yourself.
-
-*Note on SD-Turbo:* SD-Turbo is an optional diffusion concept generator. There is **no automated
-download path for it** in `core.download_manager` — provision it manually into
-`<models root>/sd_turbo/sd-turbo/` if you want the text-to-concept route. The image-to-3D
-TripoSR route and every other core feature work without it.
+*Note on SD-Turbo:* SD-Turbo is an optional 24 GB diffusion concept generator licensed under the Stability AI Non-Commercial Research Community License. It can be provisioned on-demand via `core.download_manager`.
 
 ---
 

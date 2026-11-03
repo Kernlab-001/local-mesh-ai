@@ -16,17 +16,7 @@ from api.learning_routes import router as learning_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: publish the versioned backend identity so that clients can
-    # verify they are talking to Local Mesh AI and not to some other service
-    # that happens to own port 8000.
-    try:
-        from core.backend_identity import backend_identity
-        backend_identity.mark_ready()
-        print(f"[IDENTITY] {backend_identity.application} v{backend_identity.app_version} "
-              f"api={backend_identity.api_version} build={backend_identity.build_id} "
-              f"pid={backend_identity.pid} started={backend_identity.started_at}")
-    except Exception:
-        pass
+    # Startup: nothing needed
     yield
     # Shutdown: ensure background executor workers and GPU resources are safely released
     try:
