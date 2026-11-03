@@ -683,6 +683,31 @@ class QwenPlanner:
             if data.get("status") == "NEEDS_COMPONENT_CONFIRMATION" and not data.get("candidate_components"):
                 data["candidate_components"] = candidates_list
 
+            # SAFETY: every non-target component must be protected, regardless of
+            # whether the model emitted an invariants array. The rule-based
+            # planner always derives these; the neural path must not be able to
+            # drop them, otherwise an edit could silently modify components the
+            # user never asked to change.
+            existing_invariants = data.get("invariants") or []
+            if isinstance(existing_invariants, list):
+                protected_ids = {
+                    inv.get("component_id")
+                    for inv in existing_invariants
+                    if isinstance(inv, dict)
+                }
+                for cid in hierarchy.components.keys():
+                    if "root" in cid.lower() or "assembly" in cid.lower():
+                        continue
+                    if cid in valid_targets or cid in protected_ids:
+                        continue
+                    existing_invariants.append({
+                        "component_id": cid,
+                        "preserve_dimensions": True,
+                        "preserve_position": True,
+                        "tolerance": 0.05
+                    })
+                data["invariants"] = existing_invariants
+
             return ComponentEditPlan.model_validate(data)
         except Exception as e:
             logger.warning(f"Failed to parse ComponentEditPlan: {e}")

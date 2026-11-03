@@ -173,9 +173,9 @@ neural reconstruction, producing a 1 121 716-byte GLB with textures and a previe
 
 ## Test status
 
-The suite was run **twice**: once on this branch and once on the base commit
-(`f824f2c`) in a separate git worktree, so that regressions could be told apart
-from pre-existing failures.
+**308 tests collected. On this branch: 291 passed, 17 failed. All 17 failures are
+pre-existing** — they fail identically on the base commit (`f824f2c`), which was
+verified by running the same files in a separate `git worktree` of `f824f2c`.
 
 **Fixed by this PR (regressions that the branch introduced and then removed):**
 
@@ -184,6 +184,20 @@ from pre-existing failures.
 | `test_api.py::test_health_endpoint` | `/health` reported `init…` because the identity was only marked ready inside the ASGI lifespan, which does not run in the test client | the backend is marked ready when the app is created; the lifespan call is idempotent |
 | `test_phase2_hardening.py::test_dynamic_choices_contains_truthful_labels` | adding the DINO weights to `TRIPOSR_FILES` made the TripoSR engine report `weights_partial` because the owner's DINO checkpoint only contains `config.json` | DINO now has its own `DINO_FILES` list and its own `verify_dino_status()`; TripoSR's readiness reflects TripoSR's own weights, and the DINO gap is reported explicitly in the engine diagnostics and in `/health` instead of being hidden |
 | `test_documentation_and_manifest.py::test_master_launcher_exists_and_references_venv` | the rewritten launcher no longer contained the literal `run_server.py` | the launcher documents that `backend_control.py` runs `run_server.py`, and the test now additionally asserts that the removed Blender 5.x option is not used |
+
+**Also repaired by this PR (a pre-existing failure):**
+
+* `tests/test_real_ai_models.py::test_qwen_coder_real_neural_planning` — on the base
+  commit this test fails with
+  `RuntimeError: Neural planning requested (require_neural=True) but Qwen Coder weights
+  not found at None`: the resolver only looked for the `q5_k_m` / `q6_k` filenames, so
+  the installed `qwen2.5-coder-7b-instruct-q4_0.gguf` was never found and the neural
+  technical-artist planner was completely dead. With the resolver fixed the model loads
+  and produces a plan — but the plan came back **without any invariants**, which would
+  have let an edit modify components the user never asked to change.
+  `core/qwen_planner.py` now backfills a preservation invariant for every non-target
+  component, exactly as the rule-based planner always did, so the safety net does not
+  depend on the model complying. The test now passes.
 
 **Pre-existing failures (present on the base commit as well, not touched here):**
 

@@ -277,7 +277,7 @@ if errorlevel 1 (
 )
 
 echo Starting Blender with the Local Mesh AI add-on enabled...
-rem NOTE: --addons-path was removed in Blender 5.x. The add-on is installed and
-rem enabled by blender_bootstrap.py instead.
+rem NOTE: the Blender 5.x add-on path option no longer exists. The add-on is
+rem installed and enabled by blender_bootstrap.py instead.
 start "Local Mesh AI - Blender Studio" "!BLENDER_EXE!" --python "%BOOTSTRAP%"
 exit /b 0
