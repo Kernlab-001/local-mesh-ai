@@ -101,7 +101,8 @@ def test_historical_milestone_banners():
 
 def test_blender_addon_unified_tab_and_no_legacy_panel():
     """Verifies that Blender addon has strictly one sidebar category and no legacy panel."""
-    addon_path = REPO_ROOT / "addon" / "triposr_blender_addon.py"
+    # The add-on is a Blender add-on *package*; the flat file is only a shim.
+    addon_path = REPO_ROOT / "addon" / "local_mesh_ai" / "__init__.py"
     text = addon_path.read_text(encoding="utf-8")
 
     assert 'bl_category = "AI 3D Generator"' not in text, "Found legacy 'AI 3D Generator' tab in addon."

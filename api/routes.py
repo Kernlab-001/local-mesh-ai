@@ -23,7 +23,7 @@ Hardened with input validation, path safety, and secure error boundaries.
 import os
 import shutil
 import subprocess
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Body
 from fastapi.responses import FileResponse, HTMLResponse
 import uuid
 import time
@@ -77,8 +77,13 @@ from core.tool_registry import tool_registry
 from core.bounded_correction_loop import bounded_correction_loop
 from core.generation_orchestrator import generation_orchestrator, RouteUnavailableError
 from core.model_paths import model_path_resolver
+from core.backend_identity import backend_identity
+from services.session_registry import session_registry
 
 router = APIRouter()
+
+#: Cached model subsystem inventory for the health endpoint: (timestamp, payload)
+_MODEL_STATUS_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
 
 MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
 
@@ -86,26 +91,129 @@ def validate_job_id(job_id: str):
     if not job_id or ".." in job_id or "/" in job_id or "\\" in job_id or len(job_id) > 64:
         raise HTTPException(status_code=400, detail="Invalid job ID format.")
 
+def _model_subsystem_status(max_age_seconds: float = 30.0) -> Dict[str, Any]:
+    """Returns a cached, truthful summary of the model subsystem.
+
+    The inventory walks the resolver, so it is cached briefly to keep the health
+    endpoint cheap enough for the add-on's periodic poll.
+    """
+    global _MODEL_STATUS_CACHE
+    now = time.time()
+    if _MODEL_STATUS_CACHE is not None and (now - _MODEL_STATUS_CACHE[0]) < max_age_seconds:
+        return _MODEL_STATUS_CACHE[1]
+    try:
+        inventory = model_path_resolver.get_model_inventory()
+    except Exception as exc:  # pragma: no cover - defensive
+        inventory = {"error": str(exc)}
+    _MODEL_STATUS_CACHE = (now, inventory)
+    return inventory
+
+
 @router.get("/health")
 def health_check():
+    """Versioned backend identity + health contract.
+
+    A plain HTTP 200 is not sufficient proof of identity: any application could
+    own port 8000. Clients must verify ``application`` and ``api_version``.
+    """
     gpu_status = gpu_broker.get_status()
     blender_path = hardware_detector.find_blender() or "blender"
     blender_installed = bool(blender_path and (os.path.exists(blender_path) or shutil.which(blender_path)))
 
-    qwen_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qwen2.5-coder-7b-instruct-q4_k_m.gguf")
+    # Resolve the Qwen artifact through the single authoritative resolver rather
+    # than assuming a filename/quantization that may not match what is installed.
+    qwen_present = False
+    qwen_path: Optional[str] = None
+    try:
+        resolved_qwen = model_path_resolver.resolve_qwen_coder_path()
+        if resolved_qwen is not None:
+            qwen_path = str(resolved_qwen)
+            qwen_present = resolved_qwen.exists()
+    except Exception:
+        qwen_path = None
 
+    payload = backend_identity.build_payload(
+        gpu_status=gpu_status,
+        model_status=_model_subsystem_status(),
+        session_status=session_registry.status(),
+    )
+    payload["blender"] = {
+        "installed": blender_installed,
+        "version": "Detected" if blender_installed else "Not Installed",
+        "path": blender_path
+    }
+    payload["qwen_model"] = {
+        "present": qwen_present,
+        "path": qwen_path
+    }
+    return payload
+
+
+@router.get("/api/v1/identity")
+def identity_check():
+    """Minimal identity document used for fast launcher / add-on probes."""
     return {
-        "status": "healthy",
-        "gpu": gpu_status,
-        "blender": {
-            "installed": blender_installed,
-            "version": "Detected" if blender_installed else "Not Installed",
-            "path": blender_path
-        },
-        "qwen_model": {
-            "present": os.path.exists(qwen_path),
-            "path": qwen_path
-        }
+        "application": backend_identity.application,
+        "app_version": backend_identity.app_version,
+        "backend_build": backend_identity.build_id,
+        "api_version": backend_identity.api_version,
+        "pid": backend_identity.pid,
+        "started_at": backend_identity.started_at,
+        "ready": backend_identity.ready,
+    }
+
+
+# =============================================================================
+# SESSION LEASES (multi-instance backend ownership)
+# =============================================================================
+
+@router.post("/api/v1/session/register")
+def register_client_session(payload: Dict[str, Any] = Body(default_factory=dict)):
+    """Registers a client session lease.
+
+    The backend is only allowed to shut itself down once no live session is
+    left, which fixes the "closing Blender A kills Blender B's backend" bug.
+    """
+    pid = int(payload.get("pid") or 0)
+    label = str(payload.get("label") or "")[:120]
+    record = session_registry.register(pid=pid, label=label)
+    return {
+        "session_id": record.session_id,
+        "heartbeat_interval_seconds": 15.0,
+        "stale_after_seconds": session_registry.stale_after_seconds,
+        "active_sessions": session_registry.active_session_count(),
+    }
+
+
+@router.post("/api/v1/session/heartbeat")
+def heartbeat_client_session(payload: Dict[str, Any] = Body(default_factory=dict)):
+    """Refreshes a session lease. Unknown sessions are re-registered."""
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required.")
+    if session_registry.heartbeat(session_id):
+        return {"ok": True, "session_id": session_id}
+    # The lease expired (e.g. the add-on was reloaded). Re-register rather than
+    # failing the client outright.
+    record = session_registry.register(
+        pid=int(payload.get("pid") or 0),
+        label=str(payload.get("label") or "")[:120],
+        session_id=session_id,
+    )
+    return {"ok": True, "session_id": record.session_id, "re_registered": True}
+
+
+@router.post("/api/v1/session/release")
+def release_client_session(payload: Dict[str, Any] = Body(default_factory=dict)):
+    """Releases a session lease."""
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required.")
+    released = session_registry.release(session_id)
+    return {
+        "ok": released,
+        "session_id": session_id,
+        "active_sessions": session_registry.active_session_count(),
     }
 
 @router.get("/engines")
