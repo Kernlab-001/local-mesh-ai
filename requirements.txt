@@ -22,7 +22,7 @@ numpy>=1.26.0
 
 # Concept Image Generation (SD-Turbo)
 diffusers>=0.30.0
-accelerate>=0.30.0
+accelerate>=1.15.0
 
 # API & Orchestration
 fastapi>=0.115.0
